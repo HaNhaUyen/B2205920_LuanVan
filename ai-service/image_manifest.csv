@@ -1,0 +1,601 @@
+filename,label,destination_slug,destination_name,province,path
+phu-quoc-01.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-01.jpg
+phu-quoc-02.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-02.jpg
+phu-quoc-03.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-03.jpg
+phu-quoc-04.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-04.jpg
+phu-quoc-05.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-05.jpg
+phu-quoc-06.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-06.jpg
+phu-quoc-07.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-07.jpg
+phu-quoc-08.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-08.jpg
+phu-quoc-09.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-09.jpg
+phu-quoc-10.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-10.jpg
+phu-quoc-11.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-11.jpg
+phu-quoc-12.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-12.jpg
+phu-quoc-13.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-13.jpg
+phu-quoc-14.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-14.jpg
+phu-quoc-15.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-15.jpg
+phu-quoc-16.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-16.jpg
+phu-quoc-17.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-17.jpg
+phu-quoc-18.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-18.jpg
+phu-quoc-19.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-19.jpg
+phu-quoc-20.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-20.jpg
+phu-quoc-21.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-21.jpg
+phu-quoc-22.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-22.jpg
+phu-quoc-23.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-23.jpg
+phu-quoc-24.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-24.jpg
+phu-quoc-25.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-25.jpg
+phu-quoc-26.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-26.jpg
+phu-quoc-27.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-27.jpg
+phu-quoc-28.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-28.jpg
+phu-quoc-29.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-29.jpg
+phu-quoc-30.jpg,phu-quoc,phu-quoc,Phú Quốc,,dataset/phu-quoc/phu-quoc-30.jpg
+nha-trang-01.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-01.jpg
+nha-trang-02.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-02.jpg
+nha-trang-03.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-03.jpg
+nha-trang-04.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-04.jpg
+nha-trang-05.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-05.jpg
+nha-trang-06.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-06.jpg
+nha-trang-07.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-07.jpg
+nha-trang-08.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-08.jpg
+nha-trang-09.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-09.jpg
+nha-trang-10.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-10.jpg
+nha-trang-11.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-11.jpg
+nha-trang-12.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-12.jpg
+nha-trang-13.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-13.jpg
+nha-trang-14.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-14.jpg
+nha-trang-15.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-15.jpg
+nha-trang-16.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-16.jpg
+nha-trang-17.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-17.jpg
+nha-trang-18.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-18.jpg
+nha-trang-19.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-19.jpg
+nha-trang-20.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-20.jpg
+nha-trang-21.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-21.jpg
+nha-trang-22.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-22.jpg
+nha-trang-23.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-23.jpg
+nha-trang-24.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-24.jpg
+nha-trang-25.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-25.jpg
+nha-trang-26.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-26.jpg
+nha-trang-27.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-27.jpg
+nha-trang-28.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-28.jpg
+nha-trang-29.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-29.jpg
+nha-trang-30.jpg,nha-trang,nha-trang,Nha Trang,,dataset/nha-trang/nha-trang-30.jpg
+da-lat-01.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-01.jpg
+da-lat-02.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-02.jpg
+da-lat-03.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-03.jpg
+da-lat-04.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-04.jpg
+da-lat-05.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-05.jpg
+da-lat-06.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-06.jpg
+da-lat-07.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-07.jpg
+da-lat-08.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-08.jpg
+da-lat-09.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-09.jpg
+da-lat-10.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-10.jpg
+da-lat-11.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-11.jpg
+da-lat-12.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-12.jpg
+da-lat-13.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-13.jpg
+da-lat-14.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-14.jpg
+da-lat-15.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-15.jpg
+da-lat-16.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-16.jpg
+da-lat-17.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-17.jpg
+da-lat-18.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-18.jpg
+da-lat-19.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-19.jpg
+da-lat-20.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-20.jpg
+da-lat-21.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-21.jpg
+da-lat-22.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-22.jpg
+da-lat-23.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-23.jpg
+da-lat-24.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-24.jpg
+da-lat-25.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-25.jpg
+da-lat-26.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-26.jpg
+da-lat-27.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-27.jpg
+da-lat-28.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-28.jpg
+da-lat-29.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-29.jpg
+da-lat-30.jpg,da-lat,da-lat,Đà Lạt,,dataset/da-lat/da-lat-30.jpg
+da-nang-01.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-01.jpg
+da-nang-02.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-02.jpg
+da-nang-03.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-03.jpg
+da-nang-04.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-04.jpg
+da-nang-05.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-05.jpg
+da-nang-06.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-06.jpg
+da-nang-07.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-07.jpg
+da-nang-08.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-08.jpg
+da-nang-09.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-09.jpg
+da-nang-10.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-10.jpg
+da-nang-11.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-11.jpg
+da-nang-12.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-12.jpg
+da-nang-13.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-13.jpg
+da-nang-14.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-14.jpg
+da-nang-15.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-15.jpg
+da-nang-16.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-16.jpg
+da-nang-17.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-17.jpg
+da-nang-18.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-18.jpg
+da-nang-19.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-19.jpg
+da-nang-20.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-20.jpg
+da-nang-21.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-21.jpg
+da-nang-22.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-22.jpg
+da-nang-23.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-23.jpg
+da-nang-24.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-24.jpg
+da-nang-25.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-25.jpg
+da-nang-26.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-26.jpg
+da-nang-27.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-27.jpg
+da-nang-28.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-28.jpg
+da-nang-29.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-29.jpg
+da-nang-30.jpg,da-nang,da-nang,Đà Nẵng,,dataset/da-nang/da-nang-30.jpg
+can-tho-01.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-01.jpg
+can-tho-02.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-02.jpg
+can-tho-03.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-03.jpg
+can-tho-04.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-04.jpg
+can-tho-05.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-05.jpg
+can-tho-06.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-06.jpg
+can-tho-07.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-07.jpg
+can-tho-08.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-08.jpg
+can-tho-09.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-09.jpg
+can-tho-10.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-10.jpg
+can-tho-11.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-11.jpg
+can-tho-12.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-12.jpg
+can-tho-13.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-13.jpg
+can-tho-14.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-14.jpg
+can-tho-15.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-15.jpg
+can-tho-16.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-16.jpg
+can-tho-17.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-17.jpg
+can-tho-18.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-18.jpg
+can-tho-19.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-19.jpg
+can-tho-20.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-20.jpg
+can-tho-21.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-21.jpg
+can-tho-22.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-22.jpg
+can-tho-23.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-23.jpg
+can-tho-24.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-24.jpg
+can-tho-25.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-25.jpg
+can-tho-26.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-26.jpg
+can-tho-27.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-27.jpg
+can-tho-28.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-28.jpg
+can-tho-29.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-29.jpg
+can-tho-30.jpg,can-tho,can-tho,Cần Thơ,,dataset/can-tho/can-tho-30.jpg
+sa-pa-01.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-01.jpg
+sa-pa-02.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-02.jpg
+sa-pa-03.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-03.jpg
+sa-pa-04.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-04.jpg
+sa-pa-05.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-05.jpg
+sa-pa-06.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-06.jpg
+sa-pa-07.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-07.jpg
+sa-pa-08.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-08.jpg
+sa-pa-09.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-09.jpg
+sa-pa-10.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-10.jpg
+sa-pa-11.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-11.jpg
+sa-pa-12.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-12.jpg
+sa-pa-13.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-13.jpg
+sa-pa-14.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-14.jpg
+sa-pa-15.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-15.jpg
+sa-pa-16.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-16.jpg
+sa-pa-17.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-17.jpg
+sa-pa-18.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-18.jpg
+sa-pa-19.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-19.jpg
+sa-pa-20.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-20.jpg
+sa-pa-21.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-21.jpg
+sa-pa-22.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-22.jpg
+sa-pa-23.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-23.jpg
+sa-pa-24.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-24.jpg
+sa-pa-25.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-25.jpg
+sa-pa-26.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-26.jpg
+sa-pa-27.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-27.jpg
+sa-pa-28.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-28.jpg
+sa-pa-29.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-29.jpg
+sa-pa-30.jpg,sa-pa,sa-pa,Sa Pa,,dataset/sa-pa/sa-pa-30.jpg
+ha-long-01.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-01.jpg
+ha-long-02.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-02.jpg
+ha-long-03.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-03.jpg
+ha-long-04.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-04.jpg
+ha-long-05.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-05.jpg
+ha-long-06.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-06.jpg
+ha-long-07.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-07.jpg
+ha-long-08.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-08.jpg
+ha-long-09.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-09.jpg
+ha-long-10.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-10.jpg
+ha-long-11.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-11.jpg
+ha-long-12.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-12.jpg
+ha-long-13.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-13.jpg
+ha-long-14.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-14.jpg
+ha-long-15.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-15.jpg
+ha-long-16.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-16.jpg
+ha-long-17.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-17.jpg
+ha-long-18.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-18.jpg
+ha-long-19.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-19.jpg
+ha-long-20.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-20.jpg
+ha-long-21.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-21.jpg
+ha-long-22.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-22.jpg
+ha-long-23.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-23.jpg
+ha-long-24.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-24.jpg
+ha-long-25.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-25.jpg
+ha-long-26.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-26.jpg
+ha-long-27.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-27.jpg
+ha-long-28.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-28.jpg
+ha-long-29.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-29.jpg
+ha-long-30.jpg,ha-long,ha-long,Hạ Long,,dataset/ha-long/ha-long-30.jpg
+hoi-an-01.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-01.jpg
+hoi-an-02.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-02.jpg
+hoi-an-03.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-03.jpg
+hoi-an-04.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-04.jpg
+hoi-an-05.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-05.jpg
+hoi-an-06.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-06.jpg
+hoi-an-07.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-07.jpg
+hoi-an-08.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-08.jpg
+hoi-an-09.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-09.jpg
+hoi-an-10.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-10.jpg
+hoi-an-11.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-11.jpg
+hoi-an-12.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-12.jpg
+hoi-an-13.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-13.jpg
+hoi-an-14.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-14.jpg
+hoi-an-15.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-15.jpg
+hoi-an-16.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-16.jpg
+hoi-an-17.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-17.jpg
+hoi-an-18.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-18.jpg
+hoi-an-19.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-19.jpg
+hoi-an-20.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-20.jpg
+hoi-an-21.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-21.jpg
+hoi-an-22.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-22.jpg
+hoi-an-23.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-23.jpg
+hoi-an-24.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-24.jpg
+hoi-an-25.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-25.jpg
+hoi-an-26.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-26.jpg
+hoi-an-27.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-27.jpg
+hoi-an-28.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-28.jpg
+hoi-an-29.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-29.jpg
+hoi-an-30.jpg,hoi-an,hoi-an,Hội An,,dataset/hoi-an/hoi-an-30.jpg
+hue-01.jpg,hue,hue,Huế,,dataset/hue/hue-01.jpg
+hue-02.jpg,hue,hue,Huế,,dataset/hue/hue-02.jpg
+hue-03.jpg,hue,hue,Huế,,dataset/hue/hue-03.jpg
+hue-04.jpg,hue,hue,Huế,,dataset/hue/hue-04.jpg
+hue-05.jpg,hue,hue,Huế,,dataset/hue/hue-05.jpg
+hue-06.jpg,hue,hue,Huế,,dataset/hue/hue-06.jpg
+hue-07.jpg,hue,hue,Huế,,dataset/hue/hue-07.jpg
+hue-08.jpg,hue,hue,Huế,,dataset/hue/hue-08.jpg
+hue-09.jpg,hue,hue,Huế,,dataset/hue/hue-09.jpg
+hue-10.jpg,hue,hue,Huế,,dataset/hue/hue-10.jpg
+hue-11.jpg,hue,hue,Huế,,dataset/hue/hue-11.jpg
+hue-12.jpg,hue,hue,Huế,,dataset/hue/hue-12.jpg
+hue-13.jpg,hue,hue,Huế,,dataset/hue/hue-13.jpg
+hue-14.jpg,hue,hue,Huế,,dataset/hue/hue-14.jpg
+hue-15.jpg,hue,hue,Huế,,dataset/hue/hue-15.jpg
+hue-16.jpg,hue,hue,Huế,,dataset/hue/hue-16.jpg
+hue-17.jpg,hue,hue,Huế,,dataset/hue/hue-17.jpg
+hue-18.jpg,hue,hue,Huế,,dataset/hue/hue-18.jpg
+hue-19.jpg,hue,hue,Huế,,dataset/hue/hue-19.jpg
+hue-20.jpg,hue,hue,Huế,,dataset/hue/hue-20.jpg
+hue-21.jpg,hue,hue,Huế,,dataset/hue/hue-21.jpg
+hue-22.jpg,hue,hue,Huế,,dataset/hue/hue-22.jpg
+hue-23.jpg,hue,hue,Huế,,dataset/hue/hue-23.jpg
+hue-24.jpg,hue,hue,Huế,,dataset/hue/hue-24.jpg
+hue-25.jpg,hue,hue,Huế,,dataset/hue/hue-25.jpg
+hue-26.jpg,hue,hue,Huế,,dataset/hue/hue-26.jpg
+hue-27.jpg,hue,hue,Huế,,dataset/hue/hue-27.jpg
+hue-28.jpg,hue,hue,Huế,,dataset/hue/hue-28.jpg
+hue-29.jpg,hue,hue,Huế,,dataset/hue/hue-29.jpg
+hue-30.jpg,hue,hue,Huế,,dataset/hue/hue-30.jpg
+mui-ne-01.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-01.jpg
+mui-ne-02.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-02.jpg
+mui-ne-03.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-03.jpg
+mui-ne-04.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-04.jpg
+mui-ne-05.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-05.jpg
+mui-ne-06.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-06.jpg
+mui-ne-07.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-07.jpg
+mui-ne-08.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-08.jpg
+mui-ne-09.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-09.jpg
+mui-ne-10.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-10.jpg
+mui-ne-11.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-11.jpg
+mui-ne-12.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-12.jpg
+mui-ne-13.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-13.jpg
+mui-ne-14.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-14.jpg
+mui-ne-15.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-15.jpg
+mui-ne-16.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-16.jpg
+mui-ne-17.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-17.jpg
+mui-ne-18.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-18.jpg
+mui-ne-19.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-19.jpg
+mui-ne-20.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-20.jpg
+mui-ne-21.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-21.jpg
+mui-ne-22.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-22.jpg
+mui-ne-23.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-23.jpg
+mui-ne-24.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-24.jpg
+mui-ne-25.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-25.jpg
+mui-ne-26.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-26.jpg
+mui-ne-27.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-27.jpg
+mui-ne-28.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-28.jpg
+mui-ne-29.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-29.jpg
+mui-ne-30.jpg,mui-ne,mui-ne,Mũi Né,,dataset/mui-ne/mui-ne-30.jpg
+quy-nhon-01.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-01.jpg
+quy-nhon-02.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-02.jpg
+quy-nhon-03.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-03.jpg
+quy-nhon-04.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-04.jpg
+quy-nhon-05.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-05.jpg
+quy-nhon-06.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-06.jpg
+quy-nhon-07.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-07.jpg
+quy-nhon-08.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-08.jpg
+quy-nhon-09.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-09.jpg
+quy-nhon-10.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-10.jpg
+quy-nhon-11.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-11.jpg
+quy-nhon-12.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-12.jpg
+quy-nhon-13.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-13.jpg
+quy-nhon-14.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-14.jpg
+quy-nhon-15.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-15.jpg
+quy-nhon-16.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-16.jpg
+quy-nhon-17.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-17.jpg
+quy-nhon-18.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-18.jpg
+quy-nhon-19.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-19.jpg
+quy-nhon-20.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-20.jpg
+quy-nhon-21.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-21.jpg
+quy-nhon-22.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-22.jpg
+quy-nhon-23.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-23.jpg
+quy-nhon-24.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-24.jpg
+quy-nhon-25.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-25.jpg
+quy-nhon-26.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-26.jpg
+quy-nhon-27.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-27.jpg
+quy-nhon-28.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-28.jpg
+quy-nhon-29.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-29.jpg
+quy-nhon-30.jpg,quy-nhon,quy-nhon,Quy Nhơn,,dataset/quy-nhon/quy-nhon-30.jpg
+ninh-binh-01.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-01.jpg
+ninh-binh-02.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-02.jpg
+ninh-binh-03.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-03.jpg
+ninh-binh-04.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-04.jpg
+ninh-binh-05.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-05.jpg
+ninh-binh-06.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-06.jpg
+ninh-binh-07.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-07.jpg
+ninh-binh-08.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-08.jpg
+ninh-binh-09.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-09.jpg
+ninh-binh-10.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-10.jpg
+ninh-binh-11.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-11.jpg
+ninh-binh-12.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-12.jpg
+ninh-binh-13.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-13.jpg
+ninh-binh-14.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-14.jpg
+ninh-binh-15.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-15.jpg
+ninh-binh-16.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-16.jpg
+ninh-binh-17.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-17.jpg
+ninh-binh-18.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-18.jpg
+ninh-binh-19.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-19.jpg
+ninh-binh-20.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-20.jpg
+ninh-binh-21.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-21.jpg
+ninh-binh-22.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-22.jpg
+ninh-binh-23.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-23.jpg
+ninh-binh-24.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-24.jpg
+ninh-binh-25.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-25.jpg
+ninh-binh-26.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-26.jpg
+ninh-binh-27.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-27.jpg
+ninh-binh-28.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-28.jpg
+ninh-binh-29.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-29.jpg
+ninh-binh-30.jpg,ninh-binh,ninh-binh,Ninh Bình,,dataset/ninh-binh/ninh-binh-30.jpg
+ha-giang-01.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-01.jpg
+ha-giang-02.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-02.jpg
+ha-giang-03.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-03.jpg
+ha-giang-04.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-04.jpg
+ha-giang-05.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-05.jpg
+ha-giang-06.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-06.jpg
+ha-giang-07.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-07.jpg
+ha-giang-08.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-08.jpg
+ha-giang-09.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-09.jpg
+ha-giang-10.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-10.jpg
+ha-giang-11.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-11.jpg
+ha-giang-12.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-12.jpg
+ha-giang-13.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-13.jpg
+ha-giang-14.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-14.jpg
+ha-giang-15.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-15.jpg
+ha-giang-16.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-16.jpg
+ha-giang-17.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-17.jpg
+ha-giang-18.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-18.jpg
+ha-giang-19.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-19.jpg
+ha-giang-20.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-20.jpg
+ha-giang-21.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-21.jpg
+ha-giang-22.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-22.jpg
+ha-giang-23.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-23.jpg
+ha-giang-24.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-24.jpg
+ha-giang-25.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-25.jpg
+ha-giang-26.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-26.jpg
+ha-giang-27.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-27.jpg
+ha-giang-28.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-28.jpg
+ha-giang-29.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-29.jpg
+ha-giang-30.jpg,ha-giang,ha-giang,Hà Giang,,dataset/ha-giang/ha-giang-30.jpg
+moc-chau-01.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-01.jpg
+moc-chau-02.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-02.jpg
+moc-chau-03.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-03.jpg
+moc-chau-04.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-04.jpg
+moc-chau-05.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-05.jpg
+moc-chau-06.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-06.jpg
+moc-chau-07.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-07.jpg
+moc-chau-08.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-08.jpg
+moc-chau-09.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-09.jpg
+moc-chau-10.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-10.jpg
+moc-chau-11.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-11.jpg
+moc-chau-12.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-12.jpg
+moc-chau-13.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-13.jpg
+moc-chau-14.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-14.jpg
+moc-chau-15.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-15.jpg
+moc-chau-16.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-16.jpg
+moc-chau-17.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-17.jpg
+moc-chau-18.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-18.jpg
+moc-chau-19.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-19.jpg
+moc-chau-20.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-20.jpg
+moc-chau-21.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-21.jpg
+moc-chau-22.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-22.jpg
+moc-chau-23.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-23.jpg
+moc-chau-24.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-24.jpg
+moc-chau-25.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-25.jpg
+moc-chau-26.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-26.jpg
+moc-chau-27.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-27.jpg
+moc-chau-28.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-28.jpg
+moc-chau-29.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-29.jpg
+moc-chau-30.jpg,moc-chau,moc-chau,Mộc Châu,,dataset/moc-chau/moc-chau-30.jpg
+buon-ma-thuot-01.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-01.jpg
+buon-ma-thuot-02.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-02.jpg
+buon-ma-thuot-03.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-03.jpg
+buon-ma-thuot-04.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-04.jpg
+buon-ma-thuot-05.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-05.jpg
+buon-ma-thuot-06.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-06.jpg
+buon-ma-thuot-07.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-07.jpg
+buon-ma-thuot-08.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-08.jpg
+buon-ma-thuot-09.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-09.jpg
+buon-ma-thuot-10.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-10.jpg
+buon-ma-thuot-11.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-11.jpg
+buon-ma-thuot-12.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-12.jpg
+buon-ma-thuot-13.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-13.jpg
+buon-ma-thuot-14.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-14.jpg
+buon-ma-thuot-15.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-15.jpg
+buon-ma-thuot-16.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-16.jpg
+buon-ma-thuot-17.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-17.jpg
+buon-ma-thuot-18.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-18.jpg
+buon-ma-thuot-19.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-19.jpg
+buon-ma-thuot-20.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-20.jpg
+buon-ma-thuot-21.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-21.jpg
+buon-ma-thuot-22.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-22.jpg
+buon-ma-thuot-23.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-23.jpg
+buon-ma-thuot-24.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-24.jpg
+buon-ma-thuot-25.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-25.jpg
+buon-ma-thuot-26.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-26.jpg
+buon-ma-thuot-27.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-27.jpg
+buon-ma-thuot-28.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-28.jpg
+buon-ma-thuot-29.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-29.jpg
+buon-ma-thuot-30.jpg,buon-ma-thuot,buon-ma-thuot,Buon Ma Thuot,,dataset/buon-ma-thuot/buon-ma-thuot-30.jpg
+con-dao-01.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-01.jpg
+con-dao-02.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-02.jpg
+con-dao-03.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-03.jpg
+con-dao-04.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-04.jpg
+con-dao-05.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-05.jpg
+con-dao-06.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-06.jpg
+con-dao-07.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-07.jpg
+con-dao-08.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-08.jpg
+con-dao-09.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-09.jpg
+con-dao-10.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-10.jpg
+con-dao-11.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-11.jpg
+con-dao-12.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-12.jpg
+con-dao-13.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-13.jpg
+con-dao-14.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-14.jpg
+con-dao-15.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-15.jpg
+con-dao-16.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-16.jpg
+con-dao-17.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-17.jpg
+con-dao-18.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-18.jpg
+con-dao-19.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-19.jpg
+con-dao-20.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-20.jpg
+con-dao-21.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-21.jpg
+con-dao-22.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-22.jpg
+con-dao-23.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-23.jpg
+con-dao-24.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-24.jpg
+con-dao-25.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-25.jpg
+con-dao-26.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-26.jpg
+con-dao-27.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-27.jpg
+con-dao-28.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-28.jpg
+con-dao-29.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-29.jpg
+con-dao-30.jpg,con-dao,con-dao,Côn Đảo,,dataset/con-dao/con-dao-30.jpg
+vung-tau-01.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-01.jpg
+vung-tau-02.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-02.jpg
+vung-tau-03.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-03.jpg
+vung-tau-04.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-04.jpg
+vung-tau-05.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-05.jpg
+vung-tau-06.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-06.jpg
+vung-tau-07.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-07.jpg
+vung-tau-08.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-08.jpg
+vung-tau-09.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-09.jpg
+vung-tau-10.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-10.jpg
+vung-tau-11.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-11.jpg
+vung-tau-12.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-12.jpg
+vung-tau-13.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-13.jpg
+vung-tau-14.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-14.jpg
+vung-tau-15.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-15.jpg
+vung-tau-16.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-16.jpg
+vung-tau-17.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-17.jpg
+vung-tau-18.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-18.jpg
+vung-tau-19.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-19.jpg
+vung-tau-20.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-20.jpg
+vung-tau-21.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-21.jpg
+vung-tau-22.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-22.jpg
+vung-tau-23.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-23.jpg
+vung-tau-24.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-24.jpg
+vung-tau-25.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-25.jpg
+vung-tau-26.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-26.jpg
+vung-tau-27.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-27.jpg
+vung-tau-28.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-28.jpg
+vung-tau-29.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-29.jpg
+vung-tau-30.jpg,vung-tau,vung-tau,Vũng Tàu,,dataset/vung-tau/vung-tau-30.jpg
+tay-ninh-01.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-01.jpg
+tay-ninh-02.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-02.jpg
+tay-ninh-03.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-03.jpg
+tay-ninh-04.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-04.jpg
+tay-ninh-05.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-05.jpg
+tay-ninh-06.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-06.jpg
+tay-ninh-07.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-07.jpg
+tay-ninh-08.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-08.jpg
+tay-ninh-09.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-09.jpg
+tay-ninh-10.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-10.jpg
+tay-ninh-11.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-11.jpg
+tay-ninh-12.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-12.jpg
+tay-ninh-13.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-13.jpg
+tay-ninh-14.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-14.jpg
+tay-ninh-15.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-15.jpg
+tay-ninh-16.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-16.jpg
+tay-ninh-17.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-17.jpg
+tay-ninh-18.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-18.jpg
+tay-ninh-19.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-19.jpg
+tay-ninh-20.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-20.jpg
+tay-ninh-21.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-21.jpg
+tay-ninh-22.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-22.jpg
+tay-ninh-23.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-23.jpg
+tay-ninh-24.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-24.jpg
+tay-ninh-25.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-25.jpg
+tay-ninh-26.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-26.jpg
+tay-ninh-27.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-27.jpg
+tay-ninh-28.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-28.jpg
+tay-ninh-29.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-29.jpg
+tay-ninh-30.jpg,tay-ninh,tay-ninh,Tây Ninh,,dataset/tay-ninh/tay-ninh-30.jpg
+an-giang-01.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-01.jpg
+an-giang-02.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-02.jpg
+an-giang-03.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-03.jpg
+an-giang-04.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-04.jpg
+an-giang-05.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-05.jpg
+an-giang-06.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-06.jpg
+an-giang-07.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-07.jpg
+an-giang-08.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-08.jpg
+an-giang-09.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-09.jpg
+an-giang-10.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-10.jpg
+an-giang-11.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-11.jpg
+an-giang-12.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-12.jpg
+an-giang-13.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-13.jpg
+an-giang-14.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-14.jpg
+an-giang-15.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-15.jpg
+an-giang-16.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-16.jpg
+an-giang-17.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-17.jpg
+an-giang-18.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-18.jpg
+an-giang-19.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-19.jpg
+an-giang-20.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-20.jpg
+an-giang-21.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-21.jpg
+an-giang-22.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-22.jpg
+an-giang-23.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-23.jpg
+an-giang-24.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-24.jpg
+an-giang-25.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-25.jpg
+an-giang-26.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-26.jpg
+an-giang-27.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-27.jpg
+an-giang-28.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-28.jpg
+an-giang-29.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-29.jpg
+an-giang-30.jpg,an-giang,an-giang,An Giang,,dataset/an-giang/an-giang-30.jpg
+ca-mau-01.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-01.jpg
+ca-mau-02.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-02.jpg
+ca-mau-03.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-03.jpg
+ca-mau-04.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-04.jpg
+ca-mau-05.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-05.jpg
+ca-mau-06.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-06.jpg
+ca-mau-07.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-07.jpg
+ca-mau-08.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-08.jpg
+ca-mau-09.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-09.jpg
+ca-mau-10.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-10.jpg
+ca-mau-11.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-11.jpg
+ca-mau-12.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-12.jpg
+ca-mau-13.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-13.jpg
+ca-mau-14.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-14.jpg
+ca-mau-15.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-15.jpg
+ca-mau-16.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-16.jpg
+ca-mau-17.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-17.jpg
+ca-mau-18.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-18.jpg
+ca-mau-19.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-19.jpg
+ca-mau-20.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-20.jpg
+ca-mau-21.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-21.jpg
+ca-mau-22.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-22.jpg
+ca-mau-23.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-23.jpg
+ca-mau-24.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-24.jpg
+ca-mau-25.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-25.jpg
+ca-mau-26.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-26.jpg
+ca-mau-27.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-27.jpg
+ca-mau-28.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-28.jpg
+ca-mau-29.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-29.jpg
+ca-mau-30.jpg,ca-mau,ca-mau,Cà Mau,,dataset/ca-mau/ca-mau-30.jpg

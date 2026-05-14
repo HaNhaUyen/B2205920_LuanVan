@@ -1,0 +1,12 @@
+import { IsOptional, IsString, MaxLength } from "class-validator";
+
+export class ChatMessageDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  conversationId?: string;
+
+  @IsString()
+  @MaxLength(2000)
+  message!: string;
+}

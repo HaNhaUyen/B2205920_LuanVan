@@ -1,0 +1,719 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           BigInt     @id @default(autoincrement()) @db.UnsignedBigInt
+  fullName     String     @map("full_name") @db.VarChar(150)
+  email        String     @unique @db.VarChar(150)
+  phone        String?    @unique @db.VarChar(20)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  googleId     String?    @unique @map("google_id") @db.VarChar(255)
+  authProvider String     @default("local") @map("auth_provider") @db.VarChar(30)
+  avatarUrl    String?    @map("avatar_url") @db.VarChar(500)
+  identityNumber String? @unique @map("identity_number") @db.VarChar(20)
+  birthDate    DateTime? @map("birth_date") @db.Date
+  memberPoints Int @default(0) @map("member_points") @db.UnsignedInt
+  memberTier   MemberTier @default(bronze) @map("member_tier")
+  role         Role       @default(user)
+  status       UserStatus @default(active)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  bookings         Booking[]
+  assignedGuide    Guide? @relation("GuideUserAccount")
+  refundRequests   RefundRequest[]
+  userVouchers     UserVoucher[]
+  behaviors        UserBehavior[]
+  reviews          Review[]
+  contacts         Contact[]         @relation("ContactOwner")
+  handledContacts  Contact[]         @relation("ContactHandler")
+  contactEmailLogs ContactEmailLog[] @relation("ContactEmailLogAdmin")
+  favoriteTours        FavoriteTour[]
+  createdNotifications Notification[]     @relation("NotificationCreator")
+  notificationReads    NotificationRead[]
+  targetedNotifications Notification[]     @relation("NotificationTargetUser")
+  chatConversations    ChatConversation[]
+
+  @@map("users")
+}
+
+model Destination {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name        String   @db.VarChar(150)
+  province    String   @db.VarChar(100)
+  country     String   @default("Vietnam") @db.VarChar(100)
+  description String?  @db.Text
+  coverImage  String?  @map("cover_image") @db.VarChar(500)
+  status      String   @default("active") @db.VarChar(20)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tours Tour[]
+
+  @@map("destinations")
+}
+
+model Tour {
+  id                 BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  code               String      @unique @db.VarChar(50)
+  name               String      @db.VarChar(200)
+  slug               String      @unique @db.VarChar(220)
+  destinationId      BigInt      @map("destination_id") @db.UnsignedBigInt
+  tourType           TourType    @default(group) @map("tour_type")
+  tourTheme          TourTheme   @default(other) @map("tour_theme")
+  durationDays       Int         @map("duration_days") @db.UnsignedSmallInt
+  durationNights     Int         @map("duration_nights") @db.UnsignedSmallInt
+  hotelStars         Int?        @map("hotel_stars") @db.UnsignedTinyInt
+  basePriceAdult     Decimal     @map("base_price_adult") @db.Decimal(12, 2)
+  basePriceChild     Decimal     @map("base_price_child") @db.Decimal(12, 2)
+  maxCapacityDefault Int         @map("max_capacity_default") @db.UnsignedInt
+  shortDescription   String?     @map("short_description") @db.VarChar(500)
+  fullDescription    String?     @map("full_description") @db.LongText
+  status             TourStatus  @default(draft)
+  isTrending         Boolean     @default(false) @map("is_trending")
+  isBestDeal         Boolean     @default(false) @map("is_best_deal")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
+
+  destination    Destination         @relation(fields: [destinationId], references: [id])
+  media          TourMedia[]
+  itinerary      TourItinerary[]
+  departures     TourDeparture[]
+  policies       TourPolicy[]
+  accommodations TourAccommodation[]
+  transports     TourTransport[]
+  bookings       Booking[]
+  guideAssignments GuideAssignment[]
+  behaviors      UserBehavior[]
+  reviews        Review[]
+  favorites      FavoriteTour[]
+  pickupPoints   TourPickupPoint[]
+
+  @@map("tours")
+}
+
+model TourMedia {
+  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  tourId       BigInt    @map("tour_id") @db.UnsignedBigInt
+  mediaType    MediaType @default(image) @map("media_type")
+  fileUrl      String    @map("file_url") @db.VarChar(500)
+  isCover      Boolean   @default(false) @map("is_cover")
+  displayOrder Int       @default(1) @map("display_order") @db.UnsignedInt
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@map("tour_media")
+}
+
+model TourItinerary {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  tourId       BigInt   @map("tour_id") @db.UnsignedBigInt
+  dayNumber    Int      @map("day_number") @db.UnsignedSmallInt
+  itemOrder    Int      @default(1) @map("item_order") @db.UnsignedSmallInt
+  title        String   @db.VarChar(200)
+  description  String?  @db.Text
+  locationName String?  @map("location_name") @db.VarChar(200)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@unique([tourId, dayNumber, itemOrder])
+  @@map("tour_itinerary")
+}
+
+model TourDeparture {
+  id            BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  tourId        BigInt          @map("tour_id") @db.UnsignedBigInt
+  departureDate DateTime        @map("departure_date") @db.Date
+  endDate       DateTime        @map("end_date") @db.Date
+  adultPrice    Decimal         @map("adult_price") @db.Decimal(12, 2)
+  childPrice    Decimal         @map("child_price") @db.Decimal(12, 2)
+  totalSlots    Int             @map("total_slots") @db.UnsignedInt
+  bookedSlots   Int             @default(0) @map("booked_slots") @db.UnsignedInt
+  heldSlots     Int             @default(0) @map("held_slots") @db.UnsignedInt
+  status        DepartureStatus @default(open)
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  tour         Tour              @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  bookings     Booking[]
+  pickupPoints TourPickupPoint[]
+
+  @@map("tour_departures")
+}
+
+model TourPickupPoint {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  tourId      BigInt   @map("tour_id") @db.UnsignedBigInt
+  departureId BigInt?  @map("departure_id") @db.UnsignedBigInt
+  province    String   @db.VarChar(100)
+  name        String   @db.VarChar(180)
+  address     String   @db.VarChar(255)
+  pickupTime  DateTime? @map("pickup_time") @db.Time(0)
+  note        String?  @db.Text
+  status      String   @default("active") @db.VarChar(30)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tour      Tour           @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  departure TourDeparture? @relation(fields: [departureId], references: [id], onDelete: Cascade)
+  bookings  Booking[]
+
+  @@index([tourId, status])
+  @@index([departureId, status])
+  @@map("tour_pickup_points")
+}
+
+model TourPolicy {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  tourId       BigInt   @map("tour_id") @db.UnsignedBigInt
+  policyType   String   @map("policy_type") @db.VarChar(50)
+  content      String   @db.Text
+  displayOrder Int      @default(1) @map("display_order") @db.UnsignedSmallInt
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@map("tour_policies")
+}
+
+model TourAccommodation {
+  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  tourId           BigInt   @map("tour_id") @db.UnsignedBigInt
+  name             String   @db.VarChar(180)
+  accommodationType String  @map("accommodation_type") @db.VarChar(50)
+  starRating       Int?     @map("star_rating") @db.UnsignedTinyInt
+  address          String?  @db.VarChar(255)
+  description      String?  @db.Text
+  pricePerNight    Decimal? @map("price_per_night") @db.Decimal(12, 2)
+  imageUrl         String?  @map("image_url") @db.VarChar(500)
+  amenities        String?  @db.Text
+  status           String   @default("active") @db.VarChar(30)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@map("tour_accommodations")
+}
+
+model TourTransport {
+  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  tourId           BigInt   @map("tour_id") @db.UnsignedBigInt
+  name             String   @db.VarChar(180)
+  transportType    String   @map("transport_type") @db.VarChar(50)
+  provider         String?  @db.VarChar(150)
+  origin           String?  @db.VarChar(150)
+  destinationLabel String?  @map("destination_label") @db.VarChar(150)
+  durationHours    Decimal? @map("duration_hours") @db.Decimal(8, 2)
+  price            Decimal? @db.Decimal(12, 2)
+  description      String?  @db.Text
+  imageUrl         String?  @map("image_url") @db.VarChar(500)
+  status           String   @default("active") @db.VarChar(30)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@map("tour_transports")
+}
+
+model Booking {
+  id             BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  bookingCode    String        @unique @map("booking_code") @db.VarChar(50)
+  userId         BigInt?       @map("user_id") @db.UnsignedBigInt
+  tourId         BigInt        @map("tour_id") @db.UnsignedBigInt
+  departureId    BigInt        @map("departure_id") @db.UnsignedBigInt
+  voucherId      BigInt?       @map("voucher_id") @db.UnsignedBigInt
+  voucherCode    String?       @map("voucher_code") @db.VarChar(50)
+  pickupPointId  BigInt?       @map("pickup_point_id") @db.UnsignedBigInt
+  pickupName     String?       @map("pickup_name") @db.VarChar(180)
+  pickupAddress  String?       @map("pickup_address") @db.VarChar(255)
+  pickupTime     DateTime?     @map("pickup_time") @db.Time(0)
+  pickupNote     String?       @map("pickup_note") @db.Text
+  adultCount     Int           @default(1) @map("adult_count") @db.UnsignedInt
+  childCount     Int           @default(0) @map("child_count") @db.UnsignedInt
+  originalAmount Decimal       @map("original_amount") @db.Decimal(12, 2)
+  discountAmount Decimal       @map("discount_amount") @db.Decimal(12, 2)
+  finalAmount    Decimal       @map("final_amount") @db.Decimal(12, 2)
+  bookingStatus  BookingStatus @default(draft) @map("booking_status")
+  holdExpiresAt  DateTime?     @map("hold_expires_at")
+  contactName    String        @map("contact_name") @db.VarChar(150)
+  contactEmail   String        @map("contact_email") @db.VarChar(150)
+  contactPhone   String        @map("contact_phone") @db.VarChar(20)
+  note           String?       @db.Text
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  user        User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  tour        Tour             @relation(fields: [tourId], references: [id])
+  departure   TourDeparture    @relation(fields: [departureId], references: [id])
+  voucher     Voucher?         @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+  pickupPoint TourPickupPoint? @relation(fields: [pickupPointId], references: [id], onDelete: SetNull)
+  payments  Payment[]
+  logs      BookingStatusLog[]
+  guests    BookingGuest[]
+  refundRequests RefundRequest[]
+  guideAssignments GuideAssignment[]
+  reviews Review[]
+
+  @@map("bookings")
+}
+
+model BookingGuest {
+  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  bookingId   BigInt    @map("booking_id") @db.UnsignedBigInt
+  fullName    String    @map("full_name") @db.VarChar(150)
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  gender      String?   @db.VarChar(20)
+  guestType   String    @map("guest_type") @db.VarChar(20)
+  idNumber    String?   @map("id_number") @db.VarChar(50)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("booking_guests")
+}
+
+model Payment {
+  id                      BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  bookingId               BigInt        @map("booking_id") @db.UnsignedBigInt
+  paymentMethod           PaymentMethod @map("payment_method")
+  gatewayTransactionId    String?       @unique @map("gateway_transaction_id") @db.VarChar(100)
+  internalTransactionCode String        @unique @map("internal_transaction_code") @db.VarChar(100)
+  amount                  Decimal       @db.Decimal(12, 2)
+  paymentStatus           PaymentStatus @default(pending) @map("payment_status")
+  paidAt                  DateTime?     @map("paid_at")
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
+
+  booking Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  logs    BookingStatusLog[]
+
+  @@map("payments")
+}
+
+model BookingStatusLog {
+  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  bookingId       BigInt   @map("booking_id") @db.UnsignedBigInt
+  paymentId       BigInt?  @map("payment_id") @db.UnsignedBigInt
+  actionType      String   @map("action_type") @db.VarChar(50)
+  oldStatus       String?  @map("old_status") @db.VarChar(50)
+  newStatus       String?  @map("new_status") @db.VarChar(50)
+  changedByUserId BigInt?  @map("changed_by_user_id") @db.UnsignedBigInt
+  source          String   @db.VarChar(50)
+  reason          String?  @db.VarChar(255)
+  note            String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  booking Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@map("booking_status_logs")
+}
+
+model Review {
+  id           BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
+  tourId        BigInt      @map("tour_id") @db.UnsignedBigInt
+  userId        BigInt?     @map("user_id") @db.UnsignedBigInt
+  bookingId     BigInt?     @map("booking_id") @db.UnsignedBigInt
+  rating        Int         @db.UnsignedTinyInt
+  comment       String?     @db.Text
+  adminReply    String?     @map("admin_reply") @db.Text
+  adminReplyAt  DateTime?   @map("admin_reply_at")
+  status        ReviewStatus @default(pending)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@map("reviews")
+}
+
+model FavoriteTour {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  userId    BigInt   @map("user_id") @db.UnsignedBigInt
+  tourId     BigInt  @map("tour_id") @db.UnsignedBigInt
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tourId])
+  @@map("favorite_tours")
+}
+
+model Faq {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  question     String   @db.VarChar(300)
+  answer       String   @db.Text
+  topic        String?  @db.VarChar(100)
+  status       String   @default("active") @db.VarChar(20)
+  displayOrder Int      @default(1) @map("display_order") @db.UnsignedInt
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("faqs")
+}
+
+model Contact {
+  id               BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  userId           BigInt?           @map("user_id") @db.UnsignedBigInt
+  fullName         String            @map("full_name") @db.VarChar(150)
+  email            String            @db.VarChar(150)
+  phone            String?           @db.VarChar(20)
+  subject          String            @db.VarChar(200)
+  message          String            @db.Text
+  status           String            @default("new") @db.VarChar(30)
+  handledBy        BigInt?           @map("handled_by") @db.UnsignedBigInt
+  adminReply       String?           @map("admin_reply") @db.Text
+  repliedAt        DateTime?         @map("replied_at")
+  replyEmailSentAt DateTime?         @map("reply_email_sent_at")
+  replyEmailError  String?           @map("reply_email_error") @db.VarChar(255)
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  user      User?              @relation("ContactOwner", fields: [userId], references: [id])
+  handler   User?              @relation("ContactHandler", fields: [handledBy], references: [id])
+  emailLogs ContactEmailLog[]
+
+  @@map("contacts")
+}
+
+model ContactEmailLog {
+  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  contactId      BigInt    @map("contact_id") @db.UnsignedBigInt
+  adminUserId    BigInt?   @map("admin_user_id") @db.UnsignedBigInt
+  recipientEmail String    @map("recipient_email") @db.VarChar(150)
+  subject        String    @db.VarChar(255)
+  bodyPreview    String?   @map("body_preview") @db.Text
+  provider       String    @default("smtp") @db.VarChar(50)
+  sendStatus     String    @default("sent") @map("send_status") @db.VarChar(30)
+  attemptedAt    DateTime  @default(now()) @map("attempted_at")
+  sentAt         DateTime? @map("sent_at")
+  errorMessage   String?   @map("error_message") @db.VarChar(255)
+
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  adminUser User?   @relation("ContactEmailLogAdmin", fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([contactId, attemptedAt])
+  @@index([adminUserId])
+  @@index([sendStatus])
+  @@map("contact_email_logs")
+}
+
+
+model Notification {
+  id          BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  title       String                 @db.VarChar(220)
+  message     String?                @db.VarChar(500)
+  content     String                 @db.Text
+  targetRole  NotificationTargetRole @default(user) @map("target_role")
+  targetUserId BigInt?                @map("target_user_id") @db.UnsignedBigInt
+  isPublished Boolean                @default(true) @map("is_published")
+  createdBy   BigInt?                @map("created_by") @db.UnsignedBigInt
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+
+  createdByUser User?               @relation("NotificationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  targetUser    User?               @relation("NotificationTargetUser", fields: [targetUserId], references: [id], onDelete: Cascade)
+  reads         NotificationRead[]
+
+  @@index([targetRole, isPublished, createdAt])
+  @@index([targetUserId, isPublished, createdAt])
+  @@index([createdBy])
+  @@map("notifications")
+}
+
+model NotificationRead {
+  id             BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
+  notificationId BigInt       @map("notification_id") @db.UnsignedBigInt
+  userId         BigInt       @map("user_id") @db.UnsignedBigInt
+  readAt         DateTime     @default(now()) @map("read_at")
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId])
+  @@index([userId, readAt])
+  @@map("notification_reads")
+}
+
+enum Role {
+  admin
+  user
+}
+
+enum UserStatus {
+  active
+  inactive
+  blocked
+}
+
+enum TourType {
+  group
+  private
+}
+
+enum TourTheme {
+  beach
+  mountain
+  city
+  culture
+  adventure
+  eco
+  family
+  luxury
+  other
+}
+
+enum TourStatus {
+  draft
+  published
+  inactive
+}
+
+enum MediaType {
+  image
+  video
+}
+
+enum DepartureStatus {
+  open
+  full
+  closed
+  departed
+  completed
+  cancelled
+}
+
+enum BookingStatus {
+  draft
+  pending_payment
+  waiting_confirmation
+  confirmed
+  cancelled
+  expired
+  completed
+}
+
+enum PaymentMethod {
+  momo
+  vnpay
+  card
+  bank_transfer
+  cash
+}
+
+enum PaymentStatus {
+  pending
+  waiting_confirmation
+  paid
+  failed
+  expired
+  refunded
+}
+
+enum ReviewStatus {
+  pending
+  approved
+  rejected
+  hidden
+}
+
+enum NotificationTargetRole {
+  all
+  admin
+  user
+}
+
+
+enum MemberTier {
+  bronze
+  silver
+  gold
+  diamond
+}
+enum RefundStatus {
+  pending
+  approved
+  rejected
+}
+
+model Guide {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  userId BigInt? @unique @map("user_id") @db.UnsignedBigInt
+  fullName String @map("full_name") @db.VarChar(150)
+  phone String @db.VarChar(20)
+  email String? @db.VarChar(150)
+  identityNumber String? @map("identity_number") @db.VarChar(20)
+  languages String? @db.VarChar(255)
+  experienceYears Int @default(0) @map("experience_years") @db.UnsignedTinyInt
+  status String @default("active") @db.VarChar(30)
+  note String? @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  userAccount User? @relation("GuideUserAccount", fields: [userId], references: [id], onDelete: SetNull)
+  assignments GuideAssignment[]
+  @@index([status])
+  @@map("guides")
+}
+
+model GuideAssignment {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  guideId BigInt @map("guide_id") @db.UnsignedBigInt
+  bookingId BigInt @map("booking_id") @db.UnsignedBigInt
+  tourId BigInt @map("tour_id") @db.UnsignedBigInt
+  startDate DateTime @map("start_date") @db.Date
+  endDate DateTime @map("end_date") @db.Date
+  status String @default("assigned") @db.VarChar(30)
+  note String? @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  guide Guide @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+  @@index([guideId, startDate, endDate])
+  @@index([bookingId])
+  @@map("guide_assignments")
+}
+
+model Voucher {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  code String @unique @db.VarChar(50)
+  name String @db.VarChar(180)
+  description String? @db.Text
+  memberTier MemberTier @default(bronze) @map("member_tier")
+  discountType String @default("percent") @map("discount_type") @db.VarChar(20)
+  discountValue Decimal @map("discount_value") @db.Decimal(12,2)
+  maxDiscount Decimal? @map("max_discount") @db.Decimal(12,2)
+  minOrderAmount Decimal @default(0) @map("min_order_amount") @db.Decimal(12,2)
+  startDate DateTime @map("start_date") @db.Date
+  endDate DateTime @map("end_date") @db.Date
+  quota Int @default(0) @db.UnsignedInt
+  usedCount Int @default(0) @map("used_count") @db.UnsignedInt
+  status String @default("active") @db.VarChar(30)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  userVouchers UserVoucher[]
+  bookings Booking[]
+  @@index([memberTier, status])
+  @@map("vouchers")
+}
+
+model UserVoucher {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  userId BigInt @map("user_id") @db.UnsignedBigInt
+  voucherId BigInt @map("voucher_id") @db.UnsignedBigInt
+  status String @default("available") @db.VarChar(30)
+  usedAt DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voucher Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  @@unique([userId, voucherId])
+  @@map("user_vouchers")
+}
+
+model RefundRequest {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  bookingId BigInt @map("booking_id") @db.UnsignedBigInt
+  userId BigInt? @map("user_id") @db.UnsignedBigInt
+  reason String @db.Text
+  refundAmount Decimal? @map("refund_amount") @db.Decimal(12,2)
+  status RefundStatus @default(pending)
+  adminNote String? @map("admin_note") @db.Text
+  reviewedBy BigInt? @map("reviewed_by") @db.UnsignedBigInt
+  reviewedAt DateTime? @map("reviewed_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@index([status, createdAt])
+  @@map("refund_requests")
+}
+
+model UserBehavior {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  userId BigInt? @map("user_id") @db.UnsignedBigInt
+  tourId BigInt? @map("tour_id") @db.UnsignedBigInt
+  action String @db.VarChar(50)
+  score Int @default(1)
+  keyword String? @db.VarChar(255)
+  meta Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  tour Tour? @relation(fields: [tourId], references: [id], onDelete: SetNull)
+  @@index([userId, createdAt])
+  @@index([tourId])
+  @@map("user_behaviors")
+}
+
+model RevokedToken {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
+  userId BigInt? @map("user_id") @db.UnsignedBigInt
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([expiresAt])
+  @@map("revoked_tokens")
+}
+
+model ChatConversation {
+  id         BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
+  userId     BigInt?      @map("user_id") @db.UnsignedBigInt
+  title      String?      @db.VarChar(255)
+  summary    String?      @db.Text
+  lastIntent String?      @map("last_intent") @db.VarChar(100)
+  memoryJson Json?        @map("memory_json")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  user       User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  messages   ChatMessage[]
+
+  @@index([userId])
+  @@index([updatedAt])
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  id             BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
+  conversationId BigInt           @map("conversation_id") @db.UnsignedBigInt
+  role           String           @db.VarChar(20)
+  content        String           @db.LongText
+  intent         String?          @db.VarChar(100)
+  meta           Json?
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
+}
+
+model RagDocument {
+  id         BigInt   @id @default(autoincrement())
+  sourceType String   @map("source_type") @db.VarChar(50)
+  sourceId   BigInt?  @map("source_id")
+  title      String   @db.VarChar(255)
+  content    String   @db.LongText
+  metadata   Json?
+  embedding  Json?
+  status     String   @default("active") @db.VarChar(30)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("rag_documents")
+}

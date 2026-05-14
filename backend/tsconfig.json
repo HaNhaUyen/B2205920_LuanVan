@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "es2021",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "src",
+    "types": ["node"],
+    /* Thay vì baseUrl, chúng ta dùng đường dẫn tương đối trực tiếp trong paths */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    /* Thêm dòng này để tắt các cảnh báo lỗi thời (thử 5.0 nếu 6.0 bị lỗi) */
+    "ignoreDeprecations": "5.0",
+    "incremental": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
+}
