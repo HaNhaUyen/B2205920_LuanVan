@@ -226,6 +226,8 @@ function TourCard({ card, onAskMore, compact }) {
               </button>
               <Link
                 href={`/tour/${card.slug}`}
+                target="_top"
+                rel="noopener noreferrer"
                 style={{
                   textDecoration: "none",
                   background: "linear-gradient(135deg, #72b44b, #5a9d34)",

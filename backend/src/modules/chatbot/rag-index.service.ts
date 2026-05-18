@@ -69,7 +69,7 @@ export class RagIndexService {
         departures: {
           where: { status: { in: ["open", "full"] as any } },
           orderBy: { departureDate: "asc" },
-          take: 5,
+          take: 8,
         },
         pickupPoints: true,
         itinerary: {
@@ -87,7 +87,7 @@ export class RagIndexService {
         reviews: {
           where: { status: "approved" as any },
           select: { rating: true, comment: true },
-          take: 8,
+          take: 10,
         },
         bookings: {
           where: { bookingStatus: { in: ["confirmed", "completed"] as any } },
@@ -104,6 +104,27 @@ export class RagIndexService {
           ) / tour.reviews.length
         : 0;
 
+      const baseMetadata = {
+        title: tour.name,
+        slug: tour.slug,
+        destination: tour.destination?.name,
+        province: tour.destination?.province,
+        theme: tour.tourTheme,
+        tourType: tour.tourType,
+        durationDays: tour.durationDays,
+        durationNights: tour.durationNights,
+        priceAdult: Number(tour.basePriceAdult || 0),
+        priceChild: Number(tour.basePriceChild || 0),
+        hotelStars: Number(tour.hotelStars || 0),
+        isBestDeal: Boolean(tour.isBestDeal),
+        isTrending: Boolean(tour.isTrending),
+        avgRating,
+        successfulBookingCount: Array.isArray(tour.bookings)
+          ? tour.bookings.length
+          : 0,
+        reviewCount: tour.reviews?.length || 0,
+      };
+
       const departureText = (tour.departures || [])
         .map(
           (d: any) =>
@@ -114,7 +135,7 @@ export class RagIndexService {
       const pickupText = (tour.pickupPoints || [])
         .map(
           (p: any) =>
-            `điểm đón ${p.name} tại ${p.province}, địa chỉ ${p.address}`,
+            `điểm đón ${p.name} tại ${p.province}, địa chỉ ${p.address}${p.pickupTime ? `, giờ đón ${p.pickupTime}` : ""}`,
         )
         .join("; ");
 
@@ -160,11 +181,7 @@ export class RagIndexService {
         .map((item: any) => `${item.rating || 0} sao: ${item.comment}`)
         .join("; ");
 
-      const successfulBookingCount = Array.isArray(tour.bookings)
-        ? tour.bookings.length
-        : 0;
-
-      const content = [
+      const overview = [
         `Tour: ${tour.name}.`,
         `Điểm đến: ${tour.destination?.name || "Đang cập nhật"}, ${tour.destination?.province || ""}.`,
         `Chủ đề: ${tour.tourTheme}. Loại tour: ${tour.tourType}.`,
@@ -175,47 +192,118 @@ export class RagIndexService {
         tour.isTrending ? "Tour đang được nhiều khách quan tâm." : "",
         tour.shortDescription || "",
         tour.fullDescription || "",
-        departureText ? `Lịch khởi hành: ${departureText}.` : "",
-        pickupText ? `Điểm đón: ${pickupText}.` : "",
-        itineraryText ? `Lịch trình chi tiết: ${itineraryText}.` : "",
-        policyText ? `Chính sách tour: ${policyText}.` : "",
-        accommodationText ? `Lưu trú/khách sạn: ${accommodationText}.` : "",
-        transportText ? `Phương tiện di chuyển: ${transportText}.` : "",
-        reviewText ? `Đánh giá khách hàng: ${reviewText}.` : "",
-        successfulBookingCount
-          ? `Độ phổ biến: đã có ${successfulBookingCount} booking thành công.`
-          : "",
       ]
         .filter(Boolean)
         .join("\n");
 
+      const documents = [
+        {
+          sourceType: "tour_overview",
+          section: "overview",
+          title: `${tour.name} - Tổng quan`,
+          content: overview,
+        },
+        departureText
+          ? {
+              sourceType: "tour_departure",
+              section: "departure",
+              title: `${tour.name} - Lịch khởi hành và giá`,
+              content: `Tour: ${tour.name}. Lịch khởi hành: ${departureText}.`,
+            }
+          : null,
+        pickupText
+          ? {
+              sourceType: "tour_pickup",
+              section: "pickup",
+              title: `${tour.name} - Điểm đón`,
+              content: `Tour: ${tour.name}. Điểm đón: ${pickupText}.`,
+            }
+          : null,
+        itineraryText
+          ? {
+              sourceType: "tour_itinerary",
+              section: "itinerary",
+              title: `${tour.name} - Lịch trình chi tiết`,
+              content: `Tour: ${tour.name}. Lịch trình chi tiết: ${itineraryText}. Phù hợp để đánh giá tour có nhẹ nhàng không, có phù hợp gia đình/trẻ nhỏ/người lớn tuổi không, có nhiều điểm chụp hình hay không.`,
+            }
+          : null,
+        accommodationText
+          ? {
+              sourceType: "tour_accommodation",
+              section: "accommodation",
+              title: `${tour.name} - Lưu trú khách sạn`,
+              content: `Tour: ${tour.name}. Lưu trú/khách sạn: ${accommodationText}.`,
+            }
+          : null,
+        transportText
+          ? {
+              sourceType: "tour_transport",
+              section: "transport",
+              title: `${tour.name} - Phương tiện`,
+              content: `Tour: ${tour.name}. Phương tiện di chuyển: ${transportText}.`,
+            }
+          : null,
+        policyText
+          ? {
+              sourceType: "tour_policy",
+              section: "policy",
+              title: `${tour.name} - Chính sách`,
+              content: `Tour: ${tour.name}. Chính sách tour: ${policyText}.`,
+            }
+          : null,
+        reviewText
+          ? {
+              sourceType: "tour_review",
+              section: "review",
+              title: `${tour.name} - Đánh giá khách hàng`,
+              content: `Tour: ${tour.name}. Đánh giá khách hàng: ${reviewText}.`,
+            }
+          : null,
+      ].filter(Boolean) as Array<{
+        sourceType: string;
+        section: string;
+        title: string;
+        content: string;
+      }>;
+
+      // Vẫn tạo 1 doc sourceType=tour tổng hợp để tương thích code cũ/card cũ.
       await this.upsertDocument({
         sourceType: "tour",
         sourceId: tour.id,
         title: tour.name,
-        content,
+        content: [
+          overview,
+          departureText,
+          pickupText,
+          itineraryText,
+          policyText,
+          accommodationText,
+          transportText,
+          reviewText,
+        ]
+          .filter(Boolean)
+          .join("\n"),
         metadata: {
-          title: tour.name,
-          slug: tour.slug,
-          destination: tour.destination?.name,
-          province: tour.destination?.province,
-          theme: tour.tourTheme,
-          tourType: tour.tourType,
-          durationDays: tour.durationDays,
-          durationNights: tour.durationNights,
-          priceAdult: Number(tour.basePriceAdult || 0),
-          priceChild: Number(tour.basePriceChild || 0),
-          hotelStars: Number(tour.hotelStars || 0),
-          isBestDeal: Boolean(tour.isBestDeal),
-          isTrending: Boolean(tour.isTrending),
-          avgRating,
-          successfulBookingCount,
-          reviewCount: tour.reviews?.length || 0,
+          ...baseMetadata,
+          section: "all",
           hasItinerary: Boolean(tour.itinerary?.length),
           hasAccommodation: Boolean(tour.accommodations?.length),
           hasTransport: Boolean(tour.transports?.length),
         },
       });
+
+      for (const doc of documents) {
+        await this.upsertDocument({
+          sourceType: doc.sourceType,
+          sourceId: tour.id,
+          title: doc.title,
+          content: doc.content,
+          metadata: {
+            ...baseMetadata,
+            section: doc.section,
+          },
+        });
+      }
     }
 
     return tours.length;

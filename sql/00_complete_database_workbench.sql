@@ -1683,3 +1683,48 @@ SELECT
 FROM tours t
 LEFT JOIN destinations d ON d.id = t.destination_id
 WHERE t.id IN (101, 8);
+
+
+CREATE TABLE IF NOT EXISTS rag_documents (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  source_type VARCHAR(50) NOT NULL,
+  source_id BIGINT NULL,
+  title VARCHAR(255) NOT NULL,
+  content LONGTEXT NOT NULL,
+  metadata JSON NULL,
+  embedding JSON NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_rag_source(source_type, source_id),
+  INDEX idx_rag_status(status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+INSERT INTO faqs (question, answer, topic, status, created_at, updated_at)
+VALUES
+(
+  'Chính sách hoàn tiền của Travela như thế nào?',
+  'Travela hỗ trợ gửi yêu cầu hoàn tiền trong vòng 48 giờ sau khi đặt tour và chỉ áp dụng khi còn ít nhất 3 ngày trước ngày khởi hành. Booking phải ở trạng thái đã thanh toán hoặc đã xác nhận. Các booking đã hủy, đã hoàn thành, đã hoàn tiền, chưa thanh toán hoặc đã có yêu cầu hoàn tiền đang xử lý sẽ không đủ điều kiện gửi yêu cầu mới. Yêu cầu hoàn tiền cần được admin kiểm tra và duyệt trước khi cập nhật trạng thái.',
+  'refund_policy',
+  'active',
+  NOW(),
+  NOW()
+),
+(
+  'Tôi có thể hủy tour và hoàn tiền không?',
+  'Bạn có thể gửi yêu cầu hoàn tiền nếu booking được tạo chưa quá 48 giờ, đã thanh toán hoặc đã xác nhận, và ngày khởi hành còn cách hiện tại ít nhất 3 ngày. Nếu đơn không thỏa các điều kiện này, hệ thống sẽ không hỗ trợ gửi yêu cầu hoàn tiền tự động.',
+  'refund_policy',
+  'active',
+  NOW(),
+  NOW()
+),
+(
+  'Hủy tour sát ngày khởi hành có được hoàn tiền không?',
+  'Travela không hỗ trợ hoàn tiền nếu thời điểm hủy còn dưới 3 ngày trước ngày khởi hành. Quy định này giúp hệ thống đảm bảo chi phí giữ chỗ, hướng dẫn viên, khách sạn và phương tiện đã được chuẩn bị trước.',
+  'refund_policy',
+  'active',
+  NOW(),
+  NOW()
+);
+

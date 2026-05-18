@@ -13,6 +13,8 @@ type RetrieveOptions = {
     departureMonth?: string | null;
     hotelStars?: number | null;
     tourType?: string | null;
+    softNeeds?: string[];
+    avoidNeeds?: string[];
   };
 };
 
@@ -248,7 +250,9 @@ export class RagService {
       metadata.destination || metadata.province || "",
     );
     const theme = stripText(metadata.theme || "");
+    const section = stripText(metadata.section || "");
     const title = stripText(metadata.title || "");
+    const searchable = `${destination} ${title} ${theme} ${section}`;
 
     const requestedDestination = stripText(memory.destination || "");
     if (requestedDestination && destination.includes(requestedDestination))
@@ -274,7 +278,7 @@ export class RagService {
     ) {
       if (
         /phu quoc|nha trang|ha long|quy nhon|con dao|vung tau|bien|dao/.test(
-          `${destination} ${title} ${theme}`,
+          searchable,
         )
       ) {
         score += 0.14;
@@ -286,17 +290,79 @@ export class RagService {
         normalizedQuery,
       )
     ) {
-      if (
-        /da lat|sa pa|sapa|moc chau|ha giang|nui|mountain/.test(
-          `${destination} ${title} ${theme}`,
-        )
-      ) {
+      if (/da lat|sa pa|sapa|moc chau|ha giang|nui|mountain/.test(searchable)) {
         score += 0.14;
       }
     }
 
     if (/\b(gia dinh|tre em|family|ca nha)\b/.test(normalizedQuery)) {
       if (/family|gia dinh/.test(`${theme} ${title}`)) score += 0.1;
+    }
+
+    const softNeeds = new Set((memory.softNeeds || []).map(stripText));
+    if (softNeeds.has("family"))
+      score += /family|gia dinh/.test(searchable) ? 0.08 : 0;
+    if (softNeeds.has("children") || softNeeds.has("elderly"))
+      score += /family|gia dinh|nhe nhang|relax/.test(searchable) ? 0.08 : 0;
+    if (softNeeds.has("relaxing") || softNeeds.has("light_schedule"))
+      score += /resort|nghi duong|relax|family|eco|nhe nhang/.test(searchable)
+        ? 0.09
+        : 0;
+    if (softNeeds.has("beach") || softNeeds.has("island"))
+      score += /phu quoc|nha trang|ha long|quy nhon|da nang|bien|dao/.test(
+        searchable,
+      )
+        ? 0.1
+        : 0;
+    if (softNeeds.has("photo_spots"))
+      score += /check|canh dep|view|pho co|vinh|bien|doi|san may/.test(
+        searchable,
+      )
+        ? 0.08
+        : 0;
+    if (softNeeds.has("cool_weather"))
+      score += /da lat|sa pa|sapa|moc chau|mat me|san may|nui/.test(searchable)
+        ? 0.09
+        : 0;
+    if (softNeeds.has("food"))
+      score += /am thuc|dac san|hai san|cho noi/.test(searchable) ? 0.07 : 0;
+    if (softNeeds.has("culture"))
+      score += /van hoa|lich su|pho co|hue|hoi an|di tich/.test(searchable)
+        ? 0.07
+        : 0;
+    if (softNeeds.has("luxury"))
+      score += /luxury|premium|resort|cao cap|5 sao|4 sao/.test(searchable)
+        ? 0.07
+        : 0;
+
+    if (
+      (memory.avoidNeeds || []).some((item) =>
+        /trekking|too_tired/.test(stripText(item)),
+      )
+    ) {
+      if (/trekking|leo nui|adventure|mao hiem|di bo nhieu/.test(searchable))
+        score -= 0.12;
+    }
+
+    if (
+      /\b(lich trinh|ngay 1|ngay 2|di dau|co met|nhe nhang)\b/.test(
+        normalizedQuery,
+      )
+    ) {
+      if (section === "itinerary") score += 0.14;
+    }
+    if (
+      /\b(khach san|luu tru|tien nghi|may sao|resort)\b/.test(normalizedQuery)
+    ) {
+      if (section === "accommodation") score += 0.14;
+    }
+    if (/\b(phuong tien|di bang gi|xe|may bay|tau)\b/.test(normalizedQuery)) {
+      if (section === "transport") score += 0.14;
+    }
+    if (
+      /\b(chinh sach|huy|hoan tien|doi lich|bao gom)\b/.test(normalizedQuery)
+    ) {
+      if (section === "policy") score += 0.14;
     }
 
     if (/\b(re nhat|gia re|tiet kiem|duoi|khong qua)\b/.test(normalizedQuery)) {
@@ -308,34 +374,76 @@ export class RagService {
   }
   private sourceTypeBoost(sourceType: string, intent?: string) {
     if (intent === "tour_search") {
-      if (sourceType === "tour") return 0.12;
+      if (["tour", "tour_overview", "tour_departure"].includes(sourceType))
+        return 0.12;
+      if (
+        [
+          "tour_itinerary",
+          "tour_accommodation",
+          "tour_transport",
+          "tour_review",
+        ].includes(sourceType)
+      )
+        return 0.08;
       if (sourceType === "pickup_point") return 0.03;
       if (sourceType === "faq") return 0.02;
     }
 
     if (intent === "tour_policy") {
       if (sourceType === "faq") return 0.12;
-      if (sourceType === "tour") return 0.08;
+      if (sourceType === "tour_policy") return 0.14;
+      if (["tour", "tour_overview"].includes(sourceType)) return 0.08;
     }
 
     if (intent === "pickup_point") {
       if (sourceType === "pickup_point") return 0.15;
-      if (sourceType === "tour") return 0.05;
+      if (["tour", "tour_overview", "tour_departure"].includes(sourceType))
+        return 0.05;
     }
 
     if (intent === "tour_compare") {
-      if (sourceType === "tour") return 0.12;
+      if (
+        [
+          "tour",
+          "tour_overview",
+          "tour_itinerary",
+          "tour_accommodation",
+          "tour_transport",
+        ].includes(sourceType)
+      )
+        return 0.12;
       if (sourceType === "faq") return 0.03;
     }
 
     if (intent === "general_consulting" || intent === "follow_up") {
-      if (sourceType === "tour") return 0.08;
+      if (
+        [
+          "tour",
+          "tour_overview",
+          "tour_itinerary",
+          "tour_accommodation",
+          "tour_transport",
+          "tour_policy",
+          "tour_review",
+        ].includes(sourceType)
+      )
+        return 0.08;
       if (sourceType === "faq") return 0.06;
       if (sourceType === "pickup_point") return 0.04;
     }
 
     if (intent === "personal_recommendation") {
-      if (sourceType === "tour") return 0.1;
+      if (
+        [
+          "tour",
+          "tour_overview",
+          "tour_itinerary",
+          "tour_accommodation",
+          "tour_transport",
+          "tour_review",
+        ].includes(sourceType)
+      )
+        return 0.1;
     }
 
     return 0;
