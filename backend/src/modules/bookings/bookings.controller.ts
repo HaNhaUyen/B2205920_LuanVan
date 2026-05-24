@@ -60,6 +60,11 @@ export class BookingsController {
     @Query("status") status?: string,
     @Query("paymentStatus") paymentStatus?: string,
     @Query("tourId") tourId?: string,
+    @Query("destinationId") destinationId?: string,
+    @Query("departureFrom") departureFrom?: string,
+    @Query("departureTo") departureTo?: string,
+    @Query("guideStatus") guideStatus?: string,
+    @Query("urgency") urgency?: string,
   ) {
     return this.bookingsService.adminList({
       page,
@@ -68,6 +73,11 @@ export class BookingsController {
       status,
       paymentStatus,
       tourId,
+      destinationId,
+      departureFrom,
+      departureTo,
+      guideStatus,
+      urgency,
     });
   }
 
@@ -108,6 +118,61 @@ export class BookingsController {
     @CurrentUser() user: { userId: bigint },
   ) {
     return this.bookingsService.adminUpdateStatus(Number(id), dto, user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/operations/dashboard")
+  adminOperationsDashboard() {
+    return this.bookingsService.adminOperationsDashboard();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/operations/revenue-report")
+  adminRevenueReport() {
+    return this.bookingsService.adminRevenueReport();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/operations/calendar")
+  adminOperationCalendar(
+    @Query("mode") mode?: string,
+    @Query("date") date?: string,
+  ) {
+    return this.bookingsService.adminOperationCalendar({ mode, date });
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/operations/predeparture")
+  adminPredepartureChecklist(@Query("days") days?: string) {
+    return this.bookingsService.adminPredepartureChecklist({ days });
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Post("admin/operations/bulk-notify")
+  adminBulkNotify(
+    @Body()
+    dto: {
+      bookingIds?: Array<string | number>;
+      departureId?: string | number;
+      type?: string;
+      channel?: string;
+      message?: string;
+    },
+    @CurrentUser() user: { userId: bigint },
+  ) {
+    return this.bookingsService.adminBulkNotify(dto, user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/operations/refund-suggestions")
+  adminRefundSuggestions(@Query("status") status?: string) {
+    return this.bookingsService.adminRefundSuggestions({ status });
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

@@ -37,7 +37,18 @@ const emptyPage = {
   pagination: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
 };
 
-const initialBookingFilter = { page: 1, pageSize: 10, search: "", status: "" };
+const initialBookingFilter = {
+  page: 1,
+  pageSize: 10,
+  search: "",
+  status: "",
+  paymentStatus: "",
+  destinationId: "",
+  departureFrom: "",
+  departureTo: "",
+  guideStatus: "",
+  urgency: "",
+};
 const initialReviewFilter = { page: 1, pageSize: 10, search: "", status: "" };
 const initialContactFilter = {
   page: 1,
@@ -547,6 +558,17 @@ function toneForPayment(status) {
   if (["failed", "expired", "refunded"].includes(status)) return "danger";
   return "default";
 }
+function toneForPriority(level) {
+  if (level === "high") return "danger";
+  if (level === "medium") return "warning";
+  return "success";
+}
+function formatDaysUntilDeparture(days) {
+  if (days === null || days === undefined) return "Chưa rõ";
+  if (days < 0) return `Đã qua ${Math.abs(days)} ngày`;
+  if (days === 0) return "Hôm nay";
+  return `Còn ${days} ngày`;
+}
 function toneForContact(item) {
   if (item?.replyEmailSentAt) return "success";
   if (item?.replyEmailError) return "danger";
@@ -666,6 +688,9 @@ export default function AdminPage({ initialTab = "overview" }) {
   );
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
   const [bookingDetail, setBookingDetail] = useState(null);
+  const [bookingPickupForm, setBookingPickupForm] = useState({
+    pickupPointId: "",
+  });
   const [contactDetailOpen, setContactDetailOpen] = useState(false);
   const [contactDetail, setContactDetail] = useState(null);
   const [replyOpen, setReplyOpen] = useState(false);
@@ -740,7 +765,17 @@ export default function AdminPage({ initialTab = "overview" }) {
   useEffect(() => {
     if (!booting)
       loadBookings(bookingFilters).catch((e) => showToast(e.message, "error"));
-  }, [bookingFilters.page, bookingFilters.search, bookingFilters.status]);
+  }, [
+    bookingFilters.page,
+    bookingFilters.search,
+    bookingFilters.status,
+    bookingFilters.paymentStatus,
+    bookingFilters.destinationId,
+    bookingFilters.departureFrom,
+    bookingFilters.departureTo,
+    bookingFilters.guideStatus,
+    bookingFilters.urgency,
+  ]);
   useEffect(() => {
     if (!booting)
       loadReviews(reviewFilters).catch((e) => showToast(e.message, "error"));
@@ -945,7 +980,11 @@ export default function AdminPage({ initialTab = "overview" }) {
 
   const openBookingDetail = async (id) => {
     try {
-      setBookingDetail(await apiFetch(`/admin/bookings/${id}`));
+      const detail = await apiFetch(`/admin/bookings/${id}`);
+      setBookingDetail(detail);
+      setBookingPickupForm({
+        pickupPointId: detail.pickupPointId ? String(detail.pickupPointId) : "",
+      });
       setBookingDetailOpen(true);
     } catch (error) {
       showToast(error.message, "error");
@@ -957,9 +996,36 @@ export default function AdminPage({ initialTab = "overview" }) {
         method: "POST",
       });
       showToast("Đã duyệt chuyển khoản và cập nhật email xác nhận.", "success");
-      if (bookingDetail?.id)
-        setBookingDetail(await apiFetch(`/admin/bookings/${bookingDetail.id}`));
-      await Promise.all([loadBookings(), loadOverview()]);
+      if (bookingDetail?.id) {
+        const detail = await apiFetch(`/admin/bookings/${bookingDetail.id}`);
+        setBookingDetail(detail);
+      }
+      await Promise.all([loadBookings(bookingFilters), loadOverview()]);
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  };
+
+  const updateBookingPickup = async () => {
+    if (!bookingDetail?.id) return;
+    if (!bookingPickupForm.pickupPointId) {
+      showToast("Vui lòng chọn điểm đón mới.", "error");
+      return;
+    }
+
+    try {
+      const detail = await apiFetch(`/admin/bookings/${bookingDetail.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          pickupPointId: Number(bookingPickupForm.pickupPointId),
+        }),
+      });
+      setBookingDetail(detail);
+      setBookingPickupForm({
+        pickupPointId: detail.pickupPointId ? String(detail.pickupPointId) : "",
+      });
+      showToast("Đã cập nhật điểm đón cho booking.", "success");
+      await loadBookings(bookingFilters);
     } catch (error) {
       showToast(error.message, "error");
     }
@@ -1928,21 +1994,116 @@ export default function AdminPage({ initialTab = "overview" }) {
       )}
 
       {activeTab === "bookings" && (
-        <div
-          className="admin-card"
-          style={{ display: "flex", flexDirection: "column", gap: "24px" }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: "16px",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: 16,
             }}
           >
+            {[
+              {
+                label: "Cần xử lý ngay",
+                value: bookingsData.intelligence?.highPriority || 0,
+                note: "Booking ưu tiên cao",
+                tone: "danger",
+              },
+              {
+                label: "Sắp khởi hành",
+                value: bookingsData.intelligence?.upcoming || 0,
+                note: "Trong 7 ngày tới",
+                tone: "warning",
+              },
+              {
+                label: "Chưa có HDV",
+                value: bookingsData.intelligence?.noGuide || 0,
+                note: "Cần phân công hướng dẫn viên",
+                tone: "danger",
+              },
+              {
+                label: "Chờ thanh toán",
+                value: bookingsData.intelligence?.waitingPayment || 0,
+                note: "Theo trang hiện tại",
+                tone: "warning",
+              },
+            ].map((card) => (
+              <article
+                key={card.label}
+                className="admin-card"
+                style={{ padding: 18, display: "grid", gap: 8 }}
+              >
+                <span
+                  style={{ color: "#64748b", fontSize: 13, fontWeight: 700 }}
+                >
+                  {card.label}
+                </span>
+                <div
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <strong style={{ fontSize: 30, color: "#0f172a" }}>
+                    {formatNumber(card.value)}
+                  </strong>
+                  <StatusBadge tone={card.tone}>Smart</StatusBadge>
+                </div>
+                <span style={{ color: "#64748b", fontSize: 13 }}>
+                  {card.note}
+                </span>
+              </article>
+            ))}
+          </div>
+
+          <div className="admin-card" style={{ display: "grid", gap: 14 }}>
             <div
-              className="table-search-row"
-              style={{ flex: 1, maxWidth: 600 }}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 16,
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, color: "#0f172a" }}>
+                  Bộ lọc điều hành thông minh
+                </h3>
+                <p
+                  style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}
+                >
+                  Lọc theo ngày khởi hành, điểm đến, thanh toán và tình trạng
+                  HDV.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="btn btn-light btn-sm"
+                  onClick={() => setBookingFilters(initialBookingFilter)}
+                >
+                  Xóa lọc
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() =>
+                    setBookingFilters((prev) => ({
+                      ...prev,
+                      urgency: "high",
+                      page: 1,
+                    }))
+                  }
+                >
+                  Xem đơn cần xử lý
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 12,
+              }}
             >
               <input
                 value={bookingFilters.search}
@@ -1953,10 +2114,9 @@ export default function AdminPage({ initialTab = "overview" }) {
                     page: 1,
                   }))
                 }
-                placeholder="Tìm mã booking, email, số điện thoại..."
+                placeholder="Mã đơn, khách, email, SĐT..."
               />
               <select
-                style={{ width: "200px" }}
                 value={bookingFilters.status}
                 onChange={(e) =>
                   setBookingFilters((prev) => ({
@@ -1966,131 +2126,334 @@ export default function AdminPage({ initialTab = "overview" }) {
                   }))
                 }
               >
-                <option value="">Tất cả trạng thái</option>
-                {["pending_payment", "confirmed", "completed", "cancelled"].map(
-                  (item) => (
-                    <option key={item} value={item}>
-                      {mapLabel("bookingStatus", item)}
-                    </option>
-                  ),
-                )}
+                <option value="">Tất cả trạng thái booking</option>
+                {[
+                  "pending_payment",
+                  "waiting_confirmation",
+                  "confirmed",
+                  "completed",
+                  "cancelled",
+                  "expired",
+                ].map((item) => (
+                  <option key={item} value={item}>
+                    {mapLabel("bookingStatus", item)}
+                  </option>
+                ))}
               </select>
-            </div>
-            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-              <StatusBadge>
-                {formatNumber(bookingsData.pagination.total)} đơn
-              </StatusBadge>
-              <button
-                type="button"
-                className="btn btn-light"
-                onClick={() =>
-                  runExport("bookings", () =>
-                    exportAdminBookings(bookingFilters),
-                  )
+              <select
+                value={bookingFilters.paymentStatus}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    paymentStatus: e.target.value,
+                    page: 1,
+                  }))
                 }
               >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                Xuất Excel
-              </button>
+                <option value="">Tất cả thanh toán</option>
+                {[
+                  "pending",
+                  "waiting_confirmation",
+                  "paid",
+                  "failed",
+                  "expired",
+                  "refunded",
+                ].map((item) => (
+                  <option key={item} value={item}>
+                    {mapLabel("paymentStatus", item)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={bookingFilters.destinationId}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    destinationId: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="">Tất cả điểm đến</option>
+                {destinations.map((dest) => (
+                  <option key={dest.id} value={dest.id}>
+                    {dest.name} · {dest.province}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={bookingFilters.departureFrom}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    departureFrom: e.target.value,
+                    page: 1,
+                  }))
+                }
+              />
+              <input
+                type="date"
+                value={bookingFilters.departureTo}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    departureTo: e.target.value,
+                    page: 1,
+                  }))
+                }
+              />
+              <select
+                value={bookingFilters.guideStatus}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    guideStatus: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="">Tất cả HDV</option>
+                <option value="assigned">Đã có HDV</option>
+                <option value="unassigned">Chưa có HDV</option>
+              </select>
+              <select
+                value={bookingFilters.urgency}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    urgency: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="">Tất cả mức ưu tiên</option>
+                <option value="high">Cần xử lý ngay</option>
+                <option value="upcoming">Sắp khởi hành 7 ngày</option>
+                <option value="payment_review">Cần đối soát thanh toán</option>
+              </select>
+            </div>
+
+            <div
+              style={{
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: 12,
+                padding: 14,
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <strong style={{ color: "#0f172a" }}>
+                Gợi ý xử lý của hệ thống
+              </strong>
+              {(bookingsData.intelligence?.suggestions || []).map(
+                (item, index) => (
+                  <div key={index} style={{ color: "#475569", fontSize: 13 }}>
+                    • {item}
+                  </div>
+                ),
+              )}
             </div>
           </div>
-          <div className="table-wrap">
-            <table className="console-table">
-              <thead>
-                <tr>
-                  <th>Mã đơn</th>
-                  <th>Khách hàng</th>
-                  <th>Tour</th>
-                  <th>SL</th>
-                  <th>Thanh toán</th>
-                  <th>Tổng tiền</th>
-                  <th style={{ textAlign: "right" }}>Thao tác</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bookingsData.items.map((item) => {
-                  const payment = item.payments?.[0];
-                  return (
-                    <tr key={item.id}>
-                      <td>
-                        <strong>{item.bookingCode}</strong>
-                        <div className="table-muted">
-                          {formatDate(item.createdAt)}
-                        </div>
-                      </td>
-                      <td>
-                        <strong>{item.contactName}</strong>
-                        <div className="table-muted">{item.contactEmail}</div>
-                      </td>
+
+          <div
+            className="admin-card"
+            style={{ display: "flex", flexDirection: "column", gap: "24px" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: "16px",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, color: "#0f172a" }}>
+                  Danh sách booking điều hành
+                </h3>
+                <p
+                  style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}
+                >
+                  Hiển thị tour, điểm đến, ngày đi/về, HDV, điểm đón và cảnh báo
+                  ưu tiên.
+                </p>
+              </div>
+              <div
+                style={{ display: "flex", gap: "12px", alignItems: "center" }}
+              >
+                <StatusBadge>
+                  {formatNumber(bookingsData.pagination.total)} đơn
+                </StatusBadge>
+                <button
+                  type="button"
+                  className="btn btn-light"
+                  onClick={() =>
+                    runExport("bookings", () =>
+                      exportAdminBookings(bookingFilters),
+                    )
+                  }
+                >
+                  Xuất Excel
+                </button>
+              </div>
+            </div>
+            <div className="table-wrap">
+              <table className="console-table">
+                <thead>
+                  <tr>
+                    <th>Mã đơn / Ưu tiên</th>
+                    <th>Khách hàng</th>
+                    <th>Tour & điểm đến</th>
+                    <th>Lịch đi</th>
+                    <th>HDV</th>
+                    <th>Điểm đón</th>
+                    <th>Thanh toán</th>
+                    <th>Tổng tiền</th>
+                    <th style={{ textAlign: "right" }}>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bookingsData.items.map((item) => {
+                    const payment = item.latestPayment || item.payments?.[0];
+                    const insight = item.operationInsight || {};
+                    return (
+                      <tr key={item.id}>
+                        <td>
+                          <strong>{item.bookingCode}</strong>
+                          <div
+                            style={{
+                              marginTop: 6,
+                              display: "flex",
+                              gap: 6,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <StatusBadge
+                              tone={toneForPriority(insight.priorityLevel)}
+                            >
+                              {insight.actionLabel || "Ổn định"}
+                            </StatusBadge>
+                            {(insight.flags || []).slice(0, 2).map((flag) => (
+                              <StatusBadge key={flag.code} tone={flag.tone}>
+                                {flag.label}
+                              </StatusBadge>
+                            ))}
+                          </div>
+                        </td>
+                        <td>
+                          <strong>{item.contactName}</strong>
+                          <div className="table-muted">{item.contactPhone}</div>
+                          <div className="table-muted">{item.contactEmail}</div>
+                        </td>
+                        <td style={{ minWidth: 220 }}>
+                          <strong>{item.tour?.name}</strong>
+                          <div className="table-muted">
+                            {item.tour?.destination?.name} ·{" "}
+                            {item.tour?.destination?.province}
+                          </div>
+                        </td>
+                        <td>
+                          <strong>
+                            {formatDate(item.departure?.departureDate)}
+                          </strong>
+                          <div className="table-muted">
+                            Về: {formatDate(item.departure?.endDate)}
+                          </div>
+                          <div className="table-muted">
+                            {formatDaysUntilDeparture(
+                              insight.daysUntilDeparture,
+                            )}
+                          </div>
+                          <div className="table-muted">
+                            {insight.guestCount ||
+                              item.adultCount + item.childCount}{" "}
+                            khách
+                          </div>
+                        </td>
+                        <td>
+                          {insight.guideName ? (
+                            <>
+                              <strong>{insight.guideName}</strong>
+                              <div className="table-muted">Đã phân công</div>
+                            </>
+                          ) : (
+                            <StatusBadge tone="danger">Chưa có HDV</StatusBadge>
+                          )}
+                        </td>
+                        <td style={{ maxWidth: 220 }}>
+                          <strong>{item.pickupName || "Chưa chọn"}</strong>
+                          <div className="table-muted">
+                            {item.pickupAddress || "-"}
+                          </div>
+                        </td>
+                        <td>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 6,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <StatusBadge
+                              tone={toneForBooking(item.bookingStatus)}
+                            >
+                              {mapLabel("bookingStatus", item.bookingStatus)}
+                            </StatusBadge>
+                            {payment && (
+                              <StatusBadge
+                                tone={toneForPayment(payment.paymentStatus)}
+                              >
+                                {mapLabel(
+                                  "paymentStatus",
+                                  payment.paymentStatus,
+                                )}
+                              </StatusBadge>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <strong>{formatCurrency(item.finalAmount)}</strong>
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <button
+                            type="button"
+                            className="btn btn-light btn-sm"
+                            onClick={() => openBookingDetail(item.id)}
+                          >
+                            Chi tiết
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!bookingsData.items.length && (
+                    <tr>
                       <td
+                        colSpan={9}
                         style={{
-                          maxWidth: 200,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
+                          textAlign: "center",
+                          color: "#64748b",
+                          padding: 24,
                         }}
                       >
-                        {item.tour?.name}
-                      </td>
-                      <td>
-                        {item.adultCount} Lớn · {item.childCount} Trẻ
-                      </td>
-                      <td>
-                        <div
-                          style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
-                        >
-                          <StatusBadge
-                            tone={toneForBooking(item.bookingStatus)}
-                          >
-                            {mapLabel("bookingStatus", item.bookingStatus)}
-                          </StatusBadge>
-                          {payment && (
-                            <StatusBadge
-                              tone={toneForPayment(payment.paymentStatus)}
-                            >
-                              {mapLabel("paymentMethod", payment.paymentMethod)}
-                            </StatusBadge>
-                          )}
-                        </div>
-                      </td>
-                      <td>
-                        <strong>{formatCurrency(item.finalAmount)}</strong>
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        <button
-                          type="button"
-                          className="btn btn-light btn-sm"
-                          onClick={() => openBookingDetail(item.id)}
-                        >
-                          Chi tiết
-                        </button>
+                        Không có booking phù hợp bộ lọc.
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              page={bookingsData.pagination.page}
+              totalPages={bookingsData.pagination.totalPages}
+              onPageChange={(page) =>
+                setBookingFilters((prev) => ({ ...prev, page }))
+              }
+            />
           </div>
-          <Pagination
-            page={bookingsData.pagination.page}
-            totalPages={bookingsData.pagination.totalPages}
-            onPageChange={(page) =>
-              setBookingFilters((prev) => ({ ...prev, page }))
-            }
-          />
         </div>
       )}
 
@@ -2892,122 +3255,409 @@ export default function AdminPage({ initialTab = "overview" }) {
       <Modal
         open={bookingDetailOpen}
         onClose={() => setBookingDetailOpen(false)}
-        title="Chi tiết đơn hàng"
+        title="Trung tâm điều hành booking"
         size="xl"
       >
         {bookingDetail ? (
-          <div className="detail-grid">
-            <div className="detail-card">
-              <h4>Thông tin khách hàng</h4>
-              <ul className="detail-list">
-                <li>
-                  <span>Họ và tên</span>
-                  <strong>{bookingDetail.contactName}</strong>
-                </li>
-                <li>
-                  <span>Email</span>
-                  <strong>{bookingDetail.contactEmail}</strong>
-                </li>
-                <li>
-                  <span>Điện thoại</span>
-                  <strong>{bookingDetail.contactPhone}</strong>
-                </li>
-                <li>
-                  <span>Tour</span>
-                  <strong>{bookingDetail.tour?.name}</strong>
-                </li>
-                <li>
-                  <span>Ngày đi</span>
-                  <strong>
-                    {formatDate(bookingDetail.departure?.departureDate)}
-                  </strong>
-                </li>
-                <li>
-                  <span>Hành khách</span>
-                  <strong>
-                    {bookingDetail.adultCount} Lớn · {bookingDetail.childCount}{" "}
-                    Trẻ
-                  </strong>
-                </li>
-                <li
-                  style={{
-                    borderTop: "1px solid #e2e8f0",
-                    paddingTop: 12,
-                    marginTop: 4,
-                  }}
+          <div style={{ display: "grid", gap: 18 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 12,
+              }}
+            >
+              <div className="detail-card">
+                <h4>Mức ưu tiên</h4>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <StatusBadge
+                    tone={toneForPriority(
+                      bookingDetail.operationInsight?.priorityLevel,
+                    )}
+                  >
+                    {bookingDetail.operationInsight?.actionLabel || "Ổn định"}
+                  </StatusBadge>
+                  {(bookingDetail.operationInsight?.flags || []).map((flag) => (
+                    <StatusBadge key={flag.code} tone={flag.tone}>
+                      {flag.label}
+                    </StatusBadge>
+                  ))}
+                </div>
+                <p
+                  style={{ margin: "12px 0 0", color: "#64748b", fontSize: 13 }}
                 >
-                  <span>Tổng tiền</span>
-                  <strong style={{ fontSize: 18, color: "#3b82f6" }}>
-                    {formatCurrency(bookingDetail.finalAmount)}
-                  </strong>
-                </li>
-              </ul>
+                  Hệ thống tự đánh dấu dựa trên ngày khởi hành, trạng thái thanh
+                  toán, HDV, điểm đón và yêu cầu hoàn tiền.
+                </p>
+              </div>
+              <div className="detail-card">
+                <h4>Thông tin khách</h4>
+                <ul className="detail-list">
+                  <li>
+                    <span>Họ tên</span>
+                    <strong>{bookingDetail.contactName}</strong>
+                  </li>
+                  <li>
+                    <span>Email</span>
+                    <strong>{bookingDetail.contactEmail}</strong>
+                  </li>
+                  <li>
+                    <span>Điện thoại</span>
+                    <strong>{bookingDetail.contactPhone}</strong>
+                  </li>
+                  <li>
+                    <span>Tài khoản</span>
+                    <strong>
+                      {bookingDetail.user?.fullName || "Khách vãng lai"}
+                    </strong>
+                  </li>
+                </ul>
+              </div>
+              <div className="detail-card">
+                <h4>Tài chính</h4>
+                <ul className="detail-list">
+                  <li>
+                    <span>Tạm tính</span>
+                    <strong>
+                      {formatCurrency(bookingDetail.originalAmount)}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Voucher</span>
+                    <strong>{bookingDetail.voucherCode || "Không dùng"}</strong>
+                  </li>
+                  <li>
+                    <span>Giảm giá</span>
+                    <strong>
+                      {formatCurrency(bookingDetail.discountAmount)}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Thành tiền</span>
+                    <strong style={{ color: "#2563eb" }}>
+                      {formatCurrency(bookingDetail.finalAmount)}
+                    </strong>
+                  </li>
+                </ul>
+              </div>
             </div>
-            <div className="detail-card">
-              <h4>Lịch sử thanh toán</h4>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "12px",
-                }}
-              >
-                {(bookingDetail.payments || []).map((payment) => (
+
+            <div className="detail-grid">
+              <div className="detail-card">
+                <h4>Thông tin tour & lịch khởi hành</h4>
+                <ul className="detail-list">
+                  <li>
+                    <span>Mã booking</span>
+                    <strong>{bookingDetail.bookingCode}</strong>
+                  </li>
+                  <li>
+                    <span>Tour</span>
+                    <strong>{bookingDetail.tour?.name}</strong>
+                  </li>
+                  <li>
+                    <span>Điểm đến</span>
+                    <strong>
+                      {bookingDetail.tour?.destination?.name} ·{" "}
+                      {bookingDetail.tour?.destination?.province}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Ngày khởi hành</span>
+                    <strong>
+                      {formatDate(bookingDetail.departure?.departureDate)}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Ngày về</span>
+                    <strong>
+                      {formatDate(bookingDetail.departure?.endDate)}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Thời gian còn lại</span>
+                    <strong>
+                      {formatDaysUntilDeparture(
+                        bookingDetail.operationInsight?.daysUntilDeparture,
+                      )}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Số khách</span>
+                    <strong>
+                      {bookingDetail.adultCount} người lớn ·{" "}
+                      {bookingDetail.childCount} trẻ em
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Còn trống</span>
+                    <strong>
+                      {bookingDetail.operationInsight?.remainingSlots ?? "-"}{" "}
+                      chỗ
+                    </strong>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="detail-card">
+                <h4>Hướng dẫn viên</h4>
+                {bookingDetail.activeGuideAssignment ? (
+                  <ul className="detail-list">
+                    <li>
+                      <span>Họ tên</span>
+                      <strong>
+                        {bookingDetail.activeGuideAssignment.guide?.fullName}
+                      </strong>
+                    </li>
+                    <li>
+                      <span>Điện thoại</span>
+                      <strong>
+                        {bookingDetail.activeGuideAssignment.guide?.phone ||
+                          "-"}
+                      </strong>
+                    </li>
+                    <li>
+                      <span>Email</span>
+                      <strong>
+                        {bookingDetail.activeGuideAssignment.guide?.email ||
+                          "-"}
+                      </strong>
+                    </li>
+                    <li>
+                      <span>Ngôn ngữ</span>
+                      <strong>
+                        {bookingDetail.activeGuideAssignment.guide?.languages ||
+                          "-"}
+                      </strong>
+                    </li>
+                    <li>
+                      <span>Trạng thái</span>
+                      <strong>
+                        {bookingDetail.activeGuideAssignment.status}
+                      </strong>
+                    </li>
+                  </ul>
+                ) : (
                   <div
-                    key={payment.id}
                     style={{
-                      background: "#ffffff",
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 8,
-                      padding: 16,
+                      background: "#fff7ed",
+                      border: "1px solid #fed7aa",
+                      borderRadius: 12,
+                      padding: 14,
                     }}
                   >
-                    <div
+                    <StatusBadge tone="danger">Chưa phân công HDV</StatusBadge>
+                    <p
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        marginBottom: 8,
+                        margin: "10px 0 0",
+                        color: "#9a3412",
+                        fontSize: 13,
                       }}
                     >
-                      <strong>
-                        {mapLabel("paymentMethod", payment.paymentMethod)}
-                      </strong>
-                      <StatusBadge tone={toneForPayment(payment.paymentStatus)}>
-                        {mapLabel("paymentStatus", payment.paymentStatus)}
-                      </StatusBadge>
-                    </div>
-                    <div className="table-muted">
-                      Mã GD: {payment.internalTransactionCode}
-                    </div>
-                    <div
-                      className="table-muted"
-                      style={{
-                        marginBottom:
-                          payment.paymentStatus === "waiting_confirmation"
-                            ? 12
-                            : 0,
-                      }}
-                    >
-                      Số tiền:{" "}
-                      <strong style={{ color: "#0f172a" }}>
-                        {formatCurrency(payment.amount)}
-                      </strong>
-                    </div>
-                    {payment.paymentStatus === "waiting_confirmation" && (
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        style={{ width: "100%" }}
-                        onClick={() => confirmPayment(payment.id)}
-                      >
-                        Duyệt khoản thu này
-                      </button>
-                    )}
+                      Booking này cần admin kiểm tra và phân công hướng dẫn viên
+                      nếu sắp khởi hành.
+                    </p>
                   </div>
-                ))}
-                {!(bookingDetail.payments || []).length && (
-                  <p className="table-muted">Chưa có giao dịch.</p>
                 )}
+              </div>
+            </div>
+
+            <div className="detail-grid">
+              <div className="detail-card">
+                <h4>Điểm đón hiện tại</h4>
+                <ul className="detail-list">
+                  <li>
+                    <span>Điểm đón</span>
+                    <strong>{bookingDetail.pickupName || "Chưa chọn"}</strong>
+                  </li>
+                  <li>
+                    <span>Địa chỉ</span>
+                    <strong>{bookingDetail.pickupAddress || "-"}</strong>
+                  </li>
+                  <li>
+                    <span>Giờ đón</span>
+                    <strong>
+                      {bookingDetail.pickupTime
+                        ? formatDateTime(bookingDetail.pickupTime).slice(-5)
+                        : "Travela sẽ liên hệ"}
+                    </strong>
+                  </li>
+                  <li>
+                    <span>Ghi chú</span>
+                    <strong>{bookingDetail.pickupNote || "-"}</strong>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="detail-card">
+                <h4>Sửa điểm đón</h4>
+                {["completed", "cancelled", "expired"].includes(
+                  bookingDetail.bookingStatus,
+                ) ? (
+                  <p className="table-muted">
+                    Booking đã ở trạng thái cuối nên không thể sửa điểm đón.
+                  </p>
+                ) : (
+                  <div style={{ display: "grid", gap: 12 }}>
+                    <select
+                      value={bookingPickupForm.pickupPointId}
+                      onChange={(e) =>
+                        setBookingPickupForm({ pickupPointId: e.target.value })
+                      }
+                    >
+                      <option value="">Chọn điểm đón mới</option>
+                      {(bookingDetail.pickupOptions || []).map((point) => (
+                        <option key={point.id} value={point.id}>
+                          {point.name} · {point.address}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={updateBookingPickup}
+                    >
+                      Cập nhật điểm đón
+                    </button>
+                    <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
+                      Để đảm bảo dữ liệu chỗ và tiền không bị lệch, admin chỉ
+                      được sửa điểm đón; không sửa số lượng khách, tour, ngày
+                      khởi hành hoặc tổng tiền.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="detail-grid">
+              <div className="detail-card">
+                <h4>Lịch sử thanh toán</h4>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "12px",
+                  }}
+                >
+                  {(bookingDetail.payments || []).map((payment) => (
+                    <div
+                      key={payment.id}
+                      style={{
+                        background: "#ffffff",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 8,
+                        padding: 16,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <strong>
+                          {mapLabel("paymentMethod", payment.paymentMethod)}
+                        </strong>
+                        <StatusBadge
+                          tone={toneForPayment(payment.paymentStatus)}
+                        >
+                          {mapLabel("paymentStatus", payment.paymentStatus)}
+                        </StatusBadge>
+                      </div>
+                      <div className="table-muted">
+                        Mã GD: {payment.internalTransactionCode}
+                      </div>
+                      <div className="table-muted">
+                        Số tiền:{" "}
+                        <strong style={{ color: "#0f172a" }}>
+                          {formatCurrency(payment.amount)}
+                        </strong>
+                      </div>
+                      {payment.gatewayTransactionId ? (
+                        <div className="table-muted">
+                          Mã cổng: {payment.gatewayTransactionId}
+                        </div>
+                      ) : null}
+                      {payment.paymentStatus === "waiting_confirmation" && (
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          style={{ width: "100%", marginTop: 12 }}
+                          onClick={() => confirmPayment(payment.id)}
+                        >
+                          Duyệt khoản thu này
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {!(bookingDetail.payments || []).length && (
+                    <p className="table-muted">Chưa có giao dịch.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="detail-card">
+                <h4>Timeline vận hành</h4>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {(bookingDetail.operationTimeline || []).map(
+                    (item, index) => (
+                      <div
+                        key={`${item.label}-${index}`}
+                        style={{
+                          borderLeft: "3px solid #3b82f6",
+                          paddingLeft: 12,
+                        }}
+                      >
+                        <strong style={{ color: "#0f172a" }}>
+                          {item.label}
+                        </strong>
+                        <div className="table-muted">
+                          {formatDateTime(item.time)}
+                        </div>
+                        <div className="table-muted">{item.note}</div>
+                      </div>
+                    ),
+                  )}
+                  {!(bookingDetail.operationTimeline || []).length && (
+                    <p className="table-muted">Chưa có timeline.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="detail-card">
+              <h4>Danh sách hành khách</h4>
+              <div className="table-wrap">
+                <table className="console-table">
+                  <thead>
+                    <tr>
+                      <th>Họ tên</th>
+                      <th>Loại khách</th>
+                      <th>Ngày sinh</th>
+                      <th>Giấy tờ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(bookingDetail.guests || []).map((guest) => (
+                      <tr key={guest.id}>
+                        <td>{guest.fullName}</td>
+                        <td>{guest.guestType}</td>
+                        <td>{formatDate(guest.dateOfBirth)}</td>
+                        <td>{guest.idNumber || "-"}</td>
+                      </tr>
+                    ))}
+                    {!(bookingDetail.guests || []).length && (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          style={{ textAlign: "center", color: "#64748b" }}
+                        >
+                          Chưa có hành khách.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

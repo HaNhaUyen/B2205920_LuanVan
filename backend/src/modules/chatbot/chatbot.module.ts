@@ -6,6 +6,7 @@ import { RagService } from "./rag.service";
 import { RagIndexService } from "./rag-index.service";
 import { ChatbotNluService } from "./chatbot-nlu.service";
 import { ChatbotConfidenceService } from "./chatbot-confidence.service";
+import { ChatbotToolsService } from "./chatbot-tools.service";
 import { PrismaModule } from "../../prisma/prisma.module";
 import { BookingsModule } from "../bookings/bookings.module";
 import { PaymentsModule } from "../payments/payments.module";
@@ -19,6 +20,7 @@ import { PaymentsModule } from "../payments/payments.module";
     RagIndexService,
     ChatbotNluService,
     ChatbotConfidenceService,
+    ChatbotToolsService,
   ],
 })
 export class ChatbotModule {}

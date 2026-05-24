@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import QRCode from "qrcode";
+import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 
@@ -49,13 +48,11 @@ function pickExpiresAt(session) {
 }
 
 export default function PaymentModal({
-  open,
+  open = true,
   paymentSession,
   onClose,
   onPaid,
   onResolve,
-
-  // hỗ trợ kiểu gọi cũ từ tour/[slug].js
   bookingCode,
   amount,
   paymentMethod,
@@ -79,11 +76,11 @@ export default function PaymentModal({
   };
 
   const session = paymentSession || legacySession;
+  const sepayInfo = session?.sepay || {};
 
-  const [qrSrc, setQrSrc] = useState("");
   const [checking, setChecking] = useState(false);
   const [statusText, setStatusText] = useState(
-    "Chờ khách quét mã QR để thanh toán",
+    "Chờ SePay xác nhận giao dịch tiền vào",
   );
   const [remainingSeconds, setRemainingSeconds] = useState(0);
 
@@ -91,35 +88,12 @@ export default function PaymentModal({
   const finalBookingCode = pickBookingCode(session);
   const finalAmount = pickAmount(session);
   const finalExpiresAt = pickExpiresAt(session);
-
-  const mobilePaymentUrl = useMemo(() => {
-    if (typeof window === "undefined" || !finalTransactionCode) return "";
-
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
-
-    return `${siteUrl.replace(/\/$/, "")}/mobile-payment/${encodeURIComponent(finalTransactionCode)}`;
-  }, [finalTransactionCode]);
-
-  useEffect(() => {
-    if (!open || !mobilePaymentUrl) return;
-
-    QRCode.toDataURL(mobilePaymentUrl, {
-      errorCorrectionLevel: "H",
-      type: "image/png",
-      margin: 4,
-      scale: 10,
-      width: 360,
-      color: {
-        dark: "#000000",
-        light: "#ffffff",
-      },
-    })
-      .then(setQrSrc)
-      .catch((error) => {
-        console.error("QR generate error:", error);
-        setQrSrc("");
-      });
-  }, [open, mobilePaymentUrl]);
+  const qrSrc =
+    session?.qrImageUrl || session?.qrCodeUrl || sepayInfo?.qrImageUrl || "";
+  const transferContent =
+    sepayInfo?.transferContent ||
+    session?.transferContent ||
+    finalTransactionCode;
 
   useEffect(() => {
     if (!open || !finalExpiresAt) {
@@ -136,7 +110,6 @@ export default function PaymentModal({
 
     updateCountdown();
     const timer = setInterval(updateCountdown, 1000);
-
     return () => clearInterval(timer);
   }, [open, finalExpiresAt]);
 
@@ -148,7 +121,6 @@ export default function PaymentModal({
     const checkStatus = async () => {
       try {
         setChecking(true);
-
         const res = await apiFetch(
           `/payments/status/${encodeURIComponent(finalTransactionCode)}`,
         );
@@ -159,13 +131,8 @@ export default function PaymentModal({
         if (paymentStatus === "paid") {
           stopped = true;
           setStatusText("Thanh toán thành công");
-
-          if (onPaid) {
-            onPaid(res);
-          } else if (onResolve) {
-            onResolve("paid");
-          }
-
+          if (onPaid) onPaid(res);
+          else if (onResolve) onResolve("paid");
           return;
         }
 
@@ -181,16 +148,15 @@ export default function PaymentModal({
           return;
         }
 
-        setStatusText("Chờ khách quét mã QR để thanh toán");
+        setStatusText("Chờ SePay xác nhận giao dịch tiền vào");
       } catch (error) {
-        setStatusText("Đang chờ xác nhận thanh toán...");
+        setStatusText("Đang chờ xác nhận thanh toán từ SePay...");
       } finally {
         setChecking(false);
       }
     };
 
     checkStatus();
-
     const interval = setInterval(() => {
       if (!stopped) checkStatus();
     }, 2500);
@@ -214,48 +180,41 @@ export default function PaymentModal({
         </button>
 
         <div style={styles.leftPanel}>
-          <div style={styles.methodBadge}>
-            {paymentMethod === "vnpay"
-              ? "VNPay"
-              : paymentMethod === "bank_transfer"
-                ? "Chuyển khoản"
-                : paymentMethod === "card"
-                  ? "Thẻ"
-                  : "Ví MoMo"}
-          </div>
+          <div style={styles.methodBadge}>SePay / MBBank VietQR</div>
 
           <div style={styles.qrOuter}>
             {qrSrc ? (
-              <img src={qrSrc} alt="QR thanh toán" style={styles.qrImage} />
+              <img
+                src={qrSrc}
+                alt="QR thanh toán MBBank"
+                style={styles.qrImage}
+              />
             ) : (
-              <div style={styles.qrPlaceholder}>
-                {mobilePaymentUrl ? "Đang tạo QR..." : "Thiếu mã giao dịch"}
-              </div>
+              <div style={styles.qrPlaceholder}>Thiếu QR thanh toán</div>
             )}
           </div>
 
           <p style={styles.scanNote}>
-            Dùng điện thoại quét mã QR này. Sau khi quét thành công, hệ thống sẽ
-            tự xác nhận thanh toán và gửi email cho khách hàng.
+            Dùng app MBBank hoặc app ngân hàng bất kỳ để quét VietQR. Chuyển
+            đúng số tiền và đúng nội dung để SePay tự xác nhận.
           </p>
 
-          {mobilePaymentUrl ? (
-            <div style={styles.debugLinkBox}>
-              <div style={styles.debugLabel}>Link trong QR để test:</div>
-              <a
-                href={mobilePaymentUrl}
-                target="_blank"
-                rel="noreferrer"
-                style={styles.debugLink}
-              >
-                {mobilePaymentUrl}
-              </a>
+          <div style={styles.debugLinkBox}>
+            <div style={styles.debugLabel}>Thông tin chuyển khoản</div>
+            <div style={styles.debugText}>
+              Ngân hàng: {sepayInfo.bankCode || "MBBank"}
+              <br />
+              STK: {sepayInfo.accountNo || "0788036220"}
+              <br />
+              Chủ TK: {sepayInfo.accountName || "HA NHU UYEN"}
+              <br />
+              Nội dung: <strong>{transferContent || "--"}</strong>
             </div>
-          ) : null}
+          </div>
         </div>
 
         <div style={styles.rightPanel}>
-          <div style={styles.smallBadge}>Cổng thanh toán mô phỏng</div>
+          <div style={styles.smallBadge}>Thanh toán thật qua SePay</div>
           <h2 style={styles.title}>Chi tiết đặt tour</h2>
 
           <div style={styles.infoBox}>
@@ -265,14 +224,12 @@ export default function PaymentModal({
                 {finalBookingCode || "--"}
               </strong>
             </div>
-
             <div style={styles.infoRow}>
-              <span style={styles.infoLabel}>Mã giao dịch</span>
+              <span style={styles.infoLabel}>Mã thanh toán</span>
               <strong style={styles.infoValue}>
                 {finalTransactionCode || "--"}
               </strong>
             </div>
-
             <div style={styles.infoRow}>
               <span style={styles.infoLabel}>Giữ chỗ đến</span>
               <strong style={styles.infoValue}>
@@ -298,8 +255,7 @@ export default function PaymentModal({
           </div>
 
           <p style={styles.bottomNote}>
-            Bước này chưa gửi email. Email xác nhận chỉ được gửi sau khi QR được
-            quét và thanh toán thành công.
+            Email xác nhận chỉ gửi sau khi SePay báo tiền đã vào tài khoản.
           </p>
         </div>
       </div>
@@ -373,7 +329,6 @@ const styles = {
     height: 320,
     display: "block",
     objectFit: "contain",
-    imageRendering: "pixelated",
     borderRadius: 0,
   },
   qrPlaceholder: {
@@ -392,23 +347,15 @@ const styles = {
     margin: 0,
   },
   debugLinkBox: {
-    maxWidth: 360,
+    maxWidth: 380,
     background: "rgba(255,255,255,.08)",
     border: "1px solid rgba(255,255,255,.12)",
     borderRadius: 12,
-    padding: 10,
-    wordBreak: "break-all",
+    padding: 12,
+    wordBreak: "break-word",
   },
-  debugLabel: {
-    fontSize: 12,
-    color: "#cbd5e1",
-    marginBottom: 4,
-  },
-  debugLink: {
-    color: "#bfdbfe",
-    fontSize: 12,
-    lineHeight: 1.4,
-  },
+  debugLabel: { fontSize: 12, color: "#cbd5e1", marginBottom: 6 },
+  debugText: { color: "#bfdbfe", fontSize: 13, lineHeight: 1.7 },
   rightPanel: {
     padding: "52px 40px",
     display: "flex",
@@ -425,15 +372,8 @@ const styles = {
     fontWeight: 800,
     fontSize: 13,
   },
-  title: {
-    fontSize: 28,
-    margin: "12px 0 18px",
-    color: "#0f172a",
-  },
-  infoBox: {
-    display: "grid",
-    gap: 14,
-  },
+  title: { fontSize: 28, margin: "12px 0 18px", color: "#0f172a" },
+  infoBox: { display: "grid", gap: 14 },
   infoRow: {
     background: "#f8fafc",
     borderRadius: 16,
@@ -442,13 +382,8 @@ const styles = {
     justifyContent: "space-between",
     gap: 20,
   },
-  infoLabel: {
-    color: "#64748b",
-  },
-  infoValue: {
-    color: "#0f172a",
-    textAlign: "right",
-  },
+  infoLabel: { color: "#64748b" },
+  infoValue: { color: "#0f172a", textAlign: "right" },
   totalBox: {
     marginTop: 4,
     border: "1px solid #93c5fd",

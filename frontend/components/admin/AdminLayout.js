@@ -4,6 +4,7 @@ import Loading from "@/components/Loading";
 import { API_URL } from "@/lib/config";
 import { clearSession, getUser } from "@/lib/storage";
 import { mapImageUrl } from "@/lib/tour";
+import AdminChatbotWidget from "@/components/admin/AdminChatbotWidget";
 
 const links = [
   { href: "/admin", label: "Dashboard" },
@@ -129,6 +130,8 @@ export default function AdminLayout({
 
         <div className="admin-page-content">{children}</div>
       </main>
+
+      <AdminChatbotWidget user={user} />
     </div>
   );
 }

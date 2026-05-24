@@ -1,19 +1,10 @@
-import { IsEmail, IsOptional, IsString } from 'class-validator';
+import { Type } from "class-transformer";
+import { IsInt, IsOptional, Min } from "class-validator";
 
 export class UpdateBookingDto {
   @IsOptional()
-  @IsString()
-  contactName?: string;
-
-  @IsOptional()
-  @IsEmail()
-  contactEmail?: string;
-
-  @IsOptional()
-  @IsString()
-  contactPhone?: string;
-
-  @IsOptional()
-  @IsString()
-  note?: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  pickupPointId?: number;
 }

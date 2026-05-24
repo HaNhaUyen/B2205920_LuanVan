@@ -45,6 +45,10 @@ backend/sql/setup_full_tour_booking_ai_db.sql
 
 Đây là bản all-in-one: tạo DB, tạo bảng, seed dữ liệu.
 
+```bash
+ngrok http 3001
+```
+
 ### 2) Backend
 
 ```bash
@@ -89,6 +93,7 @@ set VISION_DEVICE=auto
 cd frontend
 npm install
 npm run dev -- -H 0.0.0.0
+npm run dev
 ```
 
 Frontend chạy tại:

@@ -1,14 +1,25 @@
 import { ValidationPipe } from "@nestjs/common";
-import { BigIntInterceptor } from "./common/interceptors/bigint.interceptor";
 import { NestFactory } from "@nestjs/core";
-import { join } from "path";
 import { NestExpressApplication } from "@nestjs/platform-express";
+import { join } from "path";
+
 import { AppModule } from "./app.module";
+import { BigIntInterceptor } from "./common/interceptors/bigint.interceptor";
 import { PrismaService } from "./prisma/prisma.service";
 
+function getCorsOrigins(): string[] {
+  return (process.env.CORS_ORIGIN || "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    cors: true,
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  app.enableCors({
+    origin: getCorsOrigins(),
+    credentials: true,
   });
 
   app.useStaticAssets(join(process.cwd(), "uploads"), {
@@ -36,7 +47,9 @@ async function bootstrap(): Promise<void> {
   await app.listen(port, host);
 
   console.log(`Backend running on http://localhost:${port}/api`);
-  console.log(`Backend LAN access: http://YOUR_IPV4_ADDRESS:${port}/api`);
+  console.log(
+    `SePay webhook local route: http://localhost:${port}/api/payments/sepay-webhook`,
+  );
 }
 
 bootstrap();

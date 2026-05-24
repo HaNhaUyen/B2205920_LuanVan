@@ -362,7 +362,7 @@ function BookingCheckoutCard({ checkout }) {
           Thanh toán booking {checkout.bookingCode}
         </strong>
         <span style={{ color: "#166534", fontSize: 13 }}>
-          Phương thức: {checkout.paymentMethod || "momo"} • Trạng thái:{" "}
+          Phương thức: {checkout.paymentMethod || "bank_transfer"} • Trạng thái:{" "}
           {checkout.paymentStatus || "pending"}
         </span>
       </div>

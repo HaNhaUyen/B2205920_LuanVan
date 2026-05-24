@@ -231,6 +231,8 @@ Quy tắc:
 - Nếu câu hỏi là "tour này", "tour đó", "khách sạn mấy sao", "lịch trình có mệt không" và memory có tour trước đó => intent follow_up.
 - Nếu người dùng muốn tìm/gợi ý tour theo nhu cầu mềm => tour_search hoặc personal_recommendation.
 - Nếu hỏi hoàn tiền/hủy/đổi lịch/chính sách => tour_policy.
+- Nếu hỏi SePay/VietQR/MBBank/mã DH/chuyển khoản/sao chưa xác nhận thanh toán => booking_status.
+- Nếu hỏi số liệu quản lý/dashboard/doanh thu/tour sắp khởi hành/chưa có HDV => general_consulting; dữ liệu quản lý chỉ trả lời khi user là admin.
 - Nếu hỏi điểm đón/giờ đón => pickup_point.
 - Nếu hỏi mã giảm giá/voucher => voucher_check.
 - Nếu muốn đặt/chốt/thanh toán tour => booking_create. Các câu như “đặt tour số 2”, “chốt tour đầu”, “lấy tour này”, “ok đặt luôn” cũng là booking_create.

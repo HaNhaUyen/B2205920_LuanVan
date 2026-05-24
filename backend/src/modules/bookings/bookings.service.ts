@@ -10,12 +10,14 @@ import { AdminUpsertBookingDto } from "./dto/admin-upsert-booking.dto";
 import { UpdateBookingDto } from "./dto/update-booking.dto";
 import { UpdateBookingStatusDto } from "./dto/update-booking-status.dto";
 import { RedisService } from "../../redis/redis.service";
+import { EmailService } from "../../common/services/email.service";
 
 @Injectable()
 export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly emailService: EmailService,
   ) {}
 
   private calcStatusCategory(status: string) {
@@ -166,7 +168,7 @@ export class BookingsService {
   }
 
   private async resolvePickupPoint(
-    tx: Prisma.TransactionClient,
+    tx: Prisma.TransactionClient | PrismaService,
     departure: any,
     pickupPointId?: number,
   ) {
@@ -782,6 +784,197 @@ export class BookingsService {
     });
   }
 
+  private toDateStart(value?: string) {
+    if (!value) return undefined;
+    const date = new Date(`${value}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+
+  private toDateEnd(value?: string) {
+    if (!value) return undefined;
+    const date = new Date(`${value}T23:59:59`);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+
+  private daysUntil(value?: Date | string | null) {
+    if (!value) return null;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const target = new Date(value);
+    target.setHours(0, 0, 0, 0);
+    return Math.ceil((target.getTime() - start.getTime()) / 86400000);
+  }
+
+  private buildOperationInsight(booking: any) {
+    const latestPayment = booking.payments?.[0] || null;
+    const activeGuide = (booking.guideAssignments || []).find(
+      (assignment: any) =>
+        ["assigned", "confirmed"].includes(String(assignment.status || "")),
+    );
+    const daysUntilDeparture = this.daysUntil(booking.departure?.departureDate);
+    const flags: Array<{ code: string; label: string; tone: string }> = [];
+    let priorityScore = 0;
+
+    if (booking.bookingStatus === "pending_payment") {
+      flags.push({
+        code: "WAITING_PAYMENT",
+        label: "Chờ thanh toán",
+        tone: "warning",
+      });
+      priorityScore += 25;
+    }
+
+    if (latestPayment?.paymentStatus === "waiting_confirmation") {
+      flags.push({
+        code: "PAYMENT_REVIEW",
+        label: "Cần duyệt thanh toán",
+        tone: "danger",
+      });
+      priorityScore += 45;
+    }
+
+    if (booking.holdExpiresAt && booking.bookingStatus === "pending_payment") {
+      const minutesLeft = Math.round(
+        (new Date(booking.holdExpiresAt).getTime() - Date.now()) / 60000,
+      );
+      if (minutesLeft <= 5) {
+        flags.push({
+          code: "HOLD_EXPIRING",
+          label: "Sắp hết hạn giữ chỗ",
+          tone: "danger",
+        });
+        priorityScore += 35;
+      }
+    }
+
+    if (
+      daysUntilDeparture !== null &&
+      daysUntilDeparture >= 0 &&
+      daysUntilDeparture <= 7
+    ) {
+      flags.push({
+        code: "UPCOMING",
+        label: `Sắp khởi hành ${daysUntilDeparture} ngày`,
+        tone: daysUntilDeparture <= 2 ? "danger" : "warning",
+      });
+      priorityScore += daysUntilDeparture <= 2 ? 35 : 20;
+    }
+
+    if (
+      daysUntilDeparture !== null &&
+      daysUntilDeparture >= 0 &&
+      daysUntilDeparture <= 7 &&
+      !activeGuide
+    ) {
+      flags.push({ code: "NO_GUIDE", label: "Chưa có HDV", tone: "danger" });
+      priorityScore += 45;
+    }
+
+    if (!booking.pickupPointId && !booking.pickupName) {
+      flags.push({
+        code: "NO_PICKUP",
+        label: "Chưa có điểm đón",
+        tone: "warning",
+      });
+      priorityScore += 15;
+    }
+
+    if (
+      (booking.refundRequests || []).some(
+        (item: any) => item.status === "pending",
+      )
+    ) {
+      flags.push({
+        code: "REFUND_PENDING",
+        label: "Có yêu cầu hoàn tiền",
+        tone: "warning",
+      });
+      priorityScore += 20;
+    }
+
+    const guestCount =
+      Number(booking.adultCount || 0) + Number(booking.childCount || 0);
+    const capacity = booking.departure
+      ? Number(booking.departure.totalSlots || 0) -
+        Number(booking.departure.bookedSlots || 0) -
+        Number(booking.departure.heldSlots || 0)
+      : null;
+
+    return {
+      priorityScore,
+      priorityLevel:
+        priorityScore >= 70
+          ? "high"
+          : priorityScore >= 35
+            ? "medium"
+            : "normal",
+      actionLabel: flags[0]?.label || "Ổn định",
+      daysUntilDeparture,
+      guestCount,
+      remainingSlots: capacity,
+      guideStatus: activeGuide ? "assigned" : "unassigned",
+      guideName: activeGuide?.guide?.fullName || null,
+      paymentStatus: latestPayment?.paymentStatus || "none",
+      paymentMethod: latestPayment?.paymentMethod || null,
+      flags,
+    };
+  }
+
+  private enrichBooking(booking: any) {
+    return {
+      ...booking,
+      latestPayment: booking.payments?.[0] || null,
+      activeGuideAssignment:
+        (booking.guideAssignments || []).find((assignment: any) =>
+          ["assigned", "confirmed"].includes(String(assignment.status || "")),
+        ) || null,
+      operationInsight: this.buildOperationInsight(booking),
+    };
+  }
+
+  private buildAdminIntelligence(items: any[]) {
+    const total = items.length;
+    const highPriority = items.filter(
+      (item) => item.operationInsight?.priorityLevel === "high",
+    ).length;
+    const noGuide = items.filter(
+      (item) => item.operationInsight?.guideStatus === "unassigned",
+    ).length;
+    const upcoming = items.filter((item) => {
+      const days = item.operationInsight?.daysUntilDeparture;
+      return days !== null && days !== undefined && days >= 0 && days <= 7;
+    }).length;
+    const waitingPayment = items.filter(
+      (item) => item.bookingStatus === "pending_payment",
+    ).length;
+    const paymentReview = items.filter(
+      (item) => item.operationInsight?.paymentStatus === "waiting_confirmation",
+    ).length;
+
+    return {
+      totalOnPage: total,
+      highPriority,
+      noGuide,
+      upcoming,
+      waitingPayment,
+      paymentReview,
+      suggestions: [
+        highPriority
+          ? `Có ${highPriority} booking cần ưu tiên xử lý ngay.`
+          : "Không có booking ưu tiên cao trong trang hiện tại.",
+        noGuide
+          ? `${noGuide} booking chưa phân công hướng dẫn viên.`
+          : "Các booking hiển thị đã có hướng dẫn viên hoặc chưa đến hạn cần gán.",
+        upcoming
+          ? `${upcoming} booking sắp khởi hành trong 7 ngày.`
+          : "Không có booking sắp khởi hành trong 7 ngày ở trang này.",
+        paymentReview
+          ? `${paymentReview} khoản thanh toán cần admin đối soát.`
+          : "Không có khoản thanh toán chờ duyệt ở trang này.",
+      ],
+    };
+  }
+
   async findById(id: number) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: BigInt(id) },
@@ -791,6 +984,8 @@ export class BookingsService {
             id: true,
             fullName: true,
             email: true,
+            phone: true,
+            memberTier: true,
           },
         },
         tour: {
@@ -805,14 +1000,10 @@ export class BookingsService {
           orderBy: { createdAt: "desc" },
         },
         guideAssignments: {
-          include: {
-            guide: true,
-          },
+          include: { guide: true },
           orderBy: { createdAt: "desc" },
         },
-        refundRequests: {
-          orderBy: { createdAt: "desc" },
-        },
+        refundRequests: { orderBy: { createdAt: "desc" } },
         guests: true,
         logs: {
           orderBy: { createdAt: "desc" },
@@ -825,7 +1016,50 @@ export class BookingsService {
       throw new NotFoundException("Không tìm thấy booking.");
     }
 
-    return booking;
+    const pickupOptions = await this.prisma.tourPickupPoint.findMany({
+      where: {
+        tourId: booking.tourId,
+        status: "active",
+        OR: [{ departureId: booking.departureId }, { departureId: null }],
+      },
+      orderBy: [{ departureId: "desc" }, { id: "asc" }],
+    });
+
+    return {
+      ...this.enrichBooking(booking),
+      pickupOptions,
+      operationTimeline: [
+        {
+          label: "Tạo booking",
+          time: booking.createdAt,
+          note: `Mã đơn ${booking.bookingCode}`,
+        },
+        ...(booking.payments || []).map((payment: any) => ({
+          label:
+            payment.paymentStatus === "paid"
+              ? "Thanh toán thành công"
+              : "Tạo giao dịch thanh toán",
+          time: payment.paidAt || payment.createdAt,
+          note: `${payment.internalTransactionCode} · ${payment.paymentStatus}`,
+        })),
+        ...(booking.guideAssignments || []).map((assignment: any) => ({
+          label: "Phân công hướng dẫn viên",
+          time: assignment.createdAt,
+          note: `${assignment.guide?.fullName || "HDV"} · ${assignment.status}`,
+        })),
+        ...(booking.logs || []).map((log: any) => ({
+          label: log.actionType || "Cập nhật trạng thái",
+          time: log.createdAt,
+          note: `${log.oldStatus || "-"} → ${log.newStatus || "-"}${log.reason ? ` · ${log.reason}` : ""}`,
+        })),
+      ]
+        .filter((item: any) => item.time)
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.time).getTime() - new Date(a.time).getTime(),
+        )
+        .slice(0, 20),
+    };
   }
 
   async adminList(query: {
@@ -835,6 +1069,11 @@ export class BookingsService {
     status?: string;
     paymentStatus?: string;
     tourId?: string;
+    destinationId?: string;
+    departureFrom?: string;
+    departureTo?: string;
+    guideStatus?: string;
+    urgency?: string;
   }) {
     const page = Math.max(Number(query.page || 1), 1);
     const pageSize = Math.min(Math.max(Number(query.pageSize || 10), 1), 100);
@@ -853,74 +1092,91 @@ export class BookingsService {
       ];
     }
 
-    if (query.status) {
-      where.bookingStatus = query.status;
+    if (query.status) where.bookingStatus = query.status;
+    if (query.tourId) where.tourId = BigInt(query.tourId);
+
+    if (query.destinationId) {
+      where.tour = { is: { destinationId: BigInt(query.destinationId) } };
     }
 
-    if (query.tourId) {
-      where.tourId = BigInt(query.tourId);
+    const departureDateFilter: any = {};
+    const from = this.toDateStart(query.departureFrom);
+    const to = this.toDateEnd(query.departureTo);
+    if (from) departureDateFilter.gte = from;
+    if (to) departureDateFilter.lte = to;
+    if (Object.keys(departureDateFilter).length) {
+      where.departure = { is: { departureDate: departureDateFilter } };
     }
 
     if (query.paymentStatus) {
-      where.payments = {
-        some: {
-          paymentStatus: query.paymentStatus,
-        },
+      where.payments = { some: { paymentStatus: query.paymentStatus } };
+    }
+
+    if (query.guideStatus === "assigned") {
+      where.guideAssignments = {
+        some: { status: { in: ["assigned", "confirmed"] } },
+      };
+    } else if (query.guideStatus === "unassigned") {
+      where.guideAssignments = {
+        none: { status: { in: ["assigned", "confirmed"] } },
       };
     }
 
-    const [items, total] = await Promise.all([
+    const include = {
+      tour: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          destination: { select: { id: true, name: true, province: true } },
+        },
+      },
+      user: { select: { id: true, fullName: true, email: true, phone: true } },
+      departure: true,
+      pickupPoint: true,
+      voucher: true,
+      payments: { take: 1, orderBy: { createdAt: "desc" as const } },
+      guideAssignments: {
+        where: { status: { in: ["assigned", "confirmed"] as any } },
+        include: { guide: true },
+        take: 1,
+        orderBy: { createdAt: "desc" as const },
+      },
+      refundRequests: { where: { status: "pending" as any }, take: 1 },
+    };
+
+    const [rawItems, total] = await Promise.all([
       this.prisma.booking.findMany({
         where,
         skip,
         take: pageSize,
-        orderBy: { createdAt: "desc" },
-        include: {
-          tour: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-              destination: {
-                select: {
-                  id: true,
-                  name: true,
-                  province: true,
-                },
-              },
-            },
-          },
-          user: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-            },
-          },
-          departure: true,
-          pickupPoint: true,
-          voucher: true,
-          payments: {
-            take: 1,
-            orderBy: { createdAt: "desc" },
-          },
-          guideAssignments: {
-            where: {
-              status: { in: ["assigned", "confirmed"] as any },
-            },
-            include: {
-              guide: true,
-            },
-            take: 1,
-            orderBy: { createdAt: "desc" },
-          },
-        },
+        orderBy: [{ createdAt: "desc" }],
+        include,
       }),
       this.prisma.booking.count({ where }),
     ]);
 
+    let items = rawItems.map((item) => this.enrichBooking(item));
+
+    if (query.urgency === "high") {
+      items = items.filter(
+        (item) => item.operationInsight.priorityLevel === "high",
+      );
+    } else if (query.urgency === "upcoming") {
+      items = items.filter((item) => {
+        const days = item.operationInsight.daysUntilDeparture;
+        return days !== null && days !== undefined && days >= 0 && days <= 7;
+      });
+    } else if (query.urgency === "payment_review") {
+      items = items.filter(
+        (item) =>
+          item.operationInsight.paymentStatus === "waiting_confirmation",
+      );
+    }
+
     return {
       items,
+      intelligence: this.buildAdminIntelligence(items),
       pagination: {
         page,
         pageSize,
@@ -933,47 +1189,54 @@ export class BookingsService {
   async adminUpdate(id: number, dto: UpdateBookingDto, changedBy?: bigint) {
     const existing = await this.prisma.booking.findUnique({
       where: { id: BigInt(id) },
+      include: { departure: true },
     });
 
-    if (!existing) {
-      throw new NotFoundException("Không tìm thấy booking.");
-    }
+    if (!existing) throw new NotFoundException("Không tìm thấy booking.");
 
     if (
       ["completed", "cancelled", "expired"].includes(existing.bookingStatus)
     ) {
       throw new BadRequestException(
-        "Booking đã chốt trạng thái cuối, không nên sửa thông tin liên hệ trực tiếp nữa.",
+        "Booking đã ở trạng thái cuối, không thể sửa điểm đón.",
       );
     }
+
+    if (!dto.pickupPointId) {
+      throw new BadRequestException("Vui lòng chọn điểm đón cần cập nhật.");
+    }
+
+    const pickup = await this.resolvePickupPoint(
+      this.prisma,
+      existing.departure,
+      dto.pickupPointId,
+    );
 
     const updated = await this.prisma.booking.update({
       where: { id: BigInt(id) },
       data: {
-        contactName: dto.contactName?.trim() || existing.contactName,
-        contactEmail: dto.contactEmail
-          ? this.normalizeEmail(dto.contactEmail)
-          : existing.contactEmail,
-        contactPhone: dto.contactPhone
-          ? this.normalizePhone(dto.contactPhone)
-          : existing.contactPhone,
-        note: dto.note !== undefined ? dto.note?.trim() || null : existing.note,
+        pickupPointId: pickup?.id || null,
+        pickupName: pickup?.name || null,
+        pickupAddress: pickup?.address || null,
+        pickupTime: pickup?.pickupTime || null,
+        pickupNote: pickup?.note || null,
       },
     });
 
     await this.prisma.bookingStatusLog.create({
       data: {
         bookingId: updated.id,
-        actionType: "other",
+        actionType: "update_pickup",
         oldStatus: existing.bookingStatus,
         newStatus: updated.bookingStatus,
         changedByUserId: changedBy,
         source: "admin",
-        reason: "Booking info updated",
+        reason: "Admin cập nhật điểm đón",
+        note: `Điểm đón mới: ${updated.pickupName || "Chưa chọn"}`,
       },
     });
 
-    return updated;
+    return this.findById(id);
   }
 
   async adminUpdateStatus(
@@ -1157,5 +1420,683 @@ export class BookingsService {
         success: true,
       };
     });
+  }
+
+  private startOfDay(date = new Date()) {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  private endOfDay(date = new Date()) {
+    const d = new Date(date);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }
+
+  private addDays(date: Date, days: number) {
+    const d = new Date(date);
+    d.setDate(d.getDate() + days);
+    return d;
+  }
+
+  private toMoney(value: any) {
+    return Number(value || 0);
+  }
+
+  private buildRange(mode = "week", dateValue?: string) {
+    const base = dateValue ? new Date(`${dateValue}T00:00:00`) : new Date();
+    const safeBase = Number.isNaN(base.getTime()) ? new Date() : base;
+
+    if (mode === "day") {
+      return { start: this.startOfDay(safeBase), end: this.endOfDay(safeBase) };
+    }
+
+    if (mode === "month") {
+      const start = new Date(safeBase.getFullYear(), safeBase.getMonth(), 1);
+      const end = new Date(
+        safeBase.getFullYear(),
+        safeBase.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+      return { start, end };
+    }
+
+    const day = safeBase.getDay() || 7;
+    const start = this.startOfDay(this.addDays(safeBase, 1 - day));
+    const end = this.endOfDay(this.addDays(start, 6));
+    return { start, end };
+  }
+
+  private safePercent(numerator: number, denominator: number) {
+    if (!denominator) return 0;
+    return Math.round((numerator / denominator) * 1000) / 10;
+  }
+
+  private async getDepartureChecklist(departure: any) {
+    const bookings = departure.bookings || [];
+    const confirmedBookings = bookings.filter((b: any) =>
+      ["confirmed", "completed", "waiting_confirmation"].includes(
+        String(b.bookingStatus),
+      ),
+    );
+    const pendingPayments = bookings.filter(
+      (b: any) => String(b.bookingStatus) === "pending_payment",
+    );
+    const noPickup = confirmedBookings.filter(
+      (b: any) => !b.pickupPointId && !b.pickupName,
+    );
+    const noGuide = confirmedBookings.filter(
+      (b: any) => !(b.guideAssignments || []).length,
+    );
+    const emailReminderSent = bookings.some((b: any) =>
+      (b.logs || []).some((log: any) =>
+        String(log.actionType || "").startsWith("bulk_"),
+      ),
+    );
+
+    return {
+      totalBookings: bookings.length,
+      confirmedBookings: confirmedBookings.length,
+      pendingPayments: pendingPayments.length,
+      noPickup: noPickup.length,
+      noGuide: noGuide.length,
+      totalGuests: confirmedBookings.reduce(
+        (sum: number, b: any) =>
+          sum + Number(b.adultCount || 0) + Number(b.childCount || 0),
+        0,
+      ),
+      checklist: {
+        paid: {
+          ok: pendingPayments.length === 0,
+          label: pendingPayments.length
+            ? `${pendingPayments.length} booking chưa thanh toán`
+            : "Đã xử lý thanh toán",
+        },
+        guide: {
+          ok: noGuide.length === 0,
+          label: noGuide.length
+            ? `${noGuide.length} booking chưa có HDV`
+            : "Đã phân công HDV",
+        },
+        pickup: {
+          ok: noPickup.length === 0,
+          label: noPickup.length
+            ? `${noPickup.length} booking thiếu điểm đón`
+            : "Đã có điểm đón",
+        },
+        reminder: {
+          ok: emailReminderSent,
+          label: emailReminderSent
+            ? "Đã ghi nhận nhắc lịch"
+            : "Chưa ghi nhận nhắc lịch",
+        },
+      },
+    };
+  }
+
+  async adminOperationsDashboard() {
+    const todayStart = this.startOfDay();
+    const todayEnd = this.endOfDay();
+    const monthStart = new Date(
+      todayStart.getFullYear(),
+      todayStart.getMonth(),
+      1,
+    );
+    const next7End = this.endOfDay(this.addDays(todayStart, 7));
+    const now = new Date();
+    const soonHold = new Date(Date.now() + 5 * 60 * 1000);
+
+    const [
+      waitingPayment,
+      paidToday,
+      upcomingDepartures,
+      pendingRefunds,
+      expiringHolds,
+      paidPayments,
+      totalPayments,
+      todayRevenueAgg,
+      monthRevenueAgg,
+      noGuideBookings,
+    ] = await Promise.all([
+      this.prisma.booking.count({
+        where: { bookingStatus: "pending_payment" as any },
+      }),
+      this.prisma.payment.count({
+        where: {
+          paymentStatus: "paid" as any,
+          paidAt: { gte: todayStart, lte: todayEnd },
+        },
+      }),
+      this.prisma.tourDeparture.count({
+        where: {
+          departureDate: { gte: todayStart, lte: next7End },
+          status: { in: ["open", "full"] as any },
+        },
+      }),
+      this.prisma.refundRequest.count({ where: { status: "pending" as any } }),
+      this.prisma.booking.count({
+        where: {
+          bookingStatus: "pending_payment" as any,
+          holdExpiresAt: { gte: now, lte: soonHold },
+        },
+      }),
+      this.prisma.payment.count({ where: { paymentStatus: "paid" as any } }),
+      this.prisma.payment.count(),
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: {
+          paymentStatus: "paid" as any,
+          paidAt: { gte: todayStart, lte: todayEnd },
+        },
+      }),
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: {
+          paymentStatus: "paid" as any,
+          paidAt: { gte: monthStart, lte: todayEnd },
+        },
+      }),
+      this.prisma.booking.count({
+        where: {
+          bookingStatus: { in: ["confirmed", "waiting_confirmation"] as any },
+          departure: { departureDate: { gte: todayStart, lte: next7End } },
+          guideAssignments: {
+            none: { status: { in: ["assigned", "confirmed"] } },
+          },
+        },
+      }),
+    ]);
+
+    const alerts = [
+      expiringHolds
+        ? `⚠ Có ${expiringHolds} booking sắp hết hạn thanh toán`
+        : "✅ Không có booking sắp hết hạn thanh toán trong 5 phút tới",
+      noGuideBookings
+        ? `⚠ Có ${noGuideBookings} tour/booking sắp khởi hành nhưng chưa phân công HDV`
+        : "✅ Booking sắp khởi hành đã có HDV hoặc chưa cần gán",
+      pendingRefunds
+        ? `⚠ Có ${pendingRefunds} yêu cầu hoàn tiền đang chờ duyệt`
+        : "✅ Không có yêu cầu hoàn tiền đang chờ duyệt",
+    ];
+
+    return {
+      cards: {
+        waitingPayment,
+        paidToday,
+        upcomingDepartures,
+        noGuideBookings,
+        expiringHolds,
+        pendingRefunds,
+        todayRevenue: this.toMoney(todayRevenueAgg._sum.amount),
+        monthRevenue: this.toMoney(monthRevenueAgg._sum.amount),
+        paymentSuccessRate: this.safePercent(paidPayments, totalPayments),
+      },
+      alerts,
+    };
+  }
+
+  async adminRevenueReport() {
+    const paidPayments = await this.prisma.payment.findMany({
+      where: { paymentStatus: "paid" as any },
+      include: {
+        booking: {
+          include: { tour: { include: { destination: true } }, voucher: true },
+        },
+      },
+      orderBy: { paidAt: "asc" },
+    });
+    const allBookings = await this.prisma.booking.findMany({
+      include: {
+        tour: { include: { destination: true } },
+        payments: { orderBy: { createdAt: "desc" }, take: 1 },
+      },
+    });
+
+    const monthly = new Map<string, number>();
+    const destinationRevenue = new Map<string, number>();
+    const destinationBookings = new Map<string, number>();
+    const tourBookings = new Map<
+      string,
+      {
+        name: string;
+        destination: string;
+        total: number;
+        guests: number;
+        revenue: number;
+      }
+    >();
+    let voucherUsed = 0;
+
+    for (const payment of paidPayments) {
+      const paidAt = payment.paidAt || payment.createdAt;
+      const key = `${paidAt.getFullYear()}-${String(paidAt.getMonth() + 1).padStart(2, "0")}`;
+      monthly.set(key, (monthly.get(key) || 0) + this.toMoney(payment.amount));
+      const destination = payment.booking?.tour?.destination?.name || "Khác";
+      destinationRevenue.set(
+        destination,
+        (destinationRevenue.get(destination) || 0) +
+          this.toMoney(payment.amount),
+      );
+      if (payment.booking?.voucherId) voucherUsed += 1;
+    }
+
+    for (const booking of allBookings) {
+      const destination = booking.tour?.destination?.name || "Khác";
+      destinationBookings.set(
+        destination,
+        (destinationBookings.get(destination) || 0) + 1,
+      );
+      const tourId = String(booking.tourId);
+      const current = tourBookings.get(tourId) || {
+        name: booking.tour?.name || `Tour #${tourId}`,
+        destination,
+        total: 0,
+        guests: 0,
+        revenue: 0,
+      };
+      current.total += 1;
+      current.guests +=
+        Number(booking.adultCount || 0) + Number(booking.childCount || 0);
+      if (["confirmed", "completed"].includes(String(booking.bookingStatus))) {
+        current.revenue += this.toMoney(booking.finalAmount);
+      }
+      tourBookings.set(tourId, current);
+    }
+
+    const cancelled = allBookings.filter(
+      (b: any) => String(b.bookingStatus) === "cancelled",
+    ).length;
+    const paymentSuccess = allBookings.filter((b: any) =>
+      ["paid", "refunded"].includes(String(b.payments?.[0]?.paymentStatus)),
+    ).length;
+
+    const guestsByMonth = new Map<string, number>();
+    allBookings.forEach((b: any) => {
+      const created = new Date(b.createdAt);
+      const key = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}`;
+      guestsByMonth.set(
+        key,
+        (guestsByMonth.get(key) || 0) +
+          Number(b.adultCount || 0) +
+          Number(b.childCount || 0),
+      );
+    });
+
+    return {
+      monthlyRevenue: Array.from(monthly.entries())
+        .map(([month, revenue]) => ({ month, revenue }))
+        .sort((a, b) => a.month.localeCompare(b.month)),
+      topDestinations: Array.from(destinationBookings.entries())
+        .map(([destination, total]) => ({ destination, total }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10),
+      topTours: Array.from(tourBookings.values())
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10),
+      cancelRate: this.safePercent(cancelled, allBookings.length),
+      paymentSuccessRate: this.safePercent(paymentSuccess, allBookings.length),
+      voucherUsageRate: this.safePercent(voucherUsed, paidPayments.length),
+      revenueByDestination: Array.from(destinationRevenue.entries())
+        .map(([destination, revenue]) => ({ destination, revenue }))
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 10),
+      guestsByMonth: Array.from(guestsByMonth.entries())
+        .map(([month, guests]) => ({ month, guests }))
+        .sort((a, b) => a.month.localeCompare(b.month)),
+    };
+  }
+
+  async adminOperationCalendar(query: { mode?: string; date?: string }) {
+    const { start, end } = this.buildRange(query.mode, query.date);
+    const departures = await this.prisma.tourDeparture.findMany({
+      where: { departureDate: { gte: start, lte: end } },
+      include: {
+        tour: { include: { destination: true } },
+        bookings: {
+          where: {
+            bookingStatus: {
+              in: [
+                "pending_payment",
+                "waiting_confirmation",
+                "confirmed",
+                "completed",
+              ] as any,
+            },
+          },
+          include: {
+            payments: { orderBy: { createdAt: "desc" }, take: 1 },
+            guideAssignments: {
+              include: { guide: true },
+              where: { status: { in: ["assigned", "confirmed"] } },
+              take: 1,
+            },
+            logs: { orderBy: { createdAt: "desc" }, take: 5 },
+          },
+        },
+      },
+      orderBy: { departureDate: "asc" },
+    });
+
+    return {
+      mode: query.mode || "week",
+      start,
+      end,
+      days: departures.reduce((acc: any[], dep: any) => {
+        const key = dep.departureDate.toISOString().slice(0, 10);
+        let group = acc.find((item) => item.date === key);
+        if (!group) {
+          group = { date: key, departures: [] };
+          acc.push(group);
+        }
+        const guests = (dep.bookings || []).reduce(
+          (sum: number, b: any) =>
+            sum + Number(b.adultCount || 0) + Number(b.childCount || 0),
+          0,
+        );
+        const noGuide = (dep.bookings || []).filter(
+          (b: any) =>
+            !(b.guideAssignments || []).length &&
+            ["confirmed", "waiting_confirmation"].includes(
+              String(b.bookingStatus),
+            ),
+        ).length;
+        group.departures.push({
+          id: dep.id,
+          tourId: dep.tourId,
+          tourName: dep.tour?.name,
+          destination: dep.tour?.destination?.name,
+          province: dep.tour?.destination?.province,
+          departureDate: dep.departureDate,
+          endDate: dep.endDate,
+          totalSlots: dep.totalSlots,
+          bookedSlots: dep.bookedSlots,
+          heldSlots: dep.heldSlots,
+          guests,
+          bookingCount: dep.bookings?.length || 0,
+          noGuide,
+          status: dep.status,
+        });
+        return acc;
+      }, []),
+    };
+  }
+
+  async adminPredepartureChecklist(query: { days?: string }) {
+    const days = Math.max(Number(query.days || 7), 1);
+    const start = this.startOfDay();
+    const end = this.endOfDay(this.addDays(start, days));
+    const departures = await this.prisma.tourDeparture.findMany({
+      where: {
+        departureDate: { gte: start, lte: end },
+        status: { in: ["open", "full"] as any },
+      },
+      include: {
+        tour: { include: { destination: true } },
+        bookings: {
+          where: {
+            bookingStatus: {
+              in: [
+                "pending_payment",
+                "waiting_confirmation",
+                "confirmed",
+                "completed",
+              ] as any,
+            },
+          },
+          include: {
+            payments: { orderBy: { createdAt: "desc" }, take: 1 },
+            guideAssignments: {
+              include: { guide: true },
+              where: { status: { in: ["assigned", "confirmed"] } },
+              take: 1,
+            },
+            logs: { orderBy: { createdAt: "desc" }, take: 5 },
+          },
+        },
+      },
+      orderBy: { departureDate: "asc" },
+      take: 80,
+    });
+
+    const items = [];
+    for (const dep of departures as any[]) {
+      const checklist = await this.getDepartureChecklist(dep);
+      items.push({
+        id: dep.id,
+        tourName: dep.tour?.name,
+        destination: dep.tour?.destination?.name,
+        province: dep.tour?.destination?.province,
+        departureDate: dep.departureDate,
+        endDate: dep.endDate,
+        daysUntilDeparture: this.daysUntil(dep.departureDate),
+        ...checklist,
+      });
+    }
+    return { days, items };
+  }
+
+  private buildBulkMessage(type: string, booking: any, customMessage?: string) {
+    const tourName = booking.tour?.name || "tour của quý khách";
+    const departureDate = booking.departure
+      ? new Date(booking.departure.departureDate).toLocaleDateString("vi-VN")
+      : "đang cập nhật";
+    const pickup = booking.pickupName
+      ? `${booking.pickupName} - ${booking.pickupAddress || ""}`
+      : "Travela sẽ liên hệ xác nhận";
+    const guide =
+      booking.guideAssignments?.[0]?.guide?.fullName || "Travela sẽ cập nhật";
+    const templates: any = {
+      reminder: `Nhắc lịch: ${tourName} sẽ khởi hành ngày ${departureDate}. Điểm đón: ${pickup}. Vui lòng có mặt trước giờ đón 15 phút.`,
+      pickup: `Thông tin điểm đón của ${tourName}: ${pickup}. Ngày khởi hành: ${departureDate}.`,
+      itinerary_change:
+        customMessage ||
+        `Travela thông báo lịch trình ${tourName} có điều chỉnh. Vui lòng theo dõi thông báo mới nhất từ hệ thống.`,
+      guide_change: `Thông tin hướng dẫn viên của ${tourName}: ${guide}. Ngày khởi hành: ${departureDate}.`,
+    };
+    return templates[type] || customMessage || templates.reminder;
+  }
+
+  async adminBulkNotify(
+    dto: {
+      bookingIds?: Array<string | number>;
+      departureId?: string | number;
+      type?: string;
+      channel?: string;
+      message?: string;
+    },
+    adminId?: bigint,
+  ) {
+    let where: any = {
+      bookingStatus: {
+        in: ["confirmed", "waiting_confirmation", "completed"] as any,
+      },
+    };
+    if (dto.bookingIds?.length) {
+      where.id = { in: dto.bookingIds.map((id) => BigInt(id)) };
+    } else if (dto.departureId) {
+      where.departureId = BigInt(dto.departureId);
+    } else {
+      throw new BadRequestException(
+        "Vui lòng chọn booking hoặc lịch khởi hành cần gửi thông báo.",
+      );
+    }
+
+    const bookings = await this.prisma.booking.findMany({
+      where,
+      include: {
+        user: true,
+        tour: { include: { destination: true } },
+        departure: true,
+        guideAssignments: {
+          include: { guide: true },
+          where: { status: { in: ["assigned", "confirmed"] } },
+          take: 1,
+        },
+      },
+      take: 200,
+    });
+
+    let notificationCount = 0;
+    let emailCount = 0;
+    const errors: string[] = [];
+    for (const booking of bookings as any[]) {
+      const content = this.buildBulkMessage(
+        dto.type || "reminder",
+        booking,
+        dto.message,
+      );
+      if (booking.userId) {
+        await this.prisma.notification.create({
+          data: {
+            title:
+              dto.type === "pickup"
+                ? "Thông tin điểm đón"
+                : dto.type === "guide_change"
+                  ? "Thông tin hướng dẫn viên"
+                  : dto.type === "itinerary_change"
+                    ? "Thông báo thay đổi lịch trình"
+                    : "Nhắc lịch khởi hành tour",
+            message: content.slice(0, 480),
+            content,
+            targetRole: "user" as any,
+            targetUserId: booking.userId,
+            isPublished: true,
+            createdBy: adminId,
+          },
+        });
+        notificationCount += 1;
+      }
+
+      if (
+        ["email", "both"].includes(String(dto.channel || "notification")) &&
+        booking.contactEmail
+      ) {
+        try {
+          await this.emailService.sendMail({
+            to: booking.contactEmail,
+            subject: "Travela - Thông báo tour",
+            text: content,
+            html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>Travela</h2><p>${content}</p><p>Mã booking: <strong>${booking.bookingCode}</strong></p></div>`,
+          });
+          emailCount += 1;
+        } catch (err: any) {
+          errors.push(
+            `${booking.bookingCode}: ${err?.message || "Không gửi được email"}`,
+          );
+        }
+      }
+
+      await this.prisma.bookingStatusLog.create({
+        data: {
+          bookingId: booking.id,
+          actionType: `bulk_${dto.type || "notify"}`,
+          oldStatus: booking.bookingStatus,
+          newStatus: booking.bookingStatus,
+          changedByUserId: adminId,
+          source: "admin",
+          reason: "Admin gửi thông báo hàng loạt",
+          note: content,
+        },
+      });
+    }
+
+    return {
+      success: true,
+      totalBookings: bookings.length,
+      notificationCount,
+      emailCount,
+      errors,
+    };
+  }
+
+  private buildRefundSuggestion(refund: any) {
+    const booking = refund.booking;
+    const latestPayment = booking?.payments?.[0] || null;
+    const createdAt = new Date(booking?.createdAt || refund.createdAt);
+    const requestedAt = new Date(refund.createdAt);
+    const hoursAfterBooking =
+      Math.round(
+        ((requestedAt.getTime() - createdAt.getTime()) / 3600000) * 10,
+      ) / 10;
+    const daysBeforeDeparture = this.daysUntil(
+      booking?.departure?.departureDate,
+    );
+    const bookingStatus = String(booking?.bookingStatus || "");
+    const paymentStatus = String(latestPayment?.paymentStatus || "");
+    const isWithin48Hours = hoursAfterBooking <= 48;
+    const isBefore3Days =
+      daysBeforeDeparture !== null && daysBeforeDeparture >= 3;
+    const hasPaidSignal =
+      ["confirmed", "waiting_confirmation"].includes(bookingStatus) ||
+      ["paid", "waiting_confirmation"].includes(paymentStatus);
+    const eligible = isWithin48Hours && isBefore3Days && hasPaidSignal;
+    const finalAmount = this.toMoney(booking?.finalAmount);
+    return {
+      refundId: refund.id,
+      bookingId: booking?.id,
+      bookingCode: booking?.bookingCode,
+      customerName: booking?.contactName,
+      tourName: booking?.tour?.name,
+      destination: booking?.tour?.destination?.name,
+      requestedAt: refund.createdAt,
+      departureDate: booking?.departure?.departureDate,
+      daysBeforeDeparture,
+      hoursAfterBooking,
+      bookingStatus,
+      paymentStatus,
+      paidAmount:
+        latestPayment &&
+        ["paid", "waiting_confirmation", "refunded"].includes(paymentStatus)
+          ? this.toMoney(latestPayment.amount)
+          : 0,
+      finalAmount,
+      requestedAmount: this.toMoney(refund.refundAmount || finalAmount),
+      suggestedRefundAmount: eligible
+        ? Math.min(
+            this.toMoney(refund.refundAmount || finalAmount),
+            finalAmount,
+          )
+        : 0,
+      eligible,
+      decision: eligible
+        ? "Đề xuất duyệt"
+        : "Đề xuất từ chối/kiểm tra thủ công",
+      reasons: [
+        isWithin48Hours
+          ? "Yêu cầu nằm trong 48 giờ sau khi đặt"
+          : "Quá 48 giờ sau khi đặt",
+        isBefore3Days
+          ? "Còn ít nhất 3 ngày trước khởi hành"
+          : "Không còn đủ 3 ngày trước khởi hành",
+        hasPaidSignal
+          ? "Booking đã thanh toán/đã xác nhận"
+          : "Booking chưa đủ tín hiệu thanh toán",
+      ],
+    };
+  }
+
+  async adminRefundSuggestions(query: { status?: string }) {
+    const refunds = await this.prisma.refundRequest.findMany({
+      where: { status: (query.status || "pending") as any },
+      include: {
+        booking: {
+          include: {
+            tour: { include: { destination: true } },
+            departure: true,
+            payments: { orderBy: { createdAt: "desc" }, take: 1 },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    return {
+      items: refunds.map((refund: any) => this.buildRefundSuggestion(refund)),
+    };
   }
 }

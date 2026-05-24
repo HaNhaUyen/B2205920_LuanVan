@@ -5,7 +5,12 @@ import Modal from "@/components/Modal";
 import Pagination from "@/components/Pagination";
 import { useToast } from "@/components/ToastContext";
 import { apiFetch } from "@/lib/api";
-import { formatDateTime, formatNumber } from "@/lib/format";
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  formatNumber,
+} from "@/lib/format";
 
 const emptyPage = {
   items: [],
@@ -27,101 +32,129 @@ const initialForm = {
   isPublished: true,
 };
 
+const initialBulkFilters = {
+  days: "7",
+  destinationId: "",
+  search: "",
+  onlyMissingGuide: false,
+  onlyUnpaid: false,
+};
+
+const initialBulkForm = {
+  type: "reminder",
+  channels: ["notification"],
+  title: "",
+  message: "",
+  content: "",
+};
+
 function buildQuery(filters) {
   const qs = new URLSearchParams();
   Object.entries(filters || {}).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "")
-      qs.set(key, String(value));
+    if (value === undefined || value === null || value === "") return;
+    if (typeof value === "boolean") qs.set(key, value ? "true" : "false");
+    else qs.set(key, String(value));
   });
   return qs.toString();
 }
 
-// Component Icon hiển thị trên Thẻ Thống kê
-const StatIcon = ({ type }) => {
-  const baseStyle = {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+function shorten(text = "", max = 90) {
+  if (!text) return "--";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function statusBadge(isPublished) {
+  return isPublished ? "Đang hiển thị" : "Đang ẩn";
+}
+
+function bulkTypeLabel(type) {
+  const map = {
+    reminder: "Nhắc lịch khởi hành",
+    pickup_info: "Thông tin điểm đón",
+    itinerary_change: "Thay đổi lịch trình",
+    guide_change: "Đổi hướng dẫn viên",
+    custom: "Nội dung tùy chỉnh",
   };
-  if (type === "total")
-    return (
-      <div style={{ ...baseStyle, background: "#f1f5f9", color: "#475569" }}>
-        <svg
-          width="24"
-          height="24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
-          <polyline points="22,6 12,13 2,6"></polyline>
-        </svg>
-      </div>
-    );
-  if (type === "published")
-    return (
-      <div style={{ ...baseStyle, background: "#dcfce7", color: "#166534" }}>
-        <svg
-          width="24"
-          height="24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-          <polyline points="22 4 12 14.01 9 11.01"></polyline>
-        </svg>
-      </div>
-    );
-  if (type === "hidden")
-    return (
-      <div style={{ ...baseStyle, background: "#fef3c7", color: "#92400e" }}>
-        <svg
-          width="24"
-          height="24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-          <line x1="1" y1="1" x2="23" y2="23"></line>
-        </svg>
-      </div>
-    );
-  if (type === "reads")
-    return (
-      <div style={{ ...baseStyle, background: "#eff6ff", color: "#1d4ed8" }}>
-        <svg
-          width="24"
-          height="24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-          <circle cx="12" cy="12" r="3"></circle>
-        </svg>
-      </div>
-    );
-  return null;
+  return map[type] || type;
+}
+
+function channelLabel(channels = []) {
+  if (channels.includes("both")) return "Thông báo + Email";
+  if (channels.includes("email") && channels.includes("notification"))
+    return "Thông báo + Email";
+  if (channels.includes("email")) return "Email";
+  return "Thông báo trong hệ thống";
+}
+
+function buildDefaultBulkContent(type, target) {
+  if (!target) return { title: "", message: "", content: "" };
+  const tourName = target.tourName || "tour của Travela";
+  const destination = target.destinationName || "điểm đến";
+  const departureDate = formatDate(target.departureDate);
+  const endDate = formatDate(target.endDate);
+  const first = target.bookings?.[0] || {};
+  const pickupName = first.pickupName || "Travela sẽ liên hệ xác nhận";
+  const pickupAddress = first.pickupAddress || "đang cập nhật";
+  const pickupTime = first.pickupTime
+    ? formatDateTime(first.pickupTime).slice(-5)
+    : "Travela sẽ liên hệ";
+  const guideNames = target.guideNames?.length
+    ? target.guideNames.join(", ")
+    : "Travela sẽ cập nhật trong thời gian sớm nhất";
+
+  if (type === "pickup_info") {
+    return {
+      title: `Thông tin điểm đón tour ${tourName}`,
+      message: `Cập nhật điểm đón cho tour khởi hành ngày ${departureDate}.`,
+      content: `Travela thông báo thông tin điểm đón tour ${tourName} (${destination}) khởi hành ngày ${departureDate}. Điểm đón: ${pickupName}. Địa chỉ: ${pickupAddress}. Thời gian đón: ${pickupTime}. Quý khách vui lòng có mặt trước giờ đón 15 phút.`,
+    };
+  }
+
+  if (type === "itinerary_change") {
+    return {
+      title: `Cập nhật lịch trình tour ${tourName}`,
+      message: `Travela có cập nhật lịch trình tour ${departureDate}.`,
+      content: `Travela thông báo tour ${tourName} (${destination}) khởi hành ngày ${departureDate} có điều chỉnh lịch trình. Nội dung chi tiết sẽ được nhân viên Travela liên hệ xác nhận. Rất mong quý khách thông cảm và theo dõi thông báo mới nhất.`,
+    };
+  }
+
+  if (type === "guide_change") {
+    return {
+      title: `Cập nhật hướng dẫn viên tour ${tourName}`,
+      message: "Thông tin hướng dẫn viên đã được cập nhật.",
+      content: `Travela thông báo hướng dẫn viên phụ trách tour ${tourName} (${destination}) khởi hành ngày ${departureDate}: ${guideNames}. Quý khách vui lòng theo dõi thông báo và liên hệ Travela nếu cần hỗ trợ.`,
+    };
+  }
+
+  if (type === "custom") {
+    return {
+      title: "Thông báo từ Travela",
+      message: "Travela gửi thông báo đến quý khách.",
+      content: "Travela gửi thông báo đến quý khách.",
+    };
+  }
+
+  return {
+    title: `Nhắc lịch khởi hành tour ${tourName}`,
+    message: `Tour sẽ khởi hành ngày ${departureDate}.`,
+    content: `Travela nhắc lịch tour ${tourName} (${destination}) sẽ khởi hành ngày ${departureDate} và kết thúc ngày ${endDate}. Điểm đón: ${pickupName}. Địa chỉ: ${pickupAddress}. Thời gian đón: ${pickupTime}. Quý khách vui lòng kiểm tra email, chuẩn bị giấy tờ tùy thân và có mặt trước giờ đón 15 phút.`,
+  };
+}
+
+const cardStyle = {
+  background: "#fff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 18,
+  padding: 20,
+  boxShadow: "0 10px 30px rgba(15,23,42,.04)",
 };
 
 export default function AdminNotificationsPage() {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState("list");
   const [submitting, setSubmitting] = useState(false);
+
   const [filters, setFilters] = useState(initialFilters);
   const [data, setData] = useState(emptyPage);
   const [modalOpen, setModalOpen] = useState(false);
@@ -129,12 +162,39 @@ export default function AdminNotificationsPage() {
   const [detail, setDetail] = useState(null);
   const [form, setForm] = useState(initialForm);
 
+  const [bulkFilters, setBulkFilters] = useState(initialBulkFilters);
+  const [bulkData, setBulkData] = useState({
+    items: [],
+    destinations: [],
+    summary: {},
+  });
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [selectedTarget, setSelectedTarget] = useState(null);
+  const [selectedBookingIds, setSelectedBookingIds] = useState([]);
+  const [bulkForm, setBulkForm] = useState(initialBulkForm);
+  const [bulkResult, setBulkResult] = useState(null);
+
   const loadData = async (nextFilters = filters) => {
     setData(await apiFetch(`/admin/notifications?${buildQuery(nextFilters)}`));
   };
 
+  const loadBulkTargets = async (nextFilters = bulkFilters) => {
+    setBulkLoading(true);
+    try {
+      const result = await apiFetch(
+        `/admin/notifications/bulk-targets?${buildQuery(nextFilters)}`,
+      );
+      setBulkData(result);
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   useEffect(() => {
-    loadData(initialFilters)
+    Promise.all([loadData(initialFilters), loadBulkTargets(initialBulkFilters)])
       .catch((error) => showToast(error.message, "error"))
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -156,6 +216,8 @@ export default function AdminNotificationsPage() {
       ),
     };
   }, [data]);
+
+  const bulkStats = bulkData.summary || {};
 
   const openCreate = () => {
     setForm(initialForm);
@@ -194,6 +256,7 @@ export default function AdminNotificationsPage() {
         message: form.message,
         content: form.content,
         isPublished: form.isPublished,
+        targetRole: "user",
       };
 
       if (form.id) {
@@ -230,219 +293,327 @@ export default function AdminNotificationsPage() {
     }
   };
 
+  const openBulkModal = (target) => {
+    const defaults = buildDefaultBulkContent("reminder", target);
+    setSelectedTarget(target);
+    setSelectedBookingIds((target.bookings || []).map((b) => String(b.id)));
+    setBulkForm({ ...initialBulkForm, ...defaults });
+    setBulkResult(null);
+    setBulkModalOpen(true);
+  };
+
+  const changeBulkType = (type) => {
+    const defaults = buildDefaultBulkContent(type, selectedTarget);
+    setBulkForm((prev) => ({ ...prev, type, ...defaults }));
+  };
+
+  const toggleChannel = (channel) => {
+    setBulkForm((prev) => {
+      const exists = prev.channels.includes(channel);
+      const channels = exists
+        ? prev.channels.filter((item) => item !== channel)
+        : [...prev.channels, channel];
+      return {
+        ...prev,
+        channels: channels.length ? channels : ["notification"],
+      };
+    });
+  };
+
+  const toggleBooking = (bookingId) => {
+    setSelectedBookingIds((prev) => {
+      const id = String(bookingId);
+      return prev.includes(id)
+        ? prev.filter((item) => item !== id)
+        : [...prev, id];
+    });
+  };
+
+  const submitBulk = async () => {
+    if (!selectedTarget) return;
+    if (!selectedBookingIds.length) {
+      showToast("Cần chọn ít nhất 1 booking để gửi.", "error");
+      return;
+    }
+    if (!bulkForm.title.trim() || !bulkForm.content.trim()) {
+      showToast("Cần nhập tiêu đề và nội dung gửi.", "error");
+      return;
+    }
+
+    setSubmitting(true);
+    setBulkResult(null);
+    try {
+      const result = await apiFetch(`/admin/notifications/bulk-send`, {
+        method: "POST",
+        body: JSON.stringify({
+          departureId: selectedTarget.departureId,
+          bookingIds: selectedBookingIds,
+          ...bulkForm,
+        }),
+      });
+      setBulkResult(result);
+      showToast("Đã xử lý gửi hàng loạt.", "success");
+      await Promise.all([loadData(), loadBulkTargets()]);
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading) return <Loading text="Đang tải quản lý thông báo..." />;
 
   return (
-    <AdminLayout current="/admin/notifications" title="Quản lý thông báo">
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-          .modern-input {
-            width: 100%;
-            padding: 12px 16px;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
-            background: #f8fafc;
-            color: #1f2937;
-            font-size: 0.95rem;
-            transition: all 0.2s ease;
-            outline: none;
+    <AdminLayout
+      current="/admin/notifications"
+      title="Quản lý thông báo"
+      subtitle="Tạo thông báo thường và gửi thông báo/email hàng loạt theo lịch khởi hành."
+    >
+      <style jsx global>{`
+        .notify-tabs {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-bottom: 20px;
+        }
+        .notify-tab {
+          border: 1px solid #dbe3ef;
+          background: #fff;
+          color: #334155;
+          border-radius: 999px;
+          padding: 10px 16px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .notify-tab.active {
+          background: #0f172a;
+          color: white;
+          border-color: #0f172a;
+        }
+        .smart-card {
+          background: #fff;
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          padding: 20px;
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+        }
+        .smart-input {
+          width: 100%;
+          border: 1px solid #dbe3ef;
+          background: #f8fafc;
+          border-radius: 12px;
+          padding: 11px 13px;
+          outline: none;
+        }
+        .smart-input:focus {
+          border-color: #72b44b;
+          background: #fff;
+          box-shadow: 0 0 0 3px rgba(114, 180, 75, 0.13);
+        }
+        .smart-grid {
+          display: grid;
+          gap: 16px;
+        }
+        .smart-stat-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 14px;
+          margin-bottom: 18px;
+        }
+        .smart-stat {
+          background: #fff;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 16px;
+        }
+        .smart-stat strong {
+          display: block;
+          font-size: 1.6rem;
+          color: #0f172a;
+        }
+        .smart-stat span {
+          color: #64748b;
+          font-size: 0.9rem;
+        }
+        .target-card {
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          padding: 18px;
+          background: #fff;
+          display: grid;
+          gap: 14px;
+        }
+        .target-card.warn {
+          border-color: #fed7aa;
+          background: #fffaf5;
+        }
+        .target-header {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+        .pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border-radius: 999px;
+          padding: 5px 10px;
+          font-size: 0.8rem;
+          font-weight: 700;
+          background: #f1f5f9;
+          color: #334155;
+        }
+        .pill.green {
+          background: #dcfce7;
+          color: #166534;
+        }
+        .pill.red {
+          background: #fee2e2;
+          color: #991b1b;
+        }
+        .pill.yellow {
+          background: #fef3c7;
+          color: #92400e;
+        }
+        .pill.blue {
+          background: #dbeafe;
+          color: #1d4ed8;
+        }
+        .checklist {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+          gap: 8px;
+        }
+        .checkitem {
+          padding: 9px 10px;
+          border-radius: 12px;
+          background: #f8fafc;
+          color: #475569;
+          font-size: 0.88rem;
+          font-weight: 600;
+        }
+        .checkitem.ok {
+          background: #ecfdf5;
+          color: #047857;
+        }
+        .checkitem.bad {
+          background: #fff7ed;
+          color: #c2410c;
+        }
+        .table-wrap {
+          overflow: auto;
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          background: #fff;
+        }
+        .notify-table {
+          width: 100%;
+          min-width: 760px;
+          border-collapse: collapse;
+        }
+        .notify-table th {
+          text-align: left;
+          background: #f8fafc;
+          color: #475569;
+          font-size: 0.8rem;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          padding: 14px 16px;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .notify-table td {
+          padding: 14px 16px;
+          border-bottom: 1px solid #eef2f7;
+          vertical-align: top;
+        }
+        .bulk-booking-list {
+          max-height: 300px;
+          overflow: auto;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+        }
+        .bulk-booking-row {
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          gap: 10px;
+          align-items: center;
+          padding: 10px 12px;
+          border-bottom: 1px solid #eef2f7;
+        }
+        @media (max-width: 768px) {
+          .target-header {
+            display: grid;
           }
-          .modern-input:focus {
-            background: #fff;
-            border-color: #72b44b;
-            box-shadow: 0 0 0 3px rgba(114, 180, 75, 0.15);
-          }
-          .admin-table-row { transition: background-color 0.2s; }
-          .admin-table-row:hover { background-color: #f8fafc; }
-          
-          .table-responsive-container {
-            width: 100%;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            border-radius: 20px; 
-          }
-          .table-responsive-container::-webkit-scrollbar { height: 8px; }
-          .table-responsive-container::-webkit-scrollbar-track { background: #f8fafc; border-radius: 0 0 20px 20px; }
-          .table-responsive-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
-          
-          .console-table {
-            width: 100%;
-            min-width: 800px;
-            border-collapse: collapse;
-          }
+        }
+      `}</style>
 
-          @media (max-width: 768px) {
-            .search-filter-row { flex-direction: column; }
-            .toolbar-actions button { width: 100%; justify-content: center; }
-          }
-        `,
-        }}
-      />
-
-      {/* KHỐI THỐNG KÊ */}
-      <section
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: 20,
-          marginBottom: 24,
-        }}
-      >
-        {[
-          {
-            label: "Tổng thông báo",
-            value: stats.total,
-            tone: "#0f172a",
-            iconType: "total",
-          },
-          {
-            label: "Đang hiển thị",
-            value: stats.published,
-            tone: "#16a34a",
-            iconType: "published",
-          },
-          {
-            label: "Đang ẩn",
-            value: stats.hidden,
-            tone: "#d97706",
-            iconType: "hidden",
-          },
-          {
-            label: "Lượt đã xem",
-            value: stats.reads,
-            tone: "#2563eb",
-            iconType: "reads",
-          },
-        ].map((item) => (
-          <article
-            key={item.label}
-            className="admin-card"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-              background: "#fff",
-              padding: "24px",
-              borderRadius: "20px",
-              border: "1px solid #f1f5f9",
-              boxShadow: "0 10px 30px rgba(15,23,42,0.03)",
-            }}
-          >
-            <StatIcon type={item.iconType} />
-            <div>
-              <strong
-                style={{
-                  display: "block",
-                  fontSize: "1.8rem",
-                  color: item.tone,
-                  lineHeight: 1,
-                  marginBottom: 4,
-                }}
-              >
-                {formatNumber(item.value)}
-              </strong>
-              <span style={{ color: "#64748b", fontSize: "0.9rem" }}>
-                {item.label}
-              </span>
-            </div>
-          </article>
-        ))}
-      </section>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-        {/* THANH CÔNG CỤ (TOOLBAR) & BỘ LỌC */}
-        <div
-          className="admin-card"
-          style={{
-            background: "#fff",
-            padding: "24px",
-            borderRadius: "20px",
-            boxShadow: "0 10px 30px rgba(15,23,42,0.03)",
-            border: "1px solid #f1f5f9",
-          }}
+      <div className="notify-tabs">
+        <button
+          className={`notify-tab ${tab === "list" ? "active" : ""}`}
+          onClick={() => setTab("list")}
         >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "16px",
-              marginBottom: "20px",
-            }}
-          >
-            <h2 style={{ margin: 0, color: "#0f172a", fontSize: "1.4rem" }}>
-              Danh sách thông báo
-            </h2>
-            <div className="toolbar-actions">
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{
-                  background: "linear-gradient(135deg, #72b44b, #5a9d34)",
-                  border: "none",
-                  color: "#fff",
-                  fontWeight: 600,
-                  boxShadow: "0 4px 12px rgba(114, 180, 75, 0.2)",
-                }}
-                onClick={openCreate}
-              >
-                + Thêm thông báo
-              </button>
-            </div>
-          </div>
+          Danh sách thông báo
+        </button>
+        <button
+          className={`notify-tab ${tab === "bulk" ? "active" : ""}`}
+          onClick={() => setTab("bulk")}
+        >
+          Gửi hàng loạt theo tour
+        </button>
+      </div>
 
-          <div
-            className="search-filter-row"
-            style={{
-              display: "flex",
-              gap: "16px",
-            }}
-          >
-            <div style={{ position: "relative", flex: "3" }}>
-              <svg
-                width="18"
-                height="18"
-                fill="none"
-                stroke="#64748b"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{
-                  position: "absolute",
-                  left: "14px",
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                }}
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
+      {tab === "list" && (
+        <>
+          <section className="smart-stat-grid">
+            <div className="smart-stat">
+              <strong>{formatNumber(stats.total)}</strong>
+              <span>Tổng thông báo</span>
+            </div>
+            <div className="smart-stat">
+              <strong>{formatNumber(stats.published)}</strong>
+              <span>Đang hiển thị</span>
+            </div>
+            <div className="smart-stat">
+              <strong>{formatNumber(stats.hidden)}</strong>
+              <span>Đang ẩn</span>
+            </div>
+            <div className="smart-stat">
+              <strong>{formatNumber(stats.reads)}</strong>
+              <span>Lượt đã xem</span>
+            </div>
+          </section>
+
+          <section className="smart-card" style={{ marginBottom: 18 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 180px auto",
+                gap: 12,
+                alignItems: "center",
+              }}
+            >
               <input
-                className="modern-input"
-                style={{ paddingLeft: "42px", background: "#fff" }}
-                placeholder="Tìm theo tiêu đề hoặc nội dung..."
+                className="smart-input"
+                placeholder="Tìm tiêu đề, mô tả, nội dung..."
                 value={filters.search}
                 onChange={(e) =>
                   setFilters((prev) => ({
                     ...prev,
-                    page: 1,
                     search: e.target.value,
+                    page: 1,
                   }))
                 }
               />
-            </div>
-            <div style={{ flex: 1, minWidth: "160px" }}>
               <select
-                className="modern-input"
-                style={{ cursor: "pointer", background: "#fff" }}
+                className="smart-input"
                 value={filters.isPublished}
                 onChange={(e) =>
                   setFilters((prev) => ({
                     ...prev,
-                    page: 1,
                     isPublished: e.target.value,
+                    page: 1,
                   }))
                 }
               >
@@ -450,177 +621,52 @@ export default function AdminNotificationsPage() {
                 <option value="true">Đang hiển thị</option>
                 <option value="false">Đang ẩn</option>
               </select>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={openCreate}
+              >
+                + Tạo thông báo
+              </button>
             </div>
-          </div>
-        </div>
+          </section>
 
-        {/* BẢNG DỮ LIỆU */}
-        <div
-          className="admin-card table-wrap"
-          style={{
-            background: "#fff",
-            borderRadius: "20px",
-            boxShadow: "0 10px 30px rgba(15,23,42,0.03)",
-            border: "1px solid #f1f5f9",
-            overflow: "hidden",
-          }}
-        >
-          <div className="table-responsive-container">
-            <table className="console-table">
+          <div className="table-wrap">
+            <table className="notify-table">
               <thead>
-                <tr
-                  style={{
-                    background: "#f8fafc",
-                    borderBottom: "1px solid #e2e8f0",
-                  }}
-                >
-                  <th
-                    style={{
-                      padding: "16px 24px",
-                      textAlign: "left",
-                      color: "#64748b",
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Tiêu đề & Nội dung
-                  </th>
-                  <th
-                    style={{
-                      padding: "16px 24px",
-                      textAlign: "left",
-                      color: "#64748b",
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Trạng thái
-                  </th>
-                  <th
-                    style={{
-                      padding: "16px 24px",
-                      textAlign: "left",
-                      color: "#64748b",
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Lượt xem
-                  </th>
-                  <th
-                    style={{
-                      padding: "16px 24px",
-                      textAlign: "left",
-                      color: "#64748b",
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Ngày tạo
-                  </th>
-                  <th style={{ padding: "16px 24px", textAlign: "right" }}></th>
+                <tr>
+                  <th>Thông báo</th>
+                  <th>Trạng thái</th>
+                  <th>Lượt xem</th>
+                  <th>Ngày tạo</th>
+                  <th style={{ textAlign: "right" }}>Thao tác</th>
                 </tr>
               </thead>
               <tbody>
-                {data.items?.length ? (
+                {(data.items || []).length ? (
                   data.items.map((item) => (
-                    <tr
-                      key={item.id}
-                      className="admin-table-row"
-                      style={{ borderBottom: "1px solid #f1f5f9" }}
-                    >
-                      <td style={{ padding: "16px 24px" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 4,
-                          }}
-                        >
-                          <strong
-                            style={{ color: "#0f172a", fontSize: "1.05rem" }}
-                          >
-                            {item.title}
-                          </strong>
-                          <span
-                            style={{
-                              color: "#64748b",
-                              fontSize: "0.9rem",
-                              display: "-webkit-box",
-                              WebkitLineClamp: 1,
-                              WebkitBoxOrient: "vertical",
-                              overflow: "hidden",
-                              maxWidth: "400px",
-                            }}
-                          >
-                            {item.message || item.content || "-"}
-                          </span>
+                    <tr key={item.id}>
+                      <td>
+                        <strong>{item.title}</strong>
+                        <div style={{ color: "#64748b", marginTop: 4 }}>
+                          {shorten(item.message || item.content, 110)}
                         </div>
+                        {item.targetUser && (
+                          <div className="pill blue" style={{ marginTop: 8 }}>
+                            Gửi riêng: {item.targetUser.fullName}
+                          </div>
+                        )}
                       </td>
-                      <td
-                        style={{
-                          padding: "16px 24px",
-                          verticalAlign: "middle",
-                        }}
-                      >
+                      <td>
                         <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            color: item.isPublished ? "#16a34a" : "#d97706",
-                            fontWeight: 600,
-                            fontSize: "0.9rem",
-                          }}
+                          className={`pill ${item.isPublished ? "green" : "yellow"}`}
                         >
-                          <span
-                            style={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: "50%",
-                              background: item.isPublished
-                                ? "#16a34a"
-                                : "#d97706",
-                            }}
-                          ></span>
-                          {item.isPublished ? "Đang hiển thị" : "Đang ẩn"}
+                          {statusBadge(item.isPublished)}
                         </span>
                       </td>
-                      <td
-                        style={{
-                          padding: "16px 24px",
-                          verticalAlign: "middle",
-                          color: "#0f172a",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {formatNumber(item?._count?.reads || 0)}
-                      </td>
-                      <td
-                        style={{
-                          padding: "16px 24px",
-                          verticalAlign: "middle",
-                          color: "#64748b",
-                          fontSize: "0.9rem",
-                        }}
-                      >
-                        {formatDateTime(item.createdAt)}
-                      </td>
-                      <td
-                        style={{
-                          padding: "16px 24px",
-                          verticalAlign: "middle",
-                          textAlign: "right",
-                        }}
-                      >
+                      <td>{formatNumber(item?._count?.reads || 0)}</td>
+                      <td>{formatDateTime(item.createdAt)}</td>
+                      <td style={{ textAlign: "right" }}>
                         <div
                           style={{
                             display: "flex",
@@ -632,58 +678,22 @@ export default function AdminNotificationsPage() {
                             type="button"
                             className="btn btn-light btn-sm"
                             onClick={() => openDetail(item.id)}
-                            title="Xem chi tiết"
                           >
-                            <svg
-                              width="18"
-                              height="18"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                              <circle cx="12" cy="12" r="3"></circle>
-                            </svg>
+                            Chi tiết
                           </button>
                           <button
                             type="button"
                             className="btn btn-light btn-sm"
                             onClick={() => openEdit(item)}
-                            title="Chỉnh sửa"
                           >
-                            <svg
-                              width="18"
-                              height="18"
-                              fill="none"
-                              stroke="#3b82f6"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                            </svg>
+                            Sửa
                           </button>
                           <button
                             type="button"
                             className="btn btn-danger btn-sm"
                             onClick={() => removeItem(item.id)}
-                            title="Xóa"
                           >
-                            <svg
-                              width="18"
-                              height="18"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <polyline points="3 6 5 6 21 6"></polyline>
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                            </svg>
+                            Xóa
                           </button>
                         </div>
                       </td>
@@ -695,37 +705,272 @@ export default function AdminNotificationsPage() {
                       colSpan={5}
                       style={{
                         textAlign: "center",
-                        padding: "60px 20px",
+                        padding: 40,
                         color: "#64748b",
                       }}
                     >
-                      Chưa có thông báo phù hợp bộ lọc.
+                      Chưa có thông báo phù hợp.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-        </div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              paddingTop: 16,
+            }}
+          >
+            <Pagination
+              page={data.pagination?.page}
+              totalPages={data.pagination?.totalPages}
+              onPageChange={(page) => setFilters((prev) => ({ ...prev, page }))}
+              compact
+            />
+          </div>
+        </>
+      )}
 
-        {/* PHÂN TRANG */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            paddingBottom: "20px",
-          }}
-        >
-          <Pagination
-            page={data.pagination?.page}
-            totalPages={data.pagination?.totalPages}
-            onPageChange={(page) => setFilters((prev) => ({ ...prev, page }))}
-            compact
-          />
-        </div>
-      </div>
+      {tab === "bulk" && (
+        <>
+          <section className="smart-stat-grid">
+            <div className="smart-stat">
+              <strong>{formatNumber(bulkStats.totalDepartures || 0)}</strong>
+              <span>Lịch có booking</span>
+            </div>
+            <div className="smart-stat">
+              <strong>{formatNumber(bulkStats.totalBookings || 0)}</strong>
+              <span>Booking có thể gửi</span>
+            </div>
+            <div className="smart-stat">
+              <strong>{formatNumber(bulkStats.totalGuests || 0)}</strong>
+              <span>Tổng số khách</span>
+            </div>
+            <div className="smart-stat">
+              <strong>{formatNumber(bulkStats.missingGuide || 0)}</strong>
+              <span>Booking chưa có HDV</span>
+            </div>
+            <div className="smart-stat">
+              <strong>{formatNumber(bulkStats.unpaid || 0)}</strong>
+              <span>Booking chưa thanh toán</span>
+            </div>
+          </section>
 
-      {/* MODAL THÊM / SỬA */}
+          <section className="smart-card" style={{ marginBottom: 18 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "140px 220px 1fr 180px 180px auto",
+                gap: 12,
+                alignItems: "center",
+              }}
+            >
+              <select
+                className="smart-input"
+                value={bulkFilters.days}
+                onChange={(e) =>
+                  setBulkFilters((p) => ({ ...p, days: e.target.value }))
+                }
+              >
+                <option value="1">1 ngày tới</option>
+                <option value="3">3 ngày tới</option>
+                <option value="7">7 ngày tới</option>
+                <option value="14">14 ngày tới</option>
+                <option value="30">30 ngày tới</option>
+              </select>
+              <select
+                className="smart-input"
+                value={bulkFilters.destinationId}
+                onChange={(e) =>
+                  setBulkFilters((p) => ({
+                    ...p,
+                    destinationId: e.target.value,
+                  }))
+                }
+              >
+                <option value="">Tất cả điểm đến</option>
+                {(bulkData.destinations || []).map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="smart-input"
+                placeholder="Tìm tour, booking, khách..."
+                value={bulkFilters.search}
+                onChange={(e) =>
+                  setBulkFilters((p) => ({ ...p, search: e.target.value }))
+                }
+              />
+              <label
+                className="pill"
+                style={{ justifyContent: "center", cursor: "pointer" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={bulkFilters.onlyMissingGuide}
+                  onChange={(e) =>
+                    setBulkFilters((p) => ({
+                      ...p,
+                      onlyMissingGuide: e.target.checked,
+                    }))
+                  }
+                />{" "}
+                Chưa có HDV
+              </label>
+              <label
+                className="pill"
+                style={{ justifyContent: "center", cursor: "pointer" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={bulkFilters.onlyUnpaid}
+                  onChange={(e) =>
+                    setBulkFilters((p) => ({
+                      ...p,
+                      onlyUnpaid: e.target.checked,
+                    }))
+                  }
+                />{" "}
+                Chưa thanh toán
+              </label>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={bulkLoading}
+                onClick={() => loadBulkTargets()}
+              >
+                {bulkLoading ? "Đang lọc..." : "Lọc"}
+              </button>
+            </div>
+          </section>
+
+          <div className="smart-grid">
+            {(bulkData.items || []).length ? (
+              bulkData.items.map((target) => {
+                const hasWarn =
+                  target.missingGuideCount ||
+                  target.unpaidCount ||
+                  target.missingPickupCount;
+                return (
+                  <article
+                    key={target.departureId}
+                    className={`target-card ${hasWarn ? "warn" : ""}`}
+                  >
+                    <div className="target-header">
+                      <div>
+                        <h3 style={{ margin: 0, color: "#0f172a" }}>
+                          {target.tourName}
+                        </h3>
+                        <div style={{ color: "#64748b", marginTop: 4 }}>
+                          {target.destinationName} · Khởi hành{" "}
+                          {formatDate(target.departureDate)} →{" "}
+                          {formatDate(target.endDate)}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 8,
+                            flexWrap: "wrap",
+                            marginTop: 10,
+                          }}
+                        >
+                          <span className="pill blue">
+                            {formatNumber(target.bookingCount)} booking
+                          </span>
+                          <span className="pill">
+                            {formatNumber(target.totalGuests)} khách
+                          </span>
+                          <span
+                            className={
+                              target.unpaidCount ? "pill yellow" : "pill green"
+                            }
+                          >
+                            {target.unpaidCount
+                              ? `${target.unpaidCount} chưa thanh toán`
+                              : "Đã thanh toán đủ"}
+                          </span>
+                          <span
+                            className={
+                              target.missingGuideCount
+                                ? "pill red"
+                                : "pill green"
+                            }
+                          >
+                            {target.missingGuideCount
+                              ? `${target.missingGuideCount} chưa có HDV`
+                              : "Đã có HDV"}
+                          </span>
+                          <span
+                            className={
+                              target.missingPickupCount
+                                ? "pill yellow"
+                                : "pill green"
+                            }
+                          >
+                            {target.missingPickupCount
+                              ? `${target.missingPickupCount} thiếu điểm đón`
+                              : "Đủ điểm đón"}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => openBulkModal(target)}
+                      >
+                        Gửi hàng loạt
+                      </button>
+                    </div>
+
+                    <div className="checklist">
+                      <div
+                        className={`checkitem ${target.checklist?.hasAllPaid ? "ok" : "bad"}`}
+                      >
+                        Thanh toán:{" "}
+                        {target.checklist?.hasAllPaid ? "Đã đủ" : "Còn đơn chờ"}
+                      </div>
+                      <div
+                        className={`checkitem ${target.checklist?.hasAllGuides ? "ok" : "bad"}`}
+                      >
+                        HDV:{" "}
+                        {target.checklist?.hasAllGuides
+                          ? "Đã phân công"
+                          : "Cần phân công"}
+                      </div>
+                      <div
+                        className={`checkitem ${target.checklist?.hasAllPickupPoints ? "ok" : "bad"}`}
+                      >
+                        Điểm đón:{" "}
+                        {target.checklist?.hasAllPickupPoints
+                          ? "Đã có"
+                          : "Cần kiểm tra"}
+                      </div>
+                      <div className="checkitem">
+                        HDV:{" "}
+                        {target.guideNames?.length
+                          ? target.guideNames.join(", ")
+                          : "Chưa có"}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })
+            ) : (
+              <div
+                className="smart-card"
+                style={{ textAlign: "center", color: "#64748b" }}
+              >
+                Không có lịch khởi hành phù hợp bộ lọc.
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       <Modal
         open={modalOpen}
         onClose={() => {
@@ -741,15 +986,7 @@ export default function AdminNotificationsPage() {
             <button
               type="button"
               className="btn btn-light"
-              onClick={() => {
-                setModalOpen(false);
-                setForm(initialForm);
-              }}
-              style={{
-                padding: "12px 24px",
-                borderRadius: "12px",
-                border: "1px solid #e2e8f0",
-              }}
+              onClick={() => setModalOpen(false)}
             >
               Hủy
             </button>
@@ -758,257 +995,309 @@ export default function AdminNotificationsPage() {
               className="btn btn-primary"
               onClick={submitForm}
               disabled={submitting}
-              style={{
-                padding: "12px 24px",
-                borderRadius: "12px",
-                background: "linear-gradient(135deg, #72b44b, #5a9d34)",
-                border: "none",
-                color: "#fff",
-              }}
             >
               {submitting ? "Đang lưu..." : "Lưu thông báo"}
             </button>
           </>
         }
       >
-        <div style={{ display: "grid", gap: 20 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ fontWeight: 600, color: "#334155" }}>
-              Tiêu đề <span style={{ color: "#ef4444" }}>*</span>
-            </label>
+        <div className="smart-grid">
+          <label>
+            Tiêu đề
             <input
-              className="modern-input"
-              placeholder="VD: Khuyến mãi mùa hè..."
+              className="smart-input"
               value={form.title}
               onChange={(e) =>
-                setForm((prev) => ({ ...prev, title: e.target.value }))
+                setForm((p) => ({ ...p, title: e.target.value }))
               }
             />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ fontWeight: 600, color: "#334155" }}>
-              Mô tả ngắn
-            </label>
+          </label>
+          <label>
+            Mô tả ngắn
             <input
-              className="modern-input"
-              placeholder="Tóm tắt hiển thị ngoài danh sách"
+              className="smart-input"
               value={form.message}
               onChange={(e) =>
-                setForm((prev) => ({ ...prev, message: e.target.value }))
+                setForm((p) => ({ ...p, message: e.target.value }))
               }
             />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ fontWeight: 600, color: "#334155" }}>
-              Nội dung chi tiết <span style={{ color: "#ef4444" }}>*</span>
-            </label>
+          </label>
+          <label>
+            Nội dung
             <textarea
-              className="modern-input"
-              rows={8}
-              placeholder="Viết đầy đủ nội dung thông báo vào đây..."
-              style={{ resize: "vertical" }}
+              className="smart-input"
+              rows={7}
               value={form.content}
               onChange={(e) =>
-                setForm((prev) => ({ ...prev, content: e.target.value }))
+                setForm((p) => ({ ...p, content: e.target.value }))
               }
             />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <label style={{ fontWeight: 600, color: "#334155" }}>
-              Trạng thái hiển thị
-            </label>
+          </label>
+          <label>
+            Trạng thái
             <select
-              className="modern-input"
-              style={{ cursor: "pointer" }}
+              className="smart-input"
               value={form.isPublished ? "true" : "false"}
               onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
+                setForm((p) => ({
+                  ...p,
                   isPublished: e.target.value === "true",
                 }))
               }
             >
               <option value="true">Đang hiển thị</option>
-              <option value="false">Lưu nháp (Ẩn)</option>
+              <option value="false">Lưu nháp / Ẩn</option>
             </select>
-          </div>
+          </label>
         </div>
       </Modal>
 
-      {/* MODAL CHI TIẾT */}
       <Modal
         open={detailOpen}
-        onClose={() => {
-          setDetailOpen(false);
-          setDetail(null);
-        }}
+        onClose={() => setDetailOpen(false)}
         title="Chi tiết thông báo"
         size="lg"
       >
-        {detail ? (
-          <div style={{ display: "grid", gap: 24 }}>
-            <div
-              style={{
-                paddingBottom: "20px",
-                borderBottom: "1px solid #f1f5f9",
-              }}
-            >
-              <h2
-                style={{
-                  fontSize: "1.6rem",
-                  color: "#0f172a",
-                  margin: "0 0 12px",
-                }}
-              >
-                {detail.title}
-              </h2>
-              <div
-                style={{
-                  display: "flex",
-                  gap: "12px",
-                  flexWrap: "wrap",
-                  color: "#64748b",
-                  fontSize: "0.85rem",
-                  alignItems: "center",
-                }}
-              >
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    background: detail.isPublished ? "#dcfce7" : "#fef3c7",
-                    padding: "4px 10px",
-                    borderRadius: "6px",
-                    color: detail.isPublished ? "#16a34a" : "#d97706",
-                    fontWeight: 600,
-                  }}
-                >
-                  {detail.isPublished ? "Đang hiển thị" : "Đang ẩn"}
-                </span>
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+        {detail && (
+          <div className="smart-grid">
+            <div className="smart-card">
+              <h3 style={{ marginTop: 0 }}>{detail.title}</h3>
+              <p style={{ color: "#64748b" }}>
+                {detail.message || "Không có mô tả ngắn"}
+              </p>
+              <div style={{ whiteSpace: "pre-wrap" }}>{detail.content}</div>
+            </div>
+            <div className="smart-card">
+              <strong>Người đã xem ({detail.reads?.length || 0})</strong>
+              <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                {(detail.reads || []).slice(0, 20).map((read) => (
+                  <div
+                    key={read.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                    }}
                   >
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <polyline points="12 6 12 12 16 14"></polyline>
-                  </svg>
-                  {formatDateTime(detail.createdAt)}
-                </span>
+                    <span>{read.user?.fullName || read.user?.email}</span>
+                    <span style={{ color: "#64748b" }}>
+                      {formatDateTime(read.readAt)}
+                    </span>
+                  </div>
+                ))}
+                {!detail.reads?.length && (
+                  <span style={{ color: "#64748b" }}>Chưa có lượt xem.</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={bulkModalOpen}
+        onClose={() => {
+          if (!submitting) setBulkModalOpen(false);
+        }}
+        title="Gửi thông báo/email hàng loạt"
+        size="xl"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn-light"
+              onClick={() => setBulkModalOpen(false)}
+            >
+              Đóng
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={submitBulk}
+              disabled={submitting}
+            >
+              {submitting ? "Đang gửi..." : "Gửi hàng loạt"}
+            </button>
+          </>
+        }
+      >
+        {selectedTarget && (
+          <div className="smart-grid">
+            <div className="smart-card">
+              <strong>{selectedTarget.tourName}</strong>
+              <div style={{ color: "#64748b", marginTop: 4 }}>
+                {selectedTarget.destinationName} ·{" "}
+                {formatDate(selectedTarget.departureDate)} →{" "}
+                {formatDate(selectedTarget.endDate)} ·{" "}
+                {selectedBookingIds.length}/{selectedTarget.bookingCount}{" "}
+                booking được chọn
               </div>
             </div>
 
             <div
               style={{
-                padding: 24,
-                borderRadius: 16,
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                whiteSpace: "pre-wrap",
-                lineHeight: 1.7,
-                color: "#334155",
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 14,
               }}
             >
-              {detail.content}
+              <label>
+                Loại gửi
+                <select
+                  className="smart-input"
+                  value={bulkForm.type}
+                  onChange={(e) => changeBulkType(e.target.value)}
+                >
+                  <option value="reminder">Gửi thông báo nhắc lịch</option>
+                  <option value="pickup_info">
+                    Gửi email/thông báo thông tin điểm đón
+                  </option>
+                  <option value="itinerary_change">
+                    Gửi email/thông báo thay đổi lịch trình
+                  </option>
+                  <option value="guide_change">
+                    Gửi thông báo đổi hướng dẫn viên
+                  </option>
+                  <option value="custom">Nội dung tùy chỉnh</option>
+                </select>
+              </label>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>Kênh gửi</div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <label className="pill" style={{ cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={bulkForm.channels.includes("notification")}
+                      onChange={() => toggleChannel("notification")}
+                    />{" "}
+                    Thông báo
+                  </label>
+                  <label className="pill" style={{ cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={bulkForm.channels.includes("email")}
+                      onChange={() => toggleChannel("email")}
+                    />{" "}
+                    Email
+                  </label>
+                </div>
+                <div style={{ color: "#64748b", marginTop: 8 }}>
+                  Đang chọn: {channelLabel(bulkForm.channels)}
+                </div>
+              </div>
+            </div>
+
+            <div className="smart-grid">
+              <label>
+                Tiêu đề
+                <input
+                  className="smart-input"
+                  value={bulkForm.title}
+                  onChange={(e) =>
+                    setBulkForm((p) => ({ ...p, title: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Mô tả ngắn
+                <input
+                  className="smart-input"
+                  value={bulkForm.message}
+                  onChange={(e) =>
+                    setBulkForm((p) => ({ ...p, message: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Nội dung
+                <textarea
+                  rows={7}
+                  className="smart-input"
+                  value={bulkForm.content}
+                  onChange={(e) =>
+                    setBulkForm((p) => ({ ...p, content: e.target.value }))
+                  }
+                />
+              </label>
             </div>
 
             <div>
               <div
                 style={{
                   display: "flex",
-                  alignItems: "center",
                   justifyContent: "space-between",
-                  marginBottom: 16,
+                  alignItems: "center",
+                  marginBottom: 8,
                 }}
               >
-                <h3 style={{ margin: 0, color: "#0f172a", fontSize: "1.2rem" }}>
-                  Danh sách người dùng đã đọc
-                </h3>
-                <span
-                  style={{
-                    background: "#eff6ff",
-                    color: "#1d4ed8",
-                    padding: "4px 12px",
-                    borderRadius: "999px",
-                    fontWeight: "bold",
-                  }}
+                <strong>Danh sách booking nhận thông báo/email</strong>
+                <button
+                  type="button"
+                  className="btn btn-light btn-sm"
+                  onClick={() =>
+                    setSelectedBookingIds(
+                      (selectedTarget.bookings || []).map((b) => String(b.id)),
+                    )
+                  }
                 >
-                  {detail?._count?.reads || 0} lượt
-                </span>
+                  Chọn tất cả
+                </button>
               </div>
-
-              {detail.reads?.length ? (
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fill, minmax(280px, 1fr))",
-                    gap: 12,
-                  }}
-                >
-                  {detail.reads.map((item) => (
-                    <div
-                      key={item.id}
-                      style={{
-                        padding: 16,
-                        borderRadius: 16,
-                        border: "1px solid #f1f5f9",
-                        background: "#fff",
-                        boxShadow: "0 4px 12px rgba(0,0,0,0.02)",
-                      }}
-                    >
-                      <strong
-                        style={{
-                          display: "block",
-                          color: "#0f172a",
-                          marginBottom: 4,
-                        }}
-                      >
-                        {item.user?.fullName || "Khách hàng"}
-                      </strong>
-                      <div style={{ color: "#64748b", fontSize: "0.85rem" }}>
-                        {item.user?.email}
-                      </div>
-                      <div
-                        style={{
-                          color: "#94a3b8",
-                          fontSize: "0.75rem",
-                          marginTop: 4,
-                        }}
-                      >
-                        Xem lúc: {formatDateTime(item.readAt)}
+              <div className="bulk-booking-list">
+                {(selectedTarget.bookings || []).map((booking) => (
+                  <label key={booking.id} className="bulk-booking-row">
+                    <input
+                      type="checkbox"
+                      checked={selectedBookingIds.includes(String(booking.id))}
+                      onChange={() => toggleBooking(booking.id)}
+                    />
+                    <div>
+                      <strong>{booking.bookingCode}</strong> ·{" "}
+                      {booking.contactName}
+                      <div style={{ color: "#64748b", fontSize: ".9rem" }}>
+                        {booking.contactEmail} · {booking.contactPhone} ·{" "}
+                        {booking.paymentStatus || "chưa có payment"} ·{" "}
+                        {booking.guideNames?.length
+                          ? booking.guideNames.join(", ")
+                          : "chưa có HDV"}
                       </div>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div
-                  style={{
-                    padding: "32px",
-                    textAlign: "center",
-                    background: "#f8fafc",
-                    borderRadius: "16px",
-                    color: "#64748b",
-                  }}
-                >
-                  Chưa có ai đọc thông báo này.
-                </div>
-              )}
+                    <div style={{ textAlign: "right", fontWeight: 700 }}>
+                      {formatCurrency(booking.finalAmount)}
+                    </div>
+                  </label>
+                ))}
+              </div>
             </div>
+
+            {bulkResult && (
+              <div
+                className="smart-card"
+                style={{ background: "#f0fdf4", borderColor: "#bbf7d0" }}
+              >
+                <strong>Kết quả gửi</strong>
+                <div style={{ marginTop: 8 }}>
+                  Booking xử lý:{" "}
+                  {formatNumber(bulkResult.counts?.bookings || 0)} · Thông báo
+                  tạo:{" "}
+                  {formatNumber(bulkResult.counts?.notificationCreated || 0)} ·
+                  Email thành công:{" "}
+                  {formatNumber(bulkResult.counts?.emailSuccess || 0)} · Email
+                  lỗi: {formatNumber(bulkResult.counts?.emailFailed || 0)}
+                </div>
+                {!!bulkResult.emailErrors?.length && (
+                  <div style={{ marginTop: 10, color: "#b91c1c" }}>
+                    {bulkResult.emailErrors.slice(0, 5).map((err) => (
+                      <div key={`${err.bookingCode}-${err.email}`}>
+                        {err.bookingCode} - {err.email}: {err.error}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        ) : null}
+        )}
       </Modal>
     </AdminLayout>
   );

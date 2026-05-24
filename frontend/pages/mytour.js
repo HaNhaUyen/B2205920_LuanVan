@@ -251,7 +251,7 @@ function BookingCard({ booking, onPay, onCancel, cancellingId }) {
               onClick={() =>
                 onPay(
                   booking.id,
-                  "momo",
+                  "bank_transfer",
                   booking.bookingCode,
                   booking.finalAmount,
                   booking.holdExpiresAt,
@@ -398,13 +398,14 @@ export default function MyTourPage() {
     try {
       const initiated = await apiFetch(`/payments/initiate/${bookingId}`, {
         method: "POST",
-        body: JSON.stringify({ paymentMethod }),
+        body: JSON.stringify({ paymentMethod: "bank_transfer" }),
       });
 
       setPaymentState({
-        bookingCode,
-        amount,
-        paymentMethod,
+        ...initiated,
+        bookingCode: initiated.bookingCode || bookingCode,
+        amount: initiated.amount || amount,
+        paymentMethod: "bank_transfer",
         txn: initiated.internalTransactionCode || initiated.transactionCode,
         expireAt:
           initiated.holdExpiresAt ||
@@ -1061,13 +1062,17 @@ export default function MyTourPage() {
 
       {paymentState ? (
         <PaymentModal
-          bookingCode={paymentState.bookingCode}
-          amount={paymentState.amount}
-          paymentMethod={paymentState.paymentMethod}
-          txn={paymentState.txn}
-          expireAt={paymentState.expireAt}
+          open={Boolean(paymentState)}
+          paymentSession={paymentState}
           onClose={() => setPaymentState(null)}
-          onResolve={resolvePayment}
+          onPaid={() => {
+            setPaymentState(null);
+            showToast(
+              "Thanh toán thành công! Email xác nhận đã được gửi.",
+              "success",
+            );
+            loadData?.();
+          }}
         />
       ) : null}
     </>

@@ -3,12 +3,14 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { PaymentCallbackDto } from "./dto/payment-callback.dto";
 import { EmailService } from "../../common/services/email.service";
 import { Prisma } from "@prisma/client";
 import { CheckoutPaymentDto } from "./dto/checkout-payment.dto";
+import { SepayWebhookDto } from "./dto/sepay-webhook.dto";
 import { RedisService } from "../../redis/redis.service";
 
 type SupportedPaymentMethod =
@@ -128,7 +130,7 @@ export class PaymentsService {
       momo: "Ví MoMo",
       vnpay: "VNPay",
       card: "Thẻ ngân hàng",
-      bank_transfer: "Chuyển khoản ngân hàng",
+      bank_transfer: "SePay / MBBank VietQR",
       cash: "Tiền mặt",
     };
     return labels[paymentMethod] || paymentMethod;
@@ -153,6 +155,98 @@ export class PaymentsService {
 
   private buildPaymentQrImageUrl(text: string) {
     return `https://quickchart.io/qr?size=280&text=${encodeURIComponent(text)}`;
+  }
+
+  private getSepayBankConfig() {
+    return {
+      bankCode: process.env.SEPAY_BANK_CODE || "MBBank",
+      accountNo: process.env.SEPAY_ACCOUNT_NO || "",
+      accountName: process.env.SEPAY_ACCOUNT_NAME || "TRAVELA",
+      webhookApiKey: process.env.SEPAY_WEBHOOK_API_KEY || "",
+      paymentPrefix: process.env.SEPAY_PAYMENT_PREFIX || "DH",
+    };
+  }
+
+  private generateInternalTransactionCode(suffix = "") {
+    const prefix = this.getSepayBankConfig().paymentPrefix;
+    return `${prefix}${Date.now()}${suffix}`;
+  }
+
+  private buildSepayQrImageUrl(input: { amount: number; description: string }) {
+    const config = this.getSepayBankConfig();
+    if (!config.accountNo) {
+      throw new BadRequestException("Thiếu SEPAY_ACCOUNT_NO trong file .env.");
+    }
+
+    const params = new URLSearchParams({
+      acc: config.accountNo,
+      bank: config.bankCode,
+      amount: String(Math.round(Number(input.amount || 0))),
+      des: input.description,
+      template: "compact",
+    });
+
+    return `https://qr.sepay.vn/img?${params.toString()}`;
+  }
+
+  private buildPaymentSessionResponse(input: {
+    booking: any;
+    payment: any;
+    paymentMethod: SupportedPaymentMethod;
+  }) {
+    const amount = Number(
+      input.payment.amount || input.booking.finalAmount || 0,
+    );
+    const transferContent = input.payment.internalTransactionCode;
+    const qrImageUrl = this.buildSepayQrImageUrl({
+      amount,
+      description: transferContent,
+    });
+    const config = this.getSepayBankConfig();
+
+    return {
+      bookingId: input.booking.id.toString(),
+      bookingCode: input.booking.bookingCode,
+      amount,
+      finalAmount: amount,
+      paymentId: input.payment.id.toString(),
+      internalTransactionCode: transferContent,
+      transactionCode: transferContent,
+      paymentMethod: input.paymentMethod,
+      paymentStatus: input.payment.paymentStatus,
+      holdExpiresAt: input.booking.holdExpiresAt,
+      expiresAt: input.booking.holdExpiresAt,
+      paymentUrl: null,
+      sepay: {
+        bankCode: config.bankCode,
+        accountNo: config.accountNo,
+        accountName: config.accountName,
+        transferContent,
+        qrImageUrl,
+      },
+      qrImageUrl,
+      qrCodeUrl: qrImageUrl,
+    };
+  }
+
+  private verifySepayAuthorization(authorization?: string) {
+    const apiKey = this.getSepayBankConfig().webhookApiKey;
+    if (!apiKey) return;
+
+    const expected = `Apikey ${apiKey}`;
+    if (authorization !== expected) {
+      throw new UnauthorizedException("Webhook SePay không hợp lệ.");
+    }
+  }
+
+  private findTransactionCodeFromSepay(dto: SepayWebhookDto) {
+    const prefix = this.getSepayBankConfig().paymentPrefix;
+    const raw = [dto.code, dto.content, dto.description]
+      .filter(Boolean)
+      .join(" ");
+    const regex = new RegExp(`${prefix}\\d+`, "i");
+    const match = raw.match(regex);
+    return match?.[0]?.toUpperCase() || null;
   }
 
   private ensureBookingOwnership(booking: any, user?: CurrentUserLike) {
@@ -328,19 +422,12 @@ export class PaymentsService {
 
         const holdExpiresAt = this.getHoldExpireAt();
 
-        const initialBookingStatus =
-          dto.paymentMethod === "bank_transfer"
-            ? "waiting_confirmation"
-            : "pending_payment";
+        const initialBookingStatus = "pending_payment";
+        const paymentStatus = "pending";
 
-        const paymentStatus =
-          dto.paymentMethod === "bank_transfer"
-            ? "waiting_confirmation"
-            : "pending";
-
-        const internalTransactionCode = `PAY${Date.now()}${Math.floor(
-          Math.random() * 900 + 100,
-        )}`;
+        const internalTransactionCode = this.generateInternalTransactionCode(
+          String(Math.floor(Math.random() * 900 + 100)),
+        );
 
         const booking = await tx.booking.create({
           data: {
@@ -414,7 +501,11 @@ export class PaymentsService {
         };
       });
 
-      return result;
+      return this.buildPaymentSessionResponse({
+        booking: result.booking,
+        payment: result.payment,
+        paymentMethod: dto.paymentMethod,
+      });
     } finally {
       await this.redisService.releaseLock(lockKey, lockToken);
     }
@@ -493,23 +584,18 @@ export class PaymentsService {
 
     if (reusable) {
       return {
-        bookingId: refreshed.id.toString(),
-        bookingCode: refreshed.bookingCode,
-        amount: Number(refreshed.finalAmount),
-        finalAmount: Number(refreshed.finalAmount),
-        paymentId: reusable.id.toString(),
-        internalTransactionCode: reusable.internalTransactionCode,
-        transactionCode: reusable.internalTransactionCode,
-        paymentUrl: `/mobile-payment/${reusable.internalTransactionCode}`,
-        paymentMethod,
-        holdExpiresAt: refreshed.holdExpiresAt,
-        expiresAt: refreshed.holdExpiresAt,
-        paymentStatus: reusable.paymentStatus,
+        ...this.buildPaymentSessionResponse({
+          booking: refreshed,
+          payment: reusable,
+          paymentMethod,
+        }),
         reused: true,
       };
     }
 
-    const internalTransactionCode = `PAY${Date.now()}${bookingId}`;
+    const internalTransactionCode = this.generateInternalTransactionCode(
+      String(bookingId),
+    );
 
     const payment = await this.prisma.payment.create({
       data: {
@@ -517,22 +603,9 @@ export class PaymentsService {
         paymentMethod,
         internalTransactionCode,
         amount: refreshed.finalAmount,
-        paymentStatus:
-          paymentMethod === "bank_transfer"
-            ? "waiting_confirmation"
-            : "pending",
+        paymentStatus: "pending",
       },
     });
-
-    if (
-      paymentMethod === "bank_transfer" &&
-      refreshed.bookingStatus !== "waiting_confirmation"
-    ) {
-      await this.prisma.booking.update({
-        where: { id: refreshed.id },
-        data: { bookingStatus: "waiting_confirmation" },
-      });
-    }
 
     await this.prisma.bookingStatusLog.create({
       data: {
@@ -540,10 +613,7 @@ export class PaymentsService {
         paymentId: payment.id,
         actionType: "payment_init",
         oldStatus: refreshed.bookingStatus,
-        newStatus:
-          paymentMethod === "bank_transfer"
-            ? "waiting_confirmation"
-            : refreshed.bookingStatus,
+        newStatus: refreshed.bookingStatus,
         source: user?.userId ? "user" : "system",
         reason: "Payment initiated",
         note: `Method: ${paymentMethod}`,
@@ -551,18 +621,11 @@ export class PaymentsService {
     });
 
     return {
-      bookingId: refreshed.id.toString(),
-      bookingCode: refreshed.bookingCode,
-      amount: Number(refreshed.finalAmount),
-      finalAmount: Number(refreshed.finalAmount),
-      paymentId: payment.id.toString(),
-      internalTransactionCode,
-      transactionCode: internalTransactionCode,
-      paymentUrl: `/mobile-payment/${internalTransactionCode}`,
-      paymentMethod,
-      holdExpiresAt: refreshed.holdExpiresAt,
-      expiresAt: refreshed.holdExpiresAt,
-      paymentStatus: payment.paymentStatus,
+      ...this.buildPaymentSessionResponse({
+        booking: refreshed,
+        payment,
+        paymentMethod,
+      }),
       reused: false,
     };
   }
@@ -601,35 +664,15 @@ export class PaymentsService {
     if (!payment)
       throw new NotFoundException("Không tìm thấy giao dịch thanh toán.");
 
-    if (payment.paymentStatus === "paid") {
-      return {
-        success: true,
-        message: "Already paid",
-        bookingId: payment.bookingId.toString(),
-        bookingCode: payment.booking?.bookingCode || null,
-        transactionCode: payment.internalTransactionCode,
-        internalTransactionCode: payment.internalTransactionCode,
-        paymentStatus: "paid",
-      };
-    }
-
-    const result = await this.handleCallback({
-      internalTransactionCode: transactionCode,
-      gatewayTransactionId: `QR-${transactionCode}-${Date.now()}`,
-      paymentStatus: "paid",
-    });
-
-    const fresh = await this.prisma.payment.findUnique({
-      where: { internalTransactionCode: transactionCode },
-      include: { booking: true },
-    });
-
     return {
-      ...result,
-      bookingCode: fresh?.booking?.bookingCode || null,
-      transactionCode,
-      internalTransactionCode: transactionCode,
-      paymentStatus: "paid",
+      success: true,
+      message:
+        "Thanh toán thật sẽ được xác nhận tự động bằng webhook SePay sau khi tiền vào tài khoản.",
+      bookingId: payment.bookingId.toString(),
+      bookingCode: payment.booking?.bookingCode || null,
+      transactionCode: payment.internalTransactionCode,
+      internalTransactionCode: payment.internalTransactionCode,
+      paymentStatus: payment.paymentStatus,
     };
   }
 
@@ -780,6 +823,60 @@ export class PaymentsService {
       ...transactionResult,
       email,
     };
+  }
+
+  async handleSepayWebhook(dto: SepayWebhookDto, authorization?: string) {
+    this.verifySepayAuthorization(authorization);
+
+    if (dto.transferType !== "in") {
+      return { success: true, ignored: true, reason: "Not incoming transfer" };
+    }
+
+    const config = this.getSepayBankConfig();
+    if (
+      config.accountNo &&
+      String(dto.accountNumber) !== String(config.accountNo)
+    ) {
+      return {
+        success: true,
+        ignored: true,
+        reason: "Account number mismatch",
+      };
+    }
+
+    const transactionCode = this.findTransactionCodeFromSepay(dto);
+    if (!transactionCode) {
+      return { success: true, ignored: true, reason: "No payment code found" };
+    }
+
+    const payment = await this.prisma.payment.findUnique({
+      where: { internalTransactionCode: transactionCode },
+      include: { booking: true },
+    });
+
+    if (!payment) {
+      return { success: true, ignored: true, reason: "Payment not found" };
+    }
+
+    if (payment.paymentStatus === "paid") {
+      return { success: true, ignored: true, reason: "Already paid" };
+    }
+
+    const expectedAmount = Math.round(Number(payment.amount || 0));
+    const actualAmount = Math.round(Number(dto.transferAmount || 0));
+    if (actualAmount < expectedAmount) {
+      return {
+        success: true,
+        ignored: true,
+        reason: "Transfer amount is lower than expected",
+      };
+    }
+
+    return this.handleCallback({
+      internalTransactionCode: transactionCode,
+      gatewayTransactionId: dto.referenceCode || `SEPAY-${dto.id}`,
+      paymentStatus: "paid",
+    });
   }
 
   async manualConfirm(paymentId: number, changedByUserId?: bigint) {

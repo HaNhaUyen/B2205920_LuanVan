@@ -10,6 +10,7 @@ import type { RagHit } from "./rag.service";
 import { ChatbotNluService } from "./chatbot-nlu.service";
 import type { NluResult, NluEntities } from "./chatbot-nlu.service";
 import { ChatbotConfidenceService } from "./chatbot-confidence.service";
+import { ChatbotToolsService } from "./chatbot-tools.service";
 import type { AnswerConfidence } from "./chatbot-confidence.service";
 
 type AuthUser = {
@@ -198,6 +199,7 @@ export class ChatbotService {
     private readonly ragService: RagService,
     private readonly nluService: ChatbotNluService,
     private readonly confidenceService: ChatbotConfidenceService,
+    private readonly toolsService: ChatbotToolsService,
   ) {
     const apiKey = this.configService.get<string>("GEMINI_API_KEY");
     this.geminiModel =
@@ -213,6 +215,90 @@ export class ChatbotService {
       user,
       userMessage,
     );
+
+    // Ưu tiên tuyệt đối cho các tool nghiệp vụ/admin trước NLU + RAG + memory tìm tour.
+    // Nếu không, các câu như "Tỷ lệ thanh toán thành công hiện tại thế nào?"
+    // hoặc "Điểm đến nào được đặt nhiều nhất?" có thể bị hiểu nhầm thành tìm tour.
+    const priorityToolAnswer = await this.toolsService.tryAnswer({
+      message: userMessage,
+      user,
+      intent: "priority_business_tool",
+    });
+
+    if (priorityToolAnswer) {
+      const priorityIntent =
+        String(user?.role || "").toLowerCase() === "admin"
+          ? "admin_assistant"
+          : "business_tool";
+
+      await this.prisma.chatMessage.create({
+        data: {
+          conversationId: conversation.id,
+          role: "user",
+          content: userMessage,
+          intent: priorityIntent,
+          meta: { intent: priorityIntent, source: "priority_tool" },
+        },
+      });
+
+      await this.prisma.chatConversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastIntent: priorityIntent,
+          title: conversation.title ?? this.buildConversationTitle(userMessage),
+          summary: "Trả lời bằng tool nghiệp vụ/admin.",
+        },
+      });
+
+      await this.prisma.chatMessage.create({
+        data: {
+          conversationId: conversation.id,
+          role: "assistant",
+          content: priorityToolAnswer,
+          intent: priorityIntent,
+          meta: {
+            intent: priorityIntent,
+            source: "priority_tool",
+            confidence: { level: "high", score: 1 },
+            cards: [],
+            vouchers: [],
+            bookings: [],
+            pickupPoints: [],
+            suggestedReplies:
+              priorityIntent === "admin_assistant"
+                ? [
+                    "Có bao nhiêu booking đang chờ thanh toán?",
+                    "Tour nào sắp khởi hành trong 7 ngày tới?",
+                    "Có booking nào chưa có hướng dẫn viên không?",
+                    "Top tour bán chạy là gì?",
+                  ]
+                : [],
+          },
+        },
+      });
+
+      return {
+        conversationId: conversation.id.toString(),
+        intent: priorityIntent,
+        nlu: { intent: priorityIntent, entities: {}, confidence: 1 },
+        confidence: { level: "high", score: 1 },
+        answer: priorityToolAnswer,
+        cards: [],
+        tours: [],
+        vouchers: [],
+        bookings: [],
+        pickupPoints: [],
+        suggestedReplies:
+          priorityIntent === "admin_assistant"
+            ? [
+                "Có bao nhiêu booking đang chờ thanh toán?",
+                "Tour nào sắp khởi hành trong 7 ngày tới?",
+                "Có booking nào chưa có hướng dẫn viên không?",
+                "Top tour bán chạy là gì?",
+              ]
+            : [],
+      };
+    }
 
     const recentMessages = await this.prisma.chatMessage.findMany({
       where: { conversationId: conversation.id },
@@ -352,14 +438,21 @@ export class ChatbotService {
       bookingCheckout?: BookingCheckoutCard;
     } | null = null;
 
+    // Các tool nghiệp vụ tách riêng xử lý các mảng mới: SePay/MBBank,
+    // refund assistant và Admin AI Assistant. Tool chạy trước state-machine booking
+    // để câu hỏi nghiệp vụ không bị Gemini hoặc memory cũ kéo sai hướng.
+    const toolBusinessAnswer = await this.toolsService.tryAnswer({
+      message: userMessage,
+      user,
+      intent,
+    });
+
     // Các câu cần chặn/tra cứu nghiệp vụ phải chạy trước booking flow.
     // Nếu không, câu như "Tôi muốn đặt tour chưa có trong hệ thống" có thể bị kéo memory cũ
     // rồi nhảy sang hỏi điểm đón của tour cũ.
-    const earlyDirectBusinessAnswer = await this.tryEarlyBusinessAnswer(
-      promptContext,
-      intent,
-      user,
-    );
+    const earlyDirectBusinessAnswer =
+      toolBusinessAnswer ||
+      (await this.tryEarlyBusinessAnswer(promptContext, intent, user));
 
     if (earlyDirectBusinessAnswer) {
       mergedMemory.bookingDraft = null;
@@ -921,7 +1014,7 @@ export class ChatbotService {
 
     if (
       /\b(tiep tuc|xac nhan|dong y|ok|oke)\b/.test(normalized) &&
-      /\b(thanh toan|momo|vnpay|vn pay|chuyen khoan|bank|tien mat|cash)\b/.test(
+      /\b(thanh toan|sepay|vietqr|mbbank|momo|vnpay|vn pay|chuyen khoan|bank|tien mat|cash)\b/.test(
         normalized,
       ) &&
       !draft.voucherCode
@@ -941,7 +1034,11 @@ export class ChatbotService {
     if (/\b(vnpay|vn pay)\b/.test(normalized)) draft.paymentMethod = "vnpay";
     else if (/\b(momo|vi momo|ví momo)\b/.test(normalized))
       draft.paymentMethod = "momo";
-    else if (/\b(chuyen khoan|chuyển khoản|bank)\b/.test(normalized))
+    else if (
+      /\b(sepay|vietqr|mbbank|mb bank|qr ngan hang|chuyen khoan|chuyển khoản|bank)\b/.test(
+        normalized,
+      )
+    )
       draft.paymentMethod = "bank_transfer";
     else if (/\b(tien mat|tiền mặt|cash)\b/.test(normalized))
       draft.paymentMethod = "cash";
@@ -1213,6 +1310,16 @@ export class ChatbotService {
         normalized,
       );
 
+    const hasPaymentSupportCommand =
+      /\b(sepay|vietqr|mbbank|mb bank|qr mb|qr ngan hang|ma dh|ma thanh toan|chuyen khoan|da chuyen tien|da thanh toan|sao chua xac nhan|chua xac nhan|sai noi dung|chuyen sai|thanh toan bang ngan hang|thanh toan qr)\b/.test(
+        normalized,
+      );
+
+    const hasAdminAssistantCommand =
+      /\b(admin|quan ly|van hanh|dashboard|doanh thu|booking cho|booking can|sap khoi hanh|huong dan vien|hdv|yeu cau hoan tien|doi soat|top tour|top diem den|ti le|thong ke|bao cao|hom nay co gi|can xu ly)\b/.test(
+        normalized,
+      );
+
     const hasPickupCommand =
       /\b(diem don|don o dau|don tai dau|noi don|cho don|ben xe|pickup|xe don|gio don|dia diem don)\b/.test(
         normalized,
@@ -1239,6 +1346,14 @@ export class ChatbotService {
 
     if (hasExplicitBookingChangeRequest) {
       return "booking_change";
+    }
+
+    if (hasAdminAssistantCommand) {
+      return "general_consulting";
+    }
+
+    if (hasPaymentSupportCommand) {
+      return "booking_status";
     }
 
     const hasTourDetailQuestion = this.isTourDetailQuestion(message);

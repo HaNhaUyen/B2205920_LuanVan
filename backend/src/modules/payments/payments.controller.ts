@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { PaymentsService } from "./payments.service";
 import { PaymentCallbackDto } from "./dto/payment-callback.dto";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
@@ -7,6 +15,7 @@ import { Roles } from "../../common/decorators/roles.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { OptionalJwtAuthGuard } from "../../common/guards/optional-jwt-auth.guard";
 import { CheckoutPaymentDto } from "./dto/checkout-payment.dto";
+import { SepayWebhookDto } from "./dto/sepay-webhook.dto";
 
 type PaymentMethod = "momo" | "vnpay" | "card" | "bank_transfer" | "cash";
 
@@ -29,7 +38,8 @@ export class PaymentsController {
     user?: { userId: bigint; email: string; role: "admin" | "user" },
   ) {
     const bookingId = dto.bookingId ?? dto.booking_id;
-    const paymentMethod = dto.paymentMethod ?? dto.payment_method ?? "momo";
+    const paymentMethod =
+      dto.paymentMethod ?? dto.payment_method ?? "bank_transfer";
 
     if (bookingId !== undefined && bookingId !== null && bookingId !== "") {
       return this.paymentsService.initiatePayment(
@@ -53,7 +63,7 @@ export class PaymentsController {
   initiate(
     @Param("bookingId") bookingId: string,
     @Body("paymentMethod")
-    paymentMethod: PaymentMethod = "momo",
+    paymentMethod: PaymentMethod = "bank_transfer",
     @CurrentUser()
     user?: { userId: bigint; email: string; role: "admin" | "user" },
   ) {
@@ -72,6 +82,15 @@ export class PaymentsController {
   @Post("confirm-scan/:transactionCode")
   confirmScan(@Param("transactionCode") transactionCode: string) {
     return this.paymentsService.confirmScan(transactionCode);
+  }
+
+  @Post("sepay-webhook")
+  async sepayWebhook(
+    @Body() dto: SepayWebhookDto,
+    @Headers("authorization") authorization?: string,
+  ) {
+    await this.paymentsService.handleSepayWebhook(dto, authorization);
+    return { success: true };
   }
 
   @Post("callback")

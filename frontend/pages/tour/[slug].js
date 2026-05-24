@@ -33,6 +33,10 @@ export default function TourDetailPage() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [favorite, setFavorite] = useState(false);
   const [selectedDepartureId, setSelectedDepartureId] = useState("");
+  const [bookingPassengers, setBookingPassengers] = useState({
+    adultCount: 2,
+    childCount: 0,
+  });
   const [myVouchers, setMyVouchers] = useState([]);
   const [selectedVoucherCode, setSelectedVoucherCode] = useState("");
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
@@ -60,6 +64,7 @@ export default function TourDetailPage() {
           : [{ fileUrl: normalized.coverUrl }];
         setSelectedImage(mapImageUrl(gallery[0]?.fileUrl, API_URL));
         setSelectedDepartureId(normalized.departures?.[0]?.id || "");
+        setBookingPassengers({ adultCount: 2, childCount: 0 });
         setPreview(
           renderDeparturePreview(
             normalized,
@@ -186,6 +191,40 @@ export default function TourDetailPage() {
   const availableVouchers = (myVouchers || [])
     .map(normalizeVoucherRow)
     .filter(isVoucherAvailable);
+  const recalculatePreview = (
+    nextDepartureId,
+    nextPassengers = bookingPassengers,
+  ) => {
+    if (!tour) return;
+
+    const adultCount = Math.max(1, Number(nextPassengers.adultCount || 1));
+    const childCount = Math.max(0, Number(nextPassengers.childCount || 0));
+    const departureId =
+      nextDepartureId || selectedDepartureId || tour.departures?.[0]?.id;
+
+    setPreview(
+      renderDeparturePreview(tour, departureId, adultCount, childCount),
+    );
+  };
+
+  const handleDepartureChange = (event) => {
+    const depId = Number(event.target.value);
+    setSelectedDepartureId(depId);
+    recalculatePreview(depId, bookingPassengers);
+  };
+
+  const handlePassengerChange = (field) => (event) => {
+    const minValue = field === "adultCount" ? 1 : 0;
+    const value = Math.max(minValue, Number(event.target.value || minValue));
+    const nextPassengers = {
+      ...bookingPassengers,
+      [field]: value,
+    };
+
+    setBookingPassengers(nextPassengers);
+    recalculatePreview(selectedDepartureId, nextPassengers);
+  };
+
   const selectedVoucher = availableVouchers.find(
     (item) => String(item.code) === String(selectedVoucherCode),
   );
@@ -248,6 +287,23 @@ export default function TourDetailPage() {
       null,
     paymentStatus:
       checkout?.paymentStatus || checkout?.payment_status || "pending",
+    qrImageUrl:
+      checkout?.qrImageUrl ||
+      checkout?.qrCodeUrl ||
+      checkout?.sepay?.qrImageUrl ||
+      "",
+    qrCodeUrl:
+      checkout?.qrCodeUrl ||
+      checkout?.qrImageUrl ||
+      checkout?.sepay?.qrImageUrl ||
+      "",
+    sepay: checkout?.sepay || null,
+    transferContent:
+      checkout?.sepay?.transferContent ||
+      checkout?.transferContent ||
+      checkout?.transactionCode ||
+      checkout?.internalTransactionCode ||
+      "",
   });
 
   const buildBookingPayload = (formData) => ({
@@ -276,7 +332,7 @@ export default function TourDetailPage() {
     const formData = new FormData(event.currentTarget);
     const payload = buildBookingPayload(formData);
     const action = event.nativeEvent?.submitter?.value || "hold";
-    const paymentMethod = formData.get("paymentMethod") || "momo";
+    const paymentMethod = formData.get("paymentMethod") || "bank_transfer";
 
     try {
       const booking = await apiFetch("/bookings", {
@@ -334,7 +390,7 @@ export default function TourDetailPage() {
     }
 
     const paymentMethod =
-      new FormData(event.currentTarget).get("paymentMethod") || "momo";
+      new FormData(event.currentTarget).get("paymentMethod") || "bank_transfer";
 
     try {
       const checkout = await apiFetch("/payments/checkout", {
@@ -1479,7 +1535,7 @@ export default function TourDetailPage() {
                     </label>
                     <div style={{ display: "grid", gap: "12px" }}>
                       {[
-                        ["momo", "Ví MoMo"],
+                        ["bank_transfer", "SePay / MBBank VietQR"],
                         ["vnpay", "VNPay"],
                         ["card", "Thẻ quốc tế / nội địa"],
                         ["bank_transfer", "Chuyển khoản NH"],
@@ -1501,7 +1557,7 @@ export default function TourDetailPage() {
                             type="radio"
                             name="paymentMethod"
                             value={val}
-                            defaultChecked={val === "momo"}
+                            defaultChecked={val === "bank_transfer"}
                             style={{
                               width: "18px",
                               height: "18px",
@@ -1602,24 +1658,11 @@ export default function TourDetailPage() {
                       </label>
                       <select
                         name="departureId"
-                        defaultValue={tour.departures?.[0]?.id}
+                        value={
+                          selectedDepartureId || tour.departures?.[0]?.id || ""
+                        }
                         className="input-modern"
-                        onChange={(e) => {
-                          const depId = Number(e.target.value);
-                          setSelectedDepartureId(depId);
-                          setPreview(
-                            renderDeparturePreview(
-                              tour,
-                              depId,
-                              preview?.rows.find((r) =>
-                                r[0].includes("Người lớn"),
-                              )?.[1] || 2,
-                              preview?.rows.find((r) =>
-                                r[0].includes("Trẻ em"),
-                              )?.[1] || 0,
-                            ),
-                          );
-                        }}
+                        onChange={handleDepartureChange}
                       >
                         {(tour.departures || []).map((item) => (
                           <option key={item.id} value={item.id}>
@@ -1653,24 +1696,9 @@ export default function TourDetailPage() {
                           name="adultCount"
                           type="number"
                           min="1"
-                          defaultValue="2"
+                          value={bookingPassengers.adultCount}
                           className="input-modern"
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            const depId = document.querySelector(
-                              'select[name="departureId"]',
-                            ).value;
-                            setPreview(
-                              renderDeparturePreview(
-                                tour,
-                                Number(depId),
-                                val,
-                                preview?.rows.find((r) =>
-                                  r[0].includes("Trẻ em"),
-                                )?.[1] || 0,
-                              ),
-                            );
-                          }}
+                          onChange={handlePassengerChange("adultCount")}
                         />
                       </div>
                       <div>
@@ -1689,24 +1717,9 @@ export default function TourDetailPage() {
                           name="childCount"
                           type="number"
                           min="0"
-                          defaultValue="0"
+                          value={bookingPassengers.childCount}
                           className="input-modern"
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            const depId = document.querySelector(
-                              'select[name="departureId"]',
-                            ).value;
-                            setPreview(
-                              renderDeparturePreview(
-                                tour,
-                                Number(depId),
-                                preview?.rows.find((r) =>
-                                  r[0].includes("Người lớn"),
-                                )?.[1] || 2,
-                                val,
-                              ),
-                            );
-                          }}
+                          onChange={handlePassengerChange("childCount")}
                         />
                       </div>
                     </div>
@@ -2098,7 +2111,7 @@ export default function TourDetailPage() {
                       </label>
                       <div style={{ display: "grid", gap: "10px" }}>
                         {[
-                          ["momo", "Ví MoMo"],
+                          ["bank_transfer", "SePay / MBBank VietQR"],
                           ["vnpay", "VNPay"],
                           ["card", "Thẻ quốc tế / nội địa"],
                           ["bank_transfer", "Chuyển khoản NH"],
@@ -2120,7 +2133,7 @@ export default function TourDetailPage() {
                               type="radio"
                               name="paymentMethod"
                               value={val}
-                              defaultChecked={val === "momo"}
+                              defaultChecked={val === "bank_transfer"}
                               style={{
                                 width: "18px",
                                 height: "18px",
@@ -2145,6 +2158,33 @@ export default function TourDetailPage() {
                           marginTop: "8px",
                         }}
                       >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            marginBottom: "8px",
+                            fontSize: "0.95rem",
+                          }}
+                        >
+                          <span style={{ color: "#64748b" }}>Số người lớn</span>
+                          <strong style={{ color: "#1f2937" }}>
+                            {bookingPassengers.adultCount} người
+                          </strong>
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            marginBottom: "8px",
+                            fontSize: "0.95rem",
+                          }}
+                        >
+                          <span style={{ color: "#64748b" }}>Số trẻ em</span>
+                          <strong style={{ color: "#1f2937" }}>
+                            {bookingPassengers.childCount} trẻ
+                          </strong>
+                        </div>
+
                         {preview.rows.map(([label, value]) => (
                           <div
                             key={label}
