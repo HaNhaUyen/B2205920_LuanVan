@@ -112,12 +112,13 @@ export class ChatbotNluService {
   private readonly model: string;
 
   constructor(private readonly configService: ConfigService) {
-    const apiKey = this.configService.get<string>("GEMINI_API_KEY");
+    const enableGemini = this.isEnvEnabled("CHATBOT_ENABLE_GEMINI", false);
+    const apiKey = this.configService.get<string>("GEMINI_API_KEY") || "";
     this.model =
       this.configService.get<string>("GEMINI_NLU_MODEL") ||
       this.configService.get<string>("GEMINI_MODEL") ||
       "gemini-2.0-flash";
-    this.gemini = apiKey ? new GoogleGenAI({ apiKey }) : null;
+    this.gemini = enableGemini && apiKey ? new GoogleGenAI({ apiKey }) : null;
   }
 
   async analyze(input: {
@@ -133,10 +134,211 @@ export class ChatbotNluService {
       input.fallbackEntities,
     );
 
-    if (!this.gemini) return fallback;
+    // Nếu rule đã bắt chắc nghiệp vụ booking/voucher/pickup/policy thì trả luôn,
+    // tránh tốn quota LLM cho các câu điều hướng rõ ràng.
+    if (fallback.confidence >= 0.9) return fallback;
+
+    const prompt = this.buildPrompt(input, fallback);
+    const primaryProvider = this.getProviderName("CHATBOT_PROVIDER", "groq");
+    const fallbackProvider = this.getProviderName(
+      "CHATBOT_FALLBACK_PROVIDER",
+      "openrouter",
+    );
+
+    const primaryResult = await this.callOpenAICompatibleNlu(
+      prompt,
+      fallback,
+      primaryProvider,
+    );
+    if (primaryResult) return primaryResult;
+
+    if (fallbackProvider && fallbackProvider !== primaryProvider) {
+      const fallbackResult = await this.callOpenAICompatibleNlu(
+        prompt,
+        fallback,
+        fallbackProvider,
+      );
+      if (fallbackResult) return fallbackResult;
+    }
+
+    const geminiResult = await this.callGeminiNlu(prompt, fallback);
+    if (geminiResult) return geminiResult;
+
+    return fallback;
+  }
+
+  private getProviderName(key: string, fallback = "groq") {
+    return String(
+      this.configService.get<string>(key) || process.env[key] || fallback,
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+  private isEnvEnabled(key: string, defaultValue = false) {
+    const raw = this.configService.get<string>(key) ?? process.env[key];
+    if (raw === undefined || raw === null || raw === "") return defaultValue;
+    return ["1", "true", "yes", "on"].includes(String(raw).toLowerCase());
+  }
+
+  private getOpenAIProviderConfig(provider: string) {
+    const name = String(provider || "groq").toLowerCase();
+
+    if (name === "openrouter") {
+      return {
+        name,
+        apiKey:
+          this.configService.get<string>("OPENROUTER_API_KEY") ||
+          process.env.OPENROUTER_API_KEY ||
+          "",
+        baseUrl: (
+          this.configService.get<string>("OPENROUTER_BASE_URL") ||
+          process.env.OPENROUTER_BASE_URL ||
+          "https://openrouter.ai/api/v1"
+        ).replace(/\/$/, ""),
+        model:
+          this.configService.get<string>("OPENROUTER_MODEL") ||
+          process.env.OPENROUTER_MODEL ||
+          "openrouter/free",
+      };
+    }
+
+    if (name === "groq") {
+      return {
+        name,
+        apiKey:
+          this.configService.get<string>("GROQ_API_KEY") ||
+          process.env.GROQ_API_KEY ||
+          this.configService.get<string>("CHATBOT_API_KEY") ||
+          process.env.CHATBOT_API_KEY ||
+          "",
+        baseUrl: (
+          this.configService.get<string>("GROQ_BASE_URL") ||
+          process.env.GROQ_BASE_URL ||
+          "https://api.groq.com/openai/v1"
+        ).replace(/\/$/, ""),
+        model:
+          this.configService.get<string>("GROQ_MODEL") ||
+          process.env.GROQ_MODEL ||
+          this.configService.get<string>("CHATBOT_MODEL") ||
+          process.env.CHATBOT_MODEL ||
+          "llama-3.1-8b-instant",
+      };
+    }
+
+    return {
+      name: "custom",
+      apiKey:
+        this.configService.get<string>("CHATBOT_API_KEY") ||
+        process.env.CHATBOT_API_KEY ||
+        "",
+      baseUrl: (
+        this.configService.get<string>("CHATBOT_BASE_URL") ||
+        process.env.CHATBOT_BASE_URL ||
+        "https://api.groq.com/openai/v1"
+      ).replace(/\/$/, ""),
+      model:
+        this.configService.get<string>("CHATBOT_MODEL") ||
+        process.env.CHATBOT_MODEL ||
+        "llama-3.1-8b-instant",
+    };
+  }
+
+  private acceptLlmResult(result: NluResult, fallback: NluResult) {
+    if (fallback.confidence >= 0.78 && result.intent !== fallback.intent) {
+      return fallback;
+    }
+
+    if (result.confidence < 0.55 && fallback.confidence >= result.confidence) {
+      return fallback;
+    }
+
+    return result;
+  }
+
+  private async callOpenAICompatibleNlu(
+    prompt: string,
+    fallback: NluResult,
+    provider = "groq",
+  ): Promise<NluResult | null> {
+    const cfg = this.getOpenAIProviderConfig(provider);
+    if (!cfg.apiKey) {
+      console.warn(`[Chatbot NLU] Missing API key for provider=${cfg.name}`);
+      return null;
+    }
 
     try {
-      const prompt = this.buildPrompt(input, fallback);
+      console.log(
+        `[Chatbot NLU] Calling provider=${cfg.name}, model=${cfg.model}`,
+      );
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${cfg.apiKey}`,
+      };
+
+      if (cfg.name === "openrouter") {
+        headers["HTTP-Referer"] =
+          this.configService.get<string>("FRONTEND_PUBLIC_URL") ||
+          this.configService.get<string>("FRONTEND_URL") ||
+          "http://localhost:3000";
+        headers["X-Title"] = "Travela Chatbot NLU";
+      }
+
+      const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: cfg.model,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Bạn là NLU engine. Chỉ trả về JSON hợp lệ theo schema trong prompt. Không markdown.",
+            },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.1,
+          top_p: 0.8,
+          max_tokens: 700,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        console.error(
+          `[Chatbot NLU error] provider=${cfg.name}`,
+          response.status,
+          body,
+        );
+        return null;
+      }
+
+      const payload = await response.json();
+      const text = payload?.choices?.[0]?.message?.content || "";
+      const parsed = this.safeJsonParse(text);
+      if (!parsed) return null;
+
+      return this.acceptLlmResult(
+        this.normalizeResult(parsed, fallback),
+        fallback,
+      );
+    } catch (error: any) {
+      console.error(
+        `[Chatbot NLU exception] provider=${cfg.name}`,
+        error?.message || error,
+      );
+      return null;
+    }
+  }
+
+  private async callGeminiNlu(
+    prompt: string,
+    fallback: NluResult,
+  ): Promise<NluResult | null> {
+    if (!this.gemini) return null;
+
+    try {
+      console.log("[Chatbot NLU] Calling Gemini model:", this.model);
       const response = await this.gemini.models.generateContent({
         model: this.model,
         contents: prompt,
@@ -149,25 +351,15 @@ export class ChatbotNluService {
       });
 
       const parsed = this.safeJsonParse(response.text || "");
-      if (!parsed) return fallback;
+      if (!parsed) return null;
 
-      const result = this.normalizeResult(parsed, fallback);
-      // Nếu rule-based bắt được tín hiệu nghiệp vụ rõ ràng thì ưu tiên rule,
-      // tránh Gemini kéo câu hỏi điểm đón/chính sách sang follow_up sai section.
-      if (fallback.confidence >= 0.78 && result.intent !== fallback.intent) {
-        return fallback;
-      }
-      // Nếu Gemini không chắc hơn rule-based thì dùng rule để chatbot không bị nhận intent lung tung.
-      if (
-        result.confidence < 0.55 &&
-        fallback.confidence >= result.confidence
-      ) {
-        return fallback;
-      }
-      return result;
+      return this.acceptLlmResult(
+        this.normalizeResult(parsed, fallback),
+        fallback,
+      );
     } catch (error: any) {
       console.error("[Chatbot NLU Gemini error]", error?.message || error);
-      return fallback;
+      return null;
     }
   }
 
@@ -231,13 +423,16 @@ Quy tắc:
 - Nếu câu hỏi là "tour này", "tour đó", "khách sạn mấy sao", "lịch trình có mệt không" và memory có tour trước đó => intent follow_up.
 - Nếu người dùng muốn tìm/gợi ý tour theo nhu cầu mềm => tour_search hoặc personal_recommendation.
 - Nếu hỏi hoàn tiền/hủy/đổi lịch/chính sách => tour_policy.
-- Nếu hỏi SePay/VietQR/MBBank/mã DH/chuyển khoản/sao chưa xác nhận thanh toán => booking_status.
-- Nếu hỏi số liệu quản lý/dashboard/doanh thu/tour sắp khởi hành/chưa có HDV => general_consulting; dữ liệu quản lý chỉ trả lời khi user là admin.
 - Nếu hỏi điểm đón/giờ đón => pickup_point.
 - Nếu hỏi mã giảm giá/voucher => voucher_check.
 - Nếu muốn đặt/chốt/thanh toán tour => booking_create. Các câu như “đặt tour số 2”, “chốt tour đầu”, “lấy tour này”, “ok đặt luôn” cũng là booking_create.
 - Nếu đang trong luồng booking, các câu ngắn như “chọn 1”, “không”, “bỏ qua”, “momo”, “vnpay”, “xác nhận” vẫn thuộc booking_create.
-- Confidence thấp nếu câu quá mơ hồ hoặc thiếu dữ liệu nhận dạng.
+- Confidence >= 0.85 khi intent rõ và trích được ít nhất 1 entity quan trọng.
+- Confidence 0.60-0.84 khi intent rõ nhưng entity còn thiếu.
+- Confidence < 0.55 khi câu quá mơ hồ hoặc có thể hiểu nhiều hướng.
+- Không tự bịa destination, budget, duration, voucherCode, bookingCode nếu người dùng không nhắc.
+- Với nhu cầu mềm như “đi biển”, “chụp hình đẹp”, “không quá mệt”, phải đưa vào softNeeds để backend rerank chính xác.
+- Với câu có phủ định như “không muốn lịch trình quá mệt”, thêm avoidNeeds tương ứng: ["too_tired", "too_many_moves"].
 
 Fallback rule đang đoán:
 ${JSON.stringify(fallback)}

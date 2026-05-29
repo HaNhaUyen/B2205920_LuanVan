@@ -3,13 +3,17 @@ import { PrismaService } from "../../prisma/prisma.service";
 
 const ACTION_SCORE: Record<string, number> = {
   view: 1,
-  search: 1,
+  view_detail: 2,
+  search: 2,
   favorite: 4,
   ask_ai: 2,
   image_search: 3,
-  booking: 8,
-  review: 6,
   compare: 2,
+  booking_draft: 5,
+  booking: 10,
+  review: 6,
+  cancel_booking: -3,
+  skip_recommendation: -1,
 };
 
 function stripText(value = "") {
@@ -21,6 +25,13 @@ function stripText(value = "") {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function truncateText(value: any, maxLength = 190) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
 function addScore(map: Record<string, number>, key: any, score: number) {
@@ -45,8 +56,8 @@ export class RecommendationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async track(userId: bigint | undefined, dto: any) {
-    const action = dto.action || "view";
-    const score = Number(dto.score || ACTION_SCORE[action] || 1);
+    const action = this.normalizeAction(dto.action || "view");
+    const score = Number(dto.score ?? ACTION_SCORE[action] ?? 1);
 
     await this.prisma.userBehavior.create({
       data: {
@@ -54,12 +65,45 @@ export class RecommendationsService {
         tourId: dto.tourId ? BigInt(dto.tourId) : null,
         action,
         score,
-        keyword: dto.keyword || null,
-        meta: dto.meta || undefined,
+        // Cột keyword trong MySQL có độ dài giới hạn. Câu hỏi chatbot dài như
+        // “Tôi muốn đi biển, chụp hình đẹp...” có thể làm Prisma lỗi P2000.
+        // Chỉ lưu keyword ngắn để tracking không làm vỡ API chatbot.
+        keyword: truncateText(dto.keyword, 190),
+        meta: this.normalizeMeta(dto.meta),
       } as any,
     });
 
     return { message: "Đã ghi nhận hành vi.", score };
+  }
+
+  private normalizeAction(action: any) {
+    const value = stripText(String(action || "view")).replace(/ /g, "_");
+    return ACTION_SCORE[value] !== undefined ? value : "view";
+  }
+
+  private normalizeMeta(meta: any) {
+    if (!meta || typeof meta !== "object" || Array.isArray(meta))
+      return undefined;
+
+    const safe: Record<string, any> = {};
+    for (const [key, value] of Object.entries(meta)) {
+      if (["object", "function", "undefined"].includes(typeof value)) continue;
+      const text = String(value).trim();
+      if (!text) continue;
+      safe[key] = text.length > 180 ? text.slice(0, 180) : value;
+    }
+
+    return Object.keys(safe).length ? safe : undefined;
+  }
+
+  private recencyWeight(createdAt: Date | string) {
+    const daysAgo = Math.max(
+      0,
+      (Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24),
+    );
+
+    // Trọng số giảm mượt theo thời gian: hôm nay ~1, 30 ngày ~0.25, 90 ngày ~0.10.
+    return Math.max(0.1, 1 / (1 + daysAgo * 0.1));
   }
 
   private calcExactIntentBonus(tour: any, signals: any) {
@@ -262,6 +306,11 @@ export class RecommendationsService {
         collaborativeScoreMap[String(tour.id)] || 0,
       );
 
+      const behaviorAffinityScore = this.calcBehaviorAffinityScore(
+        tour,
+        userSignals,
+      );
+
       const businessScore = this.calcBusinessScore(
         tour,
         maxBookingCount,
@@ -285,10 +334,11 @@ export class RecommendationsService {
       }
 
       const finalScore = clampScore(
-        0.62 * contentScore +
-          0.13 * collaborativeScore +
+        0.35 * contentScore +
+          0.25 * behaviorAffinityScore +
+          0.18 * collaborativeScore +
           0.12 * businessScore +
-          0.13 * exactIntentBonus -
+          0.1 * exactIntentBonus -
           destinationPenalty -
           alreadyInteractedPenalty,
       );
@@ -298,6 +348,7 @@ export class RecommendationsService {
         score: finalScore,
         contentScore,
         collaborativeScore,
+        behaviorAffinityScore,
         businessScore,
         exactIntentBonus,
         destinationPenalty,
@@ -335,6 +386,7 @@ export class RecommendationsService {
         recommendationBreakdown: {
           content: Number(item.contentScore.toFixed(2)),
           collaborative: Number(item.collaborativeScore.toFixed(2)),
+          behavior: Number(item.behaviorAffinityScore.toFixed(2)),
           business: Number(item.businessScore.toFixed(2)),
         },
       })),
@@ -355,17 +407,7 @@ export class RecommendationsService {
         behavior.score || ACTION_SCORE[behavior.action] || 1,
       );
 
-      const daysAgo = Math.max(
-        0,
-        (Date.now() - new Date(behavior.createdAt).getTime()) /
-          (1000 * 60 * 60 * 24),
-      );
-
-      let recencyWeight = 1;
-      if (daysAgo > 60) recencyWeight = 0.35;
-      else if (daysAgo > 30) recencyWeight = 0.55;
-      else if (daysAgo > 7) recencyWeight = 0.8;
-
+      const recencyWeight = this.recencyWeight(behavior.createdAt);
       const score = baseScore * recencyWeight;
       const tour = behavior.tour;
 
@@ -424,6 +466,34 @@ export class RecommendationsService {
           addScore(keywordScore, "premium", score);
         }
       }
+      const meta =
+        behavior.meta && typeof behavior.meta === "object" ? behavior.meta : {};
+      const metaText = stripText(
+        [
+          meta.destination,
+          meta.theme,
+          meta.travelStyle,
+          meta.duration,
+          meta.budget,
+          meta.source,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+
+      if (metaText) {
+        addScore(keywordScore, metaText, score * 0.7);
+        if (/bien|beach|dao|island/.test(metaText))
+          addScore(themeScore, "beach", score);
+        if (/nui|mountain|mat me|cool|san may/.test(metaText))
+          addScore(themeScore, "mountain", score);
+        if (/gia dinh|family|tre em|children/.test(metaText))
+          addScore(themeScore, "family", score);
+        if (/nghi duong|resort|luxury|cao cap/.test(metaText))
+          addScore(themeScore, "luxury", score);
+        if (/sinh thai|eco|thien nhien|nature/.test(metaText))
+          addScore(themeScore, "eco", score);
+      }
     }
 
     const avgPrice =
@@ -447,6 +517,29 @@ export class RecommendationsService {
       avgPrice,
       avgDuration,
     };
+  }
+
+  private calcBehaviorAffinityScore(tour: any, signals: any) {
+    let score = 0;
+
+    score += Math.min(
+      Number(signals.tourScore[String(tour.id)] || 0) * 2.5,
+      35,
+    );
+    score += Math.min(
+      Number(signals.destinationScore[String(tour.destinationId)] || 0) * 1.1,
+      28,
+    );
+    score += Math.min(
+      Number(signals.themeScore[String(tour.tourTheme)] || 0) * 1.0,
+      18,
+    );
+    score += Math.min(
+      Number(signals.typeScore[String(tour.tourType)] || 0) * 0.7,
+      8,
+    );
+
+    return clampScore(score);
   }
 
   private calcContentScore(tour: any, signals: any) {

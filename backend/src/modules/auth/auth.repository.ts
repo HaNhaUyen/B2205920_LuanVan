@@ -1,10 +1,10 @@
 // @ts-nocheck
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
 
 @Injectable()
 export class AuthRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(public readonly prisma: PrismaService) {}
 
   findUserByEmail(email: string) {
     return this.prisma.user.findUnique({ where: { email } });
@@ -27,7 +27,7 @@ export class AuthRepository {
     email: string;
     phone?: string;
     passwordHash: string;
-    role?: 'admin' | 'user';
+    role?: "admin" | "user";
     googleId?: string;
     authProvider?: string;
     avatarUrl?: string;
@@ -39,10 +39,10 @@ export class AuthRepository {
         email: data.email,
         phone: data.phone || undefined,
         passwordHash: data.passwordHash,
-        role: data.role ?? 'user',
-        status: 'active',
+        role: data.role ?? "user",
+        status: "active",
         googleId: data.googleId,
-        authProvider: data.authProvider ?? 'local',
+        authProvider: data.authProvider ?? "local",
         avatarUrl: data.avatarUrl,
         identityNumber: data.identityNumber,
       },
@@ -59,8 +59,8 @@ export class AuthRepository {
       googleId?: string | null;
       authProvider?: string;
       avatarUrl?: string | null;
-      role?: 'admin' | 'user';
-      status?: 'active' | 'inactive' | 'blocked';
+      role?: "admin" | "user";
+      status?: "active" | "inactive" | "blocked";
       identityNumber?: string | null;
       memberPoints?: number;
       memberTier?: any;

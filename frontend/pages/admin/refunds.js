@@ -4,6 +4,7 @@ import Modal from "@/components/Modal";
 import Loading from "@/components/Loading";
 import Pagination from "@/components/Pagination";
 import { apiFetch } from "@/lib/api";
+import { exportAdminSmartReport } from "@/lib/exportExcel";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { useToast } from "@/components/ToastContext";
 
@@ -160,34 +161,16 @@ export default function AdminRefundsPage() {
   const exportExcel = async () => {
     setExporting(true);
     try {
-      const XLSX = await import("xlsx");
-
-      const exportData = data.items.map((r) => ({
-        "Mã Booking": r.booking?.bookingCode || "",
-        "Khách hàng": r.user?.fullName || r.booking?.contactName || "",
-        Email: r.user?.email || r.booking?.contactEmail || "",
-        "Tên Tour": r.booking?.tour?.name || "",
-        "Lý do hủy": r.reason || "",
-        "Số tiền hoàn": r.refundAmount || r.booking?.finalAmount || 0,
-        "Trạng thái":
-          r.status === "approved"
-            ? "Đã duyệt"
-            : r.status === "rejected"
-              ? "Từ chối"
-              : "Chờ xử lý",
-        "Ghi chú Admin": r.adminNote || "",
-        "Ngày tạo yêu cầu": formatDateTime(r.createdAt),
-      }));
-
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(exportData);
-
-      XLSX.utils.book_append_sheet(wb, ws, "Refunds");
-      XLSX.writeFile(wb, `DanhSachHoanTien_${Date.now()}.xlsx`);
-
-      showToast("Đã xuất file Excel thành công.", "success");
+      await exportAdminSmartReport("refunds", filters || {});
+      showToast(
+        "Đã xuất báo cáo Excel gồm Summary + Insights + Data.",
+        "success",
+      );
     } catch (error) {
-      showToast("Lỗi xuất Excel. Vui lòng kiểm tra lại hệ thống.", "error");
+      showToast(
+        error.message || "Lỗi xuất Excel. Vui lòng kiểm tra lại hệ thống.",
+        "error",
+      );
     } finally {
       setExporting(false);
     }
@@ -205,11 +188,7 @@ export default function AdminRefundsPage() {
   }
 
   return (
-    <AdminLayout
-      current="/admin/refunds"
-      title="Quản lý hoàn tiền"
-      subtitle="Theo dõi, tìm kiếm và xuất dữ liệu các yêu cầu hoàn tiền từ khách hàng."
-    >
+    <AdminLayout current="/admin/refunds" title="Quản lý hoàn tiền">
       <style
         dangerouslySetInnerHTML={{
           __html: `

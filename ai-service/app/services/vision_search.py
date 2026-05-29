@@ -53,6 +53,12 @@ MAX_TOP_K = 10
 SOFTMAX_TEMPERATURE = 18.0
 DESTINATION_SCORE_WEIGHTS = [0.55, 0.20, 0.12, 0.08, 0.05]
 
+# Ngưỡng này giúp AI không trả lời quá chắc khi ảnh mờ/không liên quan du lịch.
+MIN_CONFIDENCE = float(os.getenv("VISION_MIN_CONFIDENCE", "0.35"))
+MIN_RAW_SCORE = float(os.getenv("VISION_MIN_RAW_SCORE", "0.18"))
+MIN_TOP_GAP = float(os.getenv("VISION_MIN_TOP_GAP", "0.015"))
+TEXT_QUERY_BOOST = float(os.getenv("VISION_TEXT_QUERY_BOOST", "0.035"))
+
 
 def strip_text(value: str) -> str:
     value = unicodedata.normalize("NFD", value or "")
@@ -74,6 +80,21 @@ def clamp_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     except Exception:
         number = default
     return max(minimum, min(number, maximum))
+
+
+def destination_text_matches(query: str | None, label: str, info: dict[str, Any] | None) -> bool:
+    normalized_query = strip_text(query or "")
+    if not normalized_query:
+        return False
+
+    info = info or {}
+    candidates = [label, info.get("name", ""), info.get("province", "")]
+    candidates.extend(info.get("aliases", []))
+    for candidate in candidates:
+        normalized_candidate = strip_text(str(candidate or ""))
+        if normalized_candidate and (normalized_candidate in normalized_query or normalized_query in normalized_candidate):
+            return True
+    return False
 
 
 class VisionSearchService:
@@ -383,7 +404,12 @@ class VisionSearchService:
                 self._gallery_items = []
                 return False
 
-    def _filename_fallback(self, filename: str | None, top_k: int = DEFAULT_TOP_K) -> dict[str, Any]:
+    def _filename_fallback(
+        self,
+        filename: str | None,
+        top_k: int = DEFAULT_TOP_K,
+        text_query: str | None = None,
+    ) -> dict[str, Any]:
         normalized = strip_text(filename or "")
         for label, info in self._destinations.items():
             candidates = [label, info.get("name", ""), info.get("province", "")]
@@ -397,6 +423,7 @@ class VisionSearchService:
                         "device": self._device,
                         "fallback": True,
                         "file_name": filename,
+            "text_query": text_query,
                         "detected": {
                             "label": label,
                             "destination": info.get("name") or label,
@@ -435,6 +462,7 @@ class VisionSearchService:
             "device": self._device,
             "fallback": True,
             "file_name": filename,
+            "text_query": text_query,
             "detected": {
                 "label": "",
                 "destination": "",
@@ -464,21 +492,27 @@ class VisionSearchService:
                     return label
         return None
 
-    def detect_from_image_bytes(self, image_bytes: bytes, filename: str | None = None, top_k: int = DEFAULT_TOP_K) -> dict[str, Any]:
+    def detect_from_image_bytes(
+        self,
+        image_bytes: bytes,
+        filename: str | None = None,
+        top_k: int = DEFAULT_TOP_K,
+        text_query: str | None = None,
+    ) -> dict[str, Any]:
         if not image_bytes:
             raise ValueError("Ảnh tải lên đang rỗng.")
 
         top_k = clamp_int(top_k, DEFAULT_TOP_K, 1, MAX_TOP_K)
 
         if not self.ensure_loaded():
-            return self._filename_fallback(filename, top_k=top_k)
+            return self._filename_fallback(filename, top_k=top_k, text_query=text_query)
 
         try:
             query_embedding = self._encode_image_bytes(image_bytes)
             similarities = torch.matmul(query_embedding, self._gallery_embeddings.T).squeeze(0)
         except Exception as exc:
             self._error = str(exc)
-            return self._filename_fallback(filename, top_k=top_k)
+            return self._filename_fallback(filename, top_k=top_k, text_query=text_query)
 
         filename_label = self._filename_boost_label(filename)
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -488,6 +522,8 @@ class VisionSearchService:
             score = safe_float(similarities[index].item())
             if filename_label and filename_label == label:
                 score += 0.03
+            if destination_text_matches(text_query, label, self._destinations.get(label)):
+                score += TEXT_QUERY_BOOST
             grouped[label].append({"score": score, "item": item})
 
         destination_scores = []
@@ -522,7 +558,7 @@ class VisionSearchService:
 
         destination_scores.sort(key=lambda x: x["raw_score"], reverse=True)
         if not destination_scores:
-            return self._filename_fallback(filename, top_k=top_k)
+            return self._filename_fallback(filename, top_k=top_k, text_query=text_query)
 
         raw_values = [x["raw_score"] for x in destination_scores]
         max_raw = max(raw_values)
@@ -535,7 +571,17 @@ class VisionSearchService:
             item["confidence_percent"] = int(round(confidence * 100))
 
         top = destination_scores[0]
-        if top["confidence"] >= 0.60:
+        second = destination_scores[1] if len(destination_scores) > 1 else None
+        top_gap = safe_float(top["raw_score"]) - safe_float(second["raw_score"] if second else 0.0)
+        is_confident = (
+            safe_float(top["confidence"]) >= MIN_CONFIDENCE
+            and safe_float(top["raw_score"]) >= MIN_RAW_SCORE
+            and (second is None or top_gap >= MIN_TOP_GAP)
+        )
+
+        if not is_confident:
+            certainty = "chưa đủ chắc"
+        elif top["confidence"] >= 0.60:
             certainty = "khá chắc"
         elif top["confidence"] >= 0.35:
             certainty = "mức tin cậy vừa"
@@ -549,6 +595,7 @@ class VisionSearchService:
             "device": self._device,
             "fallback": False,
             "file_name": filename,
+            "text_query": text_query,
             "detected": {
                 "label": top["label"],
                 "destination": top["destination"],
@@ -558,6 +605,7 @@ class VisionSearchService:
                 "confidence": top["confidence"],
                 "confidence_percent": top["confidence_percent"],
                 "certainty": certainty,
+                "is_confident": is_confident,
                 "matched_prompt": f"So khớp ảnh mẫu: {top['matched_image']}",
                 "matched_image": top["matched_image"],
                 "best_image_score": round(top["best_image_score"], 4),
@@ -576,14 +624,23 @@ class VisionSearchService:
                     "matched_image": item["matched_image"],
                     "best_image_score": round(item["best_image_score"], 4),
                     "evidence_images": item["evidence_images"],
+                    "is_confident": bool(
+                        item["confidence"] >= MIN_CONFIDENCE
+                        and item["raw_score"] >= MIN_RAW_SCORE
+                    ),
                 }
                 for index, item in enumerate(top_matches)
             ],
             "summary": (
                 f"AI đã trích xuất embedding ảnh bằng CLIP và so sánh với thư viện {len(self._gallery_items)} ảnh mẫu. "
-                f"Kết quả gợi ý: {top['destination']} ({top['confidence_percent']}%, {certainty}). "
-                f"Ảnh mẫu gần nhất: {top['matched_image']}."
+                + (
+                    f"Kết quả gợi ý: {top['destination']} ({top['confidence_percent']}%, {certainty}). "
+                    if is_confident
+                    else "Ảnh chưa đủ chắc để kết luận một điểm đến duy nhất; hệ thống trả về Top gợi ý gần nhất để người dùng chọn. "
+                )
+                + f"Ảnh mẫu gần nhất: {top['matched_image']}."
             ),
+            "warning": None if is_confident else "LOW_CONFIDENCE_IMAGE_MATCH",
             "message": "Vision gallery search completed.",
             "vision_status": self.status_snapshot(),
         }

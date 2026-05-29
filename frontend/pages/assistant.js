@@ -8,6 +8,8 @@ import { useToast } from "@/components/ToastContext";
 import { trackBehavior } from "@/lib/behavior";
 
 const STORAGE_KEY = "tourai_conversation_id";
+const MESSAGE_STORAGE_KEY = "tourai_current_messages";
+const MEMORY_STORAGE_KEY = "tourai_current_memory";
 
 const starterMessages = [
   "Gợi ý tour phù hợp với tôi",
@@ -47,6 +49,16 @@ function formatTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+function formatPaymentMethod(value) {
+  const method = String(value || "").toLowerCase();
+  if (["bank_transfer", "sepay", "vietqr", "qr", "transfer"].includes(method)) {
+    return "SePay / VietQR chuyển khoản";
+  }
+  if (method === "momo") return "MoMo";
+  if (method === "vnpay") return "VNPay";
+  if (method === "cash") return "Tiền mặt";
+  return value || "Đang cập nhật";
 }
 
 function formatMessageTime() {
@@ -345,6 +357,9 @@ function BookingCheckoutCard({ checkout }) {
     )}`;
 
   const mobileUrl = checkout.mobilePaymentUrl || checkout.paymentUrl || "";
+  const isSepay =
+    checkout.qrProvider === "sepay" ||
+    String(checkout.paymentMethod || "").toLowerCase() === "bank_transfer";
 
   return (
     <div
@@ -362,9 +377,47 @@ function BookingCheckoutCard({ checkout }) {
           Thanh toán booking {checkout.bookingCode}
         </strong>
         <span style={{ color: "#166534", fontSize: 13 }}>
-          Phương thức: {checkout.paymentMethod || "bank_transfer"} • Trạng thái:{" "}
-          {checkout.paymentStatus || "pending"}
+          Phương thức: {formatPaymentMethod(checkout.paymentMethod)} • Trạng
+          thái: {checkout.paymentStatus || "pending"}
         </span>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 6,
+          color: "#14532d",
+          fontSize: 13,
+          lineHeight: 1.5,
+          background: "#ecfdf5",
+          border: "1px solid #bbf7d0",
+          borderRadius: 14,
+          padding: 12,
+        }}
+      >
+        {checkout.tourName ? (
+          <span>
+            Tour: <strong>{checkout.tourName}</strong>
+          </span>
+        ) : null}
+        {checkout.departureDate ? (
+          <span>
+            Lịch khởi hành:{" "}
+            <strong>{formatDate(checkout.departureDate)}</strong>
+            {checkout.endDate ? ` - ${formatDate(checkout.endDate)}` : ""}
+          </span>
+        ) : null}
+        {checkout.pickupName ? (
+          <span>
+            Điểm đón: <strong>{checkout.pickupName}</strong>
+            {checkout.pickupAddress ? ` - ${checkout.pickupAddress}` : ""}
+          </span>
+        ) : null}
+        {checkout.pickupTime ? (
+          <span>
+            Giờ đón: <strong>{formatTime(checkout.pickupTime)}</strong>
+          </span>
+        ) : null}
       </div>
 
       <div
@@ -378,10 +431,10 @@ function BookingCheckoutCard({ checkout }) {
       >
         <img
           src={qrUrl}
-          alt="Mã QR thanh toán"
+          alt="Mã QR thanh toán SePay/VietQR"
           style={{
-            width: 220,
-            height: 220,
+            width: 240,
+            height: 240,
             maxWidth: "100%",
             objectFit: "contain",
           }}
@@ -405,9 +458,34 @@ function BookingCheckoutCard({ checkout }) {
         </span>
 
         <span>
+          Nội dung chuyển khoản:{" "}
+          <strong>
+            {checkout.transferContent ||
+              checkout.transactionCode ||
+              "Đang cập nhật"}
+          </strong>
+        </span>
+
+        <span>
           Mã giao dịch:{" "}
           <strong>{checkout.transactionCode || "Đang cập nhật"}</strong>
         </span>
+
+        {isSepay && checkout.accountNo ? (
+          <>
+            <span>
+              Ngân hàng: <strong>{checkout.bankCode || "Đang cập nhật"}</strong>
+            </span>
+            <span>
+              Số tài khoản: <strong>{checkout.accountNo}</strong>
+            </span>
+            {checkout.accountName ? (
+              <span>
+                Chủ tài khoản: <strong>{checkout.accountName}</strong>
+              </span>
+            ) : null}
+          </>
+        ) : null}
 
         <span>
           Giữ chỗ đến: <strong>{formatDate(checkout.holdExpiresAt)}</strong>
@@ -421,9 +499,9 @@ function BookingCheckoutCard({ checkout }) {
           lineHeight: 1.5,
         }}
       >
-        Vui lòng dùng điện thoại quét mã QR để thanh toán. Sau khi thanh toán
-        thành công, chatbot sẽ tự thông báo và cập nhật trạng thái booking cho
-        bạn.
+        {isSepay
+          ? "Vui lòng mở app ngân hàng và quét mã VietQR/SePay. App ngân hàng sẽ tự điền số tiền và nội dung chuyển khoản. Sau khi SePay ghi nhận giao dịch, hệ thống sẽ tự cập nhật trạng thái booking."
+          : "Vui lòng dùng điện thoại quét mã QR để thanh toán. Sau khi thanh toán thành công, chatbot sẽ tự thông báo và cập nhật trạng thái booking cho bạn."}
       </div>
 
       {mobileUrl ? (
@@ -498,6 +576,9 @@ export default function AssistantPage({ embed: embedProp = false }) {
   const [question, setQuestion] = useState("");
   const [sending, setSending] = useState(false);
   const [conversationId, setConversationId] = useState(null);
+  const [conversationList, setConversationList] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [chatMemory, setChatMemory] = useState({});
   const [watchingCheckout, setWatchingCheckout] = useState(null);
   const notifiedPaymentsRef = useRef(new Set());
   const messagesEndRef = useRef(null);
@@ -512,7 +593,28 @@ export default function AssistantPage({ embed: embedProp = false }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (saved) setConversationId(saved);
+    const savedMessages = window.localStorage.getItem(MESSAGE_STORAGE_KEY);
+    const savedMemory = window.localStorage.getItem(MEMORY_STORAGE_KEY);
+    if (savedMessages) {
+      try {
+        const parsedMessages = JSON.parse(savedMessages);
+        if (Array.isArray(parsedMessages) && parsedMessages.length) {
+          setMessages(parsedMessages.map(normalizeLoadedMessage));
+        }
+      } catch (error) {}
+    }
+    if (savedMemory) {
+      try {
+        const parsedMemory = JSON.parse(savedMemory);
+        if (parsedMemory && typeof parsedMemory === "object")
+          setChatMemory(parsedMemory);
+      } catch (error) {}
+    }
+    refreshConversations(saved || null);
+    if (saved) {
+      setConversationId(saved);
+      loadConversation(saved, { silent: true });
+    }
   }, []);
 
   useEffect(() => {
@@ -520,6 +622,19 @@ export default function AssistantPage({ embed: embedProp = false }) {
     if (conversationId)
       window.localStorage.setItem(STORAGE_KEY, conversationId);
   }, [conversationId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(MESSAGE_STORAGE_KEY, JSON.stringify(messages));
+  }, [messages]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      MEMORY_STORAGE_KEY,
+      JSON.stringify(chatMemory || {}),
+    );
+  }, [chatMemory]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -590,6 +705,86 @@ export default function AssistantPage({ embed: embedProp = false }) {
     return () => clearInterval(timer);
   }, [watchingCheckout]);
 
+  const normalizeLoadedMessage = (msg) => ({
+    role: msg.role || "assistant",
+    content: msg.content || "",
+    time: msg.time || formatMessageTime(),
+    cards: msg.cards || msg.tours || [],
+    vouchers: msg.vouchers || [],
+    bookings: msg.bookings || [],
+    pickupPoints: msg.pickupPoints || [],
+    bookingCheckout: msg.bookingCheckout || null,
+    suggestedReplies: Array.isArray(msg.suggestedReplies)
+      ? msg.suggestedReplies
+      : [],
+  });
+
+  const refreshConversations = async (preferredId = null) => {
+    try {
+      const list = await apiFetch("/chatbot/conversations?scope=user");
+      const normalized = Array.isArray(list) ? list : [];
+      setConversationList(normalized);
+      const idToKeep = preferredId || conversationId;
+      if (
+        idToKeep &&
+        !normalized.some((item) => String(item.id) === String(idToKeep))
+      ) {
+        // Nếu backend chưa có hoặc user chưa đăng nhập, vẫn giữ conversationId local để không mất mạch chat hiện tại.
+        return;
+      }
+    } catch (error) {
+      // Khách chưa đăng nhập vẫn dùng được chat hiện tại, chỉ không tải được lịch sử server.
+    }
+  };
+
+  const loadConversation = async (id, options = {}) => {
+    if (!id) return;
+    setLoadingHistory(true);
+    try {
+      const detail = await apiFetch(
+        `/chatbot/conversations/${encodeURIComponent(id)}`,
+      );
+      const loadedMessages = Array.isArray(detail?.messages)
+        ? detail.messages.map(normalizeLoadedMessage)
+        : [];
+
+      setConversationId(String(detail?.conversationId || detail?.id || id));
+      setChatMemory(
+        detail?.memory && typeof detail.memory === "object"
+          ? detail.memory
+          : {},
+      );
+      setMessages(
+        loadedMessages.length
+          ? loadedMessages
+          : [
+              {
+                role: "assistant",
+                content: greeting,
+                time: formatMessageTime(),
+                cards: [],
+                vouchers: [],
+                bookings: [],
+                pickupPoints: [],
+                bookingCheckout: null,
+                suggestedReplies: [],
+              },
+            ],
+      );
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          STORAGE_KEY,
+          String(detail?.conversationId || detail?.id || id),
+        );
+      }
+    } catch (error) {
+      if (!options.silent)
+        showToast(error.message || "Không tải được hội thoại.", "error");
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
   const canSend = useMemo(
     () => question.trim().length > 0 && !sending,
     [question, sending],
@@ -620,10 +815,22 @@ export default function AssistantPage({ embed: embedProp = false }) {
     try {
       const result = await apiFetch("/chatbot/message", {
         method: "POST",
-        body: JSON.stringify({ conversationId, message: clean }),
+        body: JSON.stringify({
+          conversationId,
+          message: clean,
+          memory: chatMemory,
+        }),
       });
       if (result?.conversationId) {
-        setConversationId(String(result.conversationId));
+        const nextConversationId = String(result.conversationId);
+        setConversationId(nextConversationId);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(STORAGE_KEY, nextConversationId);
+        }
+        refreshConversations(nextConversationId);
+      }
+      if (result?.memory && typeof result.memory === "object") {
+        setChatMemory(result.memory);
       }
 
       if (
@@ -682,11 +889,15 @@ export default function AssistantPage({ embed: embedProp = false }) {
 
   const clearConversation = () => {
     setConversationId(null);
+    setChatMemory({});
     setWatchingCheckout(null);
     notifiedPaymentsRef.current = new Set();
 
-    if (typeof window !== "undefined")
+    if (typeof window !== "undefined") {
       window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(MESSAGE_STORAGE_KEY);
+      window.localStorage.removeItem(MEMORY_STORAGE_KEY);
+    }
 
     setMessages([
       {
@@ -769,6 +980,121 @@ export default function AssistantPage({ embed: embedProp = false }) {
               className="assistant-side"
               style={{ display: "grid", gap: 18, alignContent: "start" }}
             >
+              <div
+                style={{
+                  background: "#fff",
+                  padding: 18,
+                  borderRadius: 24,
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 12px 30px rgba(15,23,42,0.05)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    alignItems: "center",
+                    marginBottom: 12,
+                  }}
+                >
+                  <h3 style={{ margin: 0, color: "#0f172a" }}>
+                    Cuộc hội thoại
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={clearConversation}
+                    style={{
+                      border: "none",
+                      background: "#dcfce7",
+                      color: "#166534",
+                      borderRadius: 999,
+                      padding: "7px 10px",
+                      cursor: "pointer",
+                      fontWeight: 800,
+                      fontSize: 12,
+                    }}
+                  >
+                    + Mới
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 8,
+                    maxHeight: 240,
+                    overflowY: "auto",
+                  }}
+                  className="chat-scroll"
+                >
+                  {conversationList.length ? (
+                    conversationList.map((item) => {
+                      const active =
+                        String(item.id) === String(conversationId || "");
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => loadConversation(item.id)}
+                          disabled={loadingHistory}
+                          style={{
+                            textAlign: "left",
+                            border: active
+                              ? "1px solid #16a34a"
+                              : "1px solid #e2e8f0",
+                            background: active ? "#f0fdf4" : "#f8fafc",
+                            color: "#334155",
+                            borderRadius: 14,
+                            padding: "10px 12px",
+                            cursor: loadingHistory ? "wait" : "pointer",
+                          }}
+                        >
+                          <strong
+                            style={{
+                              display: "block",
+                              color: active ? "#166534" : "#0f172a",
+                              fontSize: 13,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {item.title || "Cuộc hội thoại"}
+                          </strong>
+                          <span
+                            style={{
+                              display: "block",
+                              color: "#64748b",
+                              fontSize: 11,
+                              marginTop: 4,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {item.lastMessage ||
+                              item.summary ||
+                              "Nhấn để mở lại"}
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div
+                      style={{
+                        color: "#64748b",
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      Chưa có lịch sử hội thoại. Khi bạn nhắn tin, cuộc trò
+                      chuyện sẽ được lưu và mở lại ở đây.
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div
                 style={{
                   background: "#fff",

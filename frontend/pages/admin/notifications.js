@@ -370,6 +370,61 @@ export default function AdminNotificationsPage() {
       subtitle="Tạo thông báo thường và gửi thông báo/email hàng loạt theo lịch khởi hành."
     >
       <style jsx global>{`
+        .row-actions,
+        .admin-inline-actions {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .row-actions .btn,
+        .admin-inline-actions .btn {
+          height: 30px;
+          min-width: 58px;
+          padding: 0 14px;
+          border-radius: 8px;
+          border: 1px solid transparent;
+          font-size: 13px;
+          font-weight: 700;
+          line-height: 1;
+          box-shadow: none;
+          gap: 6px;
+          white-space: nowrap;
+        }
+        .row-actions .btn-light,
+        .admin-inline-actions .btn-light {
+          background: #ffffff;
+          color: #111827;
+          border-color: #e5e7eb;
+        }
+        .row-actions .btn-light:hover,
+        .admin-inline-actions .btn-light:hover {
+          background: #f8fafc;
+          border-color: #cbd5e1;
+        }
+        .row-actions .btn-primary,
+        .admin-inline-actions .btn-primary {
+          background: #ffffff;
+          color: #111827;
+          border-color: #e5e7eb;
+        }
+        .row-actions .btn-primary:hover,
+        .admin-inline-actions .btn-primary:hover {
+          background: #f8fafc;
+          border-color: #cbd5e1;
+        }
+        .row-actions .btn-danger,
+        .admin-inline-actions .btn-danger {
+          background: #fee2e2;
+          color: #dc2626;
+          border-color: #fee2e2;
+        }
+        .row-actions .btn-danger:hover,
+        .admin-inline-actions .btn-danger:hover {
+          background: #fecaca;
+          border-color: #fecaca;
+        }
         .notify-tabs {
           display: flex;
           gap: 10px;
@@ -667,19 +722,13 @@ export default function AdminNotificationsPage() {
                       <td>{formatNumber(item?._count?.reads || 0)}</td>
                       <td>{formatDateTime(item.createdAt)}</td>
                       <td style={{ textAlign: "right" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 8,
-                            justifyContent: "flex-end",
-                          }}
-                        >
+                        <div className="admin-inline-actions">
                           <button
                             type="button"
                             className="btn btn-light btn-sm"
                             onClick={() => openDetail(item.id)}
                           >
-                            Chi tiết
+                            Xem
                           </button>
                           <button
                             type="button"

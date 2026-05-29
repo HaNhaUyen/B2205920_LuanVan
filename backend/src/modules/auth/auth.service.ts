@@ -81,6 +81,8 @@ export class AuthService {
       authProvider: "local",
     });
 
+    await this.assignTierVouchersToUser(user.id);
+
     return this.buildResponse(user);
   }
 
@@ -137,6 +139,7 @@ export class AuthService {
         authProvider: "google",
         avatarUrl: payload.picture,
       });
+      await this.assignTierVouchersToUser(user.id);
     } else {
       if (user.status !== "active") {
         throw new UnauthorizedException("Tài khoản hiện đang bị khóa.");
@@ -252,6 +255,40 @@ export class AuthService {
     });
 
     return this.serializeUser(updated);
+  }
+
+  private async assignTierVouchersToUser(userId: bigint) {
+    const prisma = (this.authRepository as any).prisma;
+    if (!prisma?.user || !prisma?.voucher || !prisma?.userVoucher) return;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, status: true, memberTier: true },
+    });
+
+    if (!user || user.role !== "user" || user.status !== "active") return;
+
+    const today = new Date();
+    const vouchers = await prisma.voucher.findMany({
+      where: {
+        memberTier: user.memberTier || "bronze",
+        status: "active",
+        startDate: { lte: today },
+        endDate: { gte: today },
+      },
+      select: { id: true },
+    });
+
+    if (!vouchers.length) return;
+
+    await prisma.userVoucher.createMany({
+      data: vouchers.map((voucher: any) => ({
+        userId: user.id,
+        voucherId: voucher.id,
+        status: "available",
+      })),
+      skipDuplicates: true,
+    });
   }
 
   private buildResponse(user: any) {

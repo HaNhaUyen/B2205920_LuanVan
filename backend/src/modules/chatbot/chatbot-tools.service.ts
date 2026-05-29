@@ -87,6 +87,10 @@ export class ChatbotToolsService {
       /\b(yeu cau hoan tien|hoan tien)\b.*\b(cho duyet|dang cho|can xu ly|pending)\b/,
       /\bhom nay co gi\b/,
       /\bcan xu ly\b/,
+      /\b(tour yeu|tour e|tour it dat|tour nen giam gia|tour nen an|tour kem hieu qua|tour can toi uu)\b/,
+      /\b(voucher nao|ma giam gia nao|voucher hieu qua|voucher kem|voucher it dung|hieu qua voucher)\b/,
+      /\b(phan nhom khach|nhom khach|hanh vi nguoi dung|khach thich bien|khach gia dinh|khach san khuyen mai)\b/,
+      /\b(canh bao thong minh|insight|van de can xu ly|hom nay can xu ly gi)\b/,
     ];
 
     return adminPatterns.some((pattern) => pattern.test(normalized));
@@ -162,6 +166,41 @@ export class ChatbotToolsService {
       )
     )
       return "top_destinations";
+
+    if (
+      /\b(tour nao dang yeu|tour dang yeu|tour yeu|tour e|tour it dat|tour kem hieu qua|tour can toi uu|tour nao nen an|tour nen an)\b/.test(
+        normalized,
+      )
+    )
+      return "weak_tours";
+
+    if (
+      /\b(tour nao nen giam gia|tour nen giam gia|nen giam gia tour nao|tour can giam gia|giam gia tour nao)\b/.test(
+        normalized,
+      )
+    )
+      return "discount_candidates";
+
+    if (
+      /\b(voucher nao|ma giam gia nao|voucher hieu qua|voucher kem|voucher it dung|hieu qua voucher|voucher nao hieu qua|voucher nao it duoc dung)\b/.test(
+        normalized,
+      )
+    )
+      return "voucher_effectiveness";
+
+    if (
+      /\b(phan nhom khach|nhom khach|hanh vi nguoi dung|khach thich bien|khach gia dinh|khach san khuyen mai|khach san khuyến mãi)\b/.test(
+        normalized,
+      )
+    )
+      return "customer_segments";
+
+    if (
+      /\b(canh bao thong minh|insight|van de can xu ly|hom nay can xu ly gi|hom nay co gi|can xu ly)\b/.test(
+        normalized,
+      )
+    )
+      return "smart_alerts";
 
     return "overview";
   }
@@ -310,6 +349,16 @@ export class ChatbotToolsService {
         return this.answerTopTours();
       case "top_destinations":
         return this.answerTopDestinations();
+      case "weak_tours":
+        return this.answerWeakTours();
+      case "discount_candidates":
+        return this.answerDiscountCandidates();
+      case "voucher_effectiveness":
+        return this.answerVoucherEffectiveness();
+      case "customer_segments":
+        return this.answerCustomerSegments();
+      case "smart_alerts":
+        return this.answerSmartAlerts();
       default:
         return this.answerAdminOverview();
     }
@@ -443,7 +492,6 @@ export class ChatbotToolsService {
         return `${i + 1}. ${d.tour?.name || "Tour"} - ${d.tour?.destination?.name || "không rõ"} - đi ${this.formatDate(d.departureDate)}, về ${this.formatDate(d.endDate)} - ${bookings.length} booking/${passengers} khách - thiếu HDV: ${missingGuide} - chờ thanh toán: ${pendingPayment}`;
       }),
       "",
-      "Checklist admin: kiểm tra booking đã thanh toán, đã có HDV, đã có điểm đón và đã gửi nhắc lịch chưa.",
     ].join("\n");
   }
 
@@ -628,6 +676,291 @@ export class ChatbotToolsService {
       ...(top.length
         ? top.map(([name, count], i) => `${i + 1}. ${name} - ${count} booking`)
         : ["Chưa có dữ liệu."]),
+    ].join("\n");
+  }
+
+  private async answerWeakTours() {
+    const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const tours = await this.prisma.tour.findMany({
+      where: { status: "published" as any },
+      take: 80,
+      include: {
+        destination: true,
+        bookings: { where: { createdAt: { gte: last30Days } } },
+        behaviors: { where: { createdAt: { gte: last30Days } } },
+      },
+    });
+    const rows = tours
+      .map((t: any) => {
+        const views = (t.behaviors || []).filter((b: any) =>
+          ["view", "view_detail", "search_click"].includes(String(b.action)),
+        ).length;
+        const bookings = (t.bookings || []).length;
+        const conversion = views
+          ? Math.round((bookings / views) * 1000) / 10
+          : 0;
+        let reason = "Theo dõi thêm";
+        if (views >= 10 && bookings === 0)
+          reason =
+            "Lượt xem cao nhưng chưa có booking, nên giảm giá/đổi ảnh/kiểm tra lịch trình";
+        else if (views <= 1 && bookings === 0)
+          reason = "Ít tương tác, cân nhắc ẩn tạm hoặc tối ưu SEO/hình ảnh";
+        else if (conversion < 5 && views >= 10)
+          reason = "Tỷ lệ chuyển đổi thấp, nên kiểm tra giá và voucher";
+        return { tour: t, views, bookings, conversion, reason };
+      })
+      .filter((x: any) => x.reason !== "Theo dõi thêm")
+      .sort((a: any, b: any) => b.views - a.views)
+      .slice(0, 8);
+
+    if (!rows.length)
+      return "Chưa phát hiện tour yếu rõ ràng trong 30 ngày gần nhất.";
+    return [
+      "Các tour nên tối ưu trong 30 ngày gần nhất:",
+      ...rows.map(
+        (x: any, i: number) =>
+          `${i + 1}. ${x.tour.name} (${x.tour.destination?.name || "không rõ"}) - ${x.views} lượt xem, ${x.bookings} booking, chuyển đổi ${x.conversion}% → ${x.reason}`,
+      ),
+      "",
+      "Gợi ý: ưu tiên xử lý tour có lượt xem cao nhưng booking thấp trước, vì đây là nhóm có nhu cầu nhưng chưa chuyển đổi.",
+    ].join("\n");
+  }
+
+  private async answerDiscountCandidates() {
+    const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const tours = await this.prisma.tour.findMany({
+      where: { status: "published" as any },
+      take: 100,
+      include: {
+        destination: true,
+        bookings: { where: { createdAt: { gte: last30Days } } },
+        behaviors: { where: { createdAt: { gte: last30Days } } },
+        reviews: true,
+      },
+    });
+
+    const rows = tours
+      .map((t: any) => {
+        const behaviors = t.behaviors || [];
+        const views = behaviors.filter((b: any) =>
+          ["view", "view_detail", "search_click", "ask_ai"].includes(
+            String(b.action),
+          ),
+        ).length;
+        const favorites = behaviors.filter(
+          (b: any) => String(b.action) === "favorite",
+        ).length;
+        const bookings = (t.bookings || []).filter((b: any) =>
+          [
+            "confirmed",
+            "completed",
+            "waiting_confirmation",
+            "pending_payment",
+          ].includes(String(b.bookingStatus)),
+        ).length;
+        const conversion = views
+          ? Math.round((bookings / views) * 1000) / 10
+          : 0;
+        const avgRating = (t.reviews || []).length
+          ? Math.round(
+              ((t.reviews || []).reduce(
+                (sum: number, r: any) => sum + Number(r.rating || 0),
+                0,
+              ) /
+                (t.reviews || []).length) *
+                10,
+            ) / 10
+          : 0;
+
+        let priority = 0;
+        const reasons: string[] = [];
+        if (views >= 10 && bookings === 0) {
+          priority += 4;
+          reasons.push("lượt xem cao nhưng chưa có booking");
+        }
+        if (views >= 10 && conversion < 5) {
+          priority += 3;
+          reasons.push(`tỷ lệ chuyển đổi thấp ${conversion}%`);
+        }
+        if (favorites >= 2 && bookings === 0) {
+          priority += 2;
+          reasons.push("có yêu thích nhưng chưa chuyển thành đặt tour");
+        }
+        if (avgRating > 0 && avgRating < 3.5) {
+          priority += 1;
+          reasons.push(`đánh giá trung bình thấp ${avgRating}/5`);
+        }
+
+        return {
+          tour: t,
+          views,
+          bookings,
+          favorites,
+          conversion,
+          avgRating,
+          priority,
+          reasons,
+        };
+      })
+      .filter((x: any) => x.priority > 0)
+      .sort((a: any, b: any) => b.priority - a.priority || b.views - a.views)
+      .slice(0, 8);
+
+    if (!rows.length) {
+      return [
+        "Chưa có tour nào đủ tín hiệu rõ ràng để đề xuất giảm giá trong 30 ngày gần nhất.",
+        "Gợi ý: tiếp tục theo dõi các tour có lượt xem cao nhưng tỷ lệ đặt thấp.",
+      ].join("\n");
+    }
+
+    return [
+      "Các tour nên cân nhắc giảm giá/tạo ưu đãi trong 30 ngày gần nhất:",
+      ...rows.map(
+        (x: any, i: number) =>
+          `${i + 1}. ${x.tour.name} (${x.tour.destination?.name || "không rõ"}) - ${x.views} lượt xem, ${x.favorites} yêu thích, ${x.bookings} booking, chuyển đổi ${x.conversion}%, đánh giá ${x.avgRating || "chưa có"} → ${x.reasons.join(", ")}.`,
+      ),
+      "",
+      "Gợi ý hành động: ưu tiên voucher 5–10% cho tour có lượt xem/yêu thích cao nhưng chưa đặt; nếu tour ít lượt xem thì nên tối ưu ảnh, tiêu đề và SEO trước khi giảm giá.",
+    ].join("\n");
+  }
+
+  private async answerVoucherEffectiveness() {
+    const vouchers = await this.prisma.voucher.findMany({
+      where: { status: "active" },
+      take: 20,
+      include: { userVouchers: true, bookings: true },
+      orderBy: { usedCount: "desc" },
+    });
+    if (!vouchers.length) return "Hiện chưa có voucher active để đánh giá.";
+    const rows = vouchers.map((v: any) => {
+      const assigned = (v.userVouchers || []).length;
+      const usedUsers = (v.userVouchers || []).filter(
+        (x: any) => x.status === "used",
+      ).length;
+      const usage = Number(v.quota || 0)
+        ? Math.round((Number(v.usedCount || 0) / Number(v.quota || 1)) * 1000) /
+          10
+        : assigned
+          ? Math.round((usedUsers / assigned) * 1000) / 10
+          : 0;
+      const revenue = (v.bookings || [])
+        .filter((b: any) =>
+          ["confirmed", "completed", "waiting_confirmation"].includes(
+            String(b.bookingStatus),
+          ),
+        )
+        .reduce((sum: number, b: any) => sum + Number(b.finalAmount || 0), 0);
+      return { v, assigned, usedUsers, usage, revenue };
+    });
+    const best = [...rows]
+      .sort((a, b) => b.usage - a.usage || b.revenue - a.revenue)
+      .slice(0, 5);
+    const weak = rows.filter((x) => x.usage <= 10).slice(0, 5);
+    return [
+      "Đánh giá hiệu quả voucher:",
+      "Voucher hiệu quả:",
+      ...best.map(
+        (x: any, i: number) =>
+          `${i + 1}. ${x.v.code} - dùng ${x.v.usedCount || 0} lượt, tỷ lệ ${x.usage}%, doanh thu liên quan ${this.formatCurrency(x.revenue)}`,
+      ),
+      "",
+      weak.length
+        ? "Voucher hiệu quả thấp:"
+        : "Không có voucher hiệu quả thấp rõ ràng.",
+      ...weak.map(
+        (x: any, i: number) =>
+          `${i + 1}. ${x.v.code} - tỷ lệ ${x.usage}% → nên kiểm tra điều kiện áp dụng, thời hạn hoặc mức giảm.`,
+      ),
+    ].join("\n");
+  }
+
+  private async answerCustomerSegments() {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.userBehavior.findMany({
+      where: { createdAt: { gte: since }, userId: { not: null } },
+      take: 1000,
+      include: { tour: { include: { destination: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    const counter = new Map<string, number>();
+    const detect = (text: string) => {
+      const t = String(text || "").toLowerCase();
+      if (
+        /bien|biển|dao|đảo|phu quoc|phú quốc|nha trang|quy nhon|quy nhơn|da nang|đà nẵng/.test(
+          t,
+        )
+      )
+        return "Thích biển/đảo";
+      if (/gia dinh|gia đình|family|tre nho|trẻ nhỏ/.test(t))
+        return "Du lịch gia đình";
+      if (/nghi duong|nghỉ dưỡng|resort|relax|thu gian|thư giãn/.test(t))
+        return "Nghỉ dưỡng";
+      if (/voucher|giam gia|giảm giá|khuyen mai|khuyến mãi|deal/.test(t))
+        return "Săn khuyến mãi";
+      if (/checkin|check-in|chup hinh|chụp hình|song ao|sống ảo/.test(t))
+        return "Thích chụp ảnh";
+      return "Chưa rõ sở thích";
+    };
+    for (const r of rows as any[]) {
+      const segment = detect(
+        `${r.action || ""} ${r.keyword || ""} ${r.tour?.tourTheme || ""} ${r.tour?.name || ""} ${r.tour?.destination?.name || ""}`,
+      );
+      counter.set(segment, (counter.get(segment) || 0) + 1);
+    }
+    const top = Array.from(counter.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+    if (!top.length) return "Chưa đủ dữ liệu hành vi để phân nhóm khách hàng.";
+    return [
+      "Phân nhóm khách hàng theo hành vi 30 ngày gần nhất:",
+      ...top.map(
+        ([name, count], i) => `${i + 1}. ${name}: ${count} tín hiệu hành vi`,
+      ),
+      "",
+      "Ứng dụng: dùng nhóm này để cá nhân hóa gợi ý tour, voucher và nội dung chatbot cho từng khách.",
+    ].join("\n");
+  }
+
+  private async answerSmartAlerts() {
+    const now = new Date();
+    const next30 = new Date(now.getTime() + 30 * 60 * 1000);
+    const [expiring, waiting, refunds, noGuide] = await Promise.all([
+      this.prisma.booking.count({
+        where: {
+          bookingStatus: "pending_payment" as any,
+          holdExpiresAt: { gte: now, lte: next30 },
+        },
+      }),
+      this.prisma.booking.count({
+        where: { bookingStatus: "waiting_confirmation" as any },
+      }),
+      this.prisma.refundRequest.count({ where: { status: "pending" as any } }),
+      this.prisma.booking.count({
+        where: {
+          bookingStatus: { in: ["confirmed", "waiting_confirmation"] as any },
+          guideAssignments: { none: {} },
+        },
+      }),
+    ]);
+    const alerts = [
+      expiring
+        ? `⚠ ${expiring} booking sắp hết hạn giữ chỗ trong 30 phút.`
+        : "✅ Không có booking sắp hết hạn giữ chỗ trong 30 phút.",
+      waiting
+        ? `⚠ ${waiting} booking đang chờ xác nhận thanh toán.`
+        : "✅ Không có booking chờ xác nhận thanh toán.",
+      refunds
+        ? `⚠ ${refunds} yêu cầu hoàn tiền đang chờ duyệt.`
+        : "✅ Không có refund pending.",
+      noGuide
+        ? `⚠ ${noGuide} booking đã xác nhận/chờ xác nhận nhưng chưa có HDV.`
+        : "✅ Booking đã xác nhận hiện không thiếu HDV.",
+    ];
+    return [
+      "Cảnh báo thông minh hiện tại:",
+      ...alerts,
+      "",
+      "Ưu tiên xử lý: booking sắp hết hạn → thanh toán chờ xác nhận → refund pending → phân công HDV.",
     ].join("\n");
   }
 

@@ -353,6 +353,7 @@ def image_search(payload: ImageSearchRequest):
 async def image_search_upload(
     file: UploadFile = File(...),
     top_k: int = Query(5, ge=1, le=10, description="Số điểm đến gần nhất cần trả về"),
+    text_query: str | None = Query(None, description="Nhu cầu đi kèm ảnh, ví dụ: đi biển 3 ngày, nghỉ dưỡng"),
 ):
     if not file.filename:
         raise HTTPException(status_code=400, detail="Thiếu tên file ảnh.")
@@ -366,7 +367,12 @@ async def image_search_upload(
         raise HTTPException(status_code=413, detail=f"Ảnh vượt quá {MAX_UPLOAD_SIZE_MB}MB.")
 
     try:
-        return vision_search_service.detect_from_image_bytes(content, filename=file.filename, top_k=top_k)
+        return vision_search_service.detect_from_image_bytes(
+            content,
+            filename=file.filename,
+            top_k=top_k,
+            text_query=text_query,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

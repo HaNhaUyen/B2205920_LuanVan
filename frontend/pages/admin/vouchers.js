@@ -4,6 +4,7 @@ import Modal from "@/components/Modal";
 import Loading from "@/components/Loading";
 import Pagination from "@/components/Pagination";
 import { apiFetch } from "@/lib/api";
+import { exportAdminSmartReport } from "@/lib/exportExcel";
 import { useToast } from "@/components/ToastContext";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { mapLabel } from "@/lib/labels";
@@ -210,92 +211,88 @@ export default function AdminVouchersPage() {
     }
   }
 
-  async function exportExcel() {
+  const exportExcel = async () => {
     setExporting(true);
-
     try {
-      const XLSX = await import("xlsx");
-
-      const exportQuery = new URLSearchParams();
-      exportQuery.set("page", "1");
-      exportQuery.set("pageSize", "10000");
-
-      if (filters.search) exportQuery.set("search", filters.search);
-      if (filters.status) exportQuery.set("status", filters.status);
-
-      const result = await apiFetch(`/vouchers?${exportQuery.toString()}`);
-      const vouchers = Array.isArray(result) ? result : result?.items || [];
-
-      const exportData = vouchers.map((v, index) => ({
-        STT: index + 1,
-        "Mã voucher": v.code || "",
-        "Tên chương trình": v.name || "",
-        "Mô tả": v.description || "",
-        "Hạng áp dụng": memberTierLabel(v.memberTier),
-        "Loại giảm": discountTypeLabel(v.discountType),
-        "Giá trị giảm":
-          v.discountType === "percent"
-            ? `${Number(v.discountValue || 0)}%`
-            : Number(v.discountValue || 0),
-        "Giảm tối đa": Number(v.maxDiscount || 0),
-        "Đơn tối thiểu": Number(v.minOrderAmount || 0),
-        "Đã dùng": Number(v.usedCount || 0),
-        Quota: Number(v.quota || 0),
-        "Ngày bắt đầu": v.startDate ? formatDate(v.startDate) : "",
-        "Ngày kết thúc": v.endDate ? formatDate(v.endDate) : "",
-        "Trạng thái": voucherStatusLabel(v.status),
-      }));
-
-      const wb = XLSX.utils.book_new();
-
-      const ws = XLSX.utils.json_to_sheet(
-        exportData.length
-          ? exportData
-          : [
-              {
-                "Thông báo": "Không có dữ liệu voucher để xuất.",
-              },
-            ],
+      await exportAdminSmartReport("vouchers", filters || {});
+      showToast(
+        "Đã xuất báo cáo Excel gồm Summary + Insights + Data.",
+        "success",
       );
-
-      ws["!cols"] = [
-        { wch: 8 },
-        { wch: 18 },
-        { wch: 32 },
-        { wch: 38 },
-        { wch: 16 },
-        { wch: 18 },
-        { wch: 16 },
-        { wch: 16 },
-        { wch: 18 },
-        { wch: 12 },
-        { wch: 12 },
-        { wch: 16 },
-        { wch: 16 },
-        { wch: 18 },
-      ];
-
-      XLSX.utils.book_append_sheet(wb, ws, "Vouchers");
-      XLSX.writeFile(wb, `DanhSachVoucher_${Date.now()}.xlsx`);
-
-      showToast("Đã xuất file Excel voucher thành công.", "success");
     } catch (error) {
-      showToast(error.message || "Không thể xuất Excel voucher.", "error");
+      showToast(
+        error.message || "Lỗi xuất Excel. Vui lòng kiểm tra lại hệ thống.",
+        "error",
+      );
     } finally {
       setExporting(false);
     }
-  }
+  };
 
   if (loading && data.items.length === 0) {
     return <Loading text="Đang tải voucher..." />;
   }
 
   return (
-    <AdminLayout
-      current="/admin/vouchers"
-      title="Quản lý Voucher"
-      subtitle="Tạo mã giảm giá theo hạng thành viên, xem chi tiết, sửa và xóa voucher."
-    >
+    <AdminLayout current="/admin/vouchers" title="Quản lý Voucher">
+      <style jsx global>{`
+        .row-actions,
+        .admin-inline-actions {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .row-actions .btn,
+        .admin-inline-actions .btn {
+          height: 30px;
+          min-width: 58px;
+          padding: 0 14px;
+          border-radius: 8px;
+          border: 1px solid transparent;
+          font-size: 13px;
+          font-weight: 700;
+          line-height: 1;
+          box-shadow: none;
+          gap: 6px;
+          white-space: nowrap;
+        }
+        .row-actions .btn-light,
+        .admin-inline-actions .btn-light {
+          background: #ffffff;
+          color: #111827;
+          border-color: #e5e7eb;
+        }
+        .row-actions .btn-light:hover,
+        .admin-inline-actions .btn-light:hover {
+          background: #f8fafc;
+          border-color: #cbd5e1;
+        }
+        .row-actions .btn-primary,
+        .admin-inline-actions .btn-primary {
+          background: #ffffff;
+          color: #111827;
+          border-color: #e5e7eb;
+        }
+        .row-actions .btn-primary:hover,
+        .admin-inline-actions .btn-primary:hover {
+          background: #f8fafc;
+          border-color: #cbd5e1;
+        }
+        .row-actions .btn-danger,
+        .admin-inline-actions .btn-danger {
+          background: #fee2e2;
+          color: #dc2626;
+          border-color: #fee2e2;
+        }
+        .row-actions .btn-danger:hover,
+        .admin-inline-actions .btn-danger:hover {
+          background: #fecaca;
+          border-color: #fecaca;
+        }
+      `}</style>
+
       <div
         className="admin-card"
         style={{ display: "flex", flexDirection: "column", gap: 18 }}
@@ -434,7 +431,7 @@ export default function AdminVouchersPage() {
                           type="button"
                           onClick={() => openDetail(v.id)}
                         >
-                          Chi tiết
+                          Xem
                         </button>
 
                         <button

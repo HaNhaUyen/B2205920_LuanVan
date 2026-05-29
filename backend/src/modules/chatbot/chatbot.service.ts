@@ -10,7 +10,6 @@ import type { RagHit } from "./rag.service";
 import { ChatbotNluService } from "./chatbot-nlu.service";
 import type { NluResult, NluEntities } from "./chatbot-nlu.service";
 import { ChatbotConfidenceService } from "./chatbot-confidence.service";
-import { ChatbotToolsService } from "./chatbot-tools.service";
 import type { AnswerConfidence } from "./chatbot-confidence.service";
 
 type AuthUser = {
@@ -65,6 +64,8 @@ type ChatBookingDraft = {
   contactEmail?: string | null;
   contactPhone?: string | null;
   paymentMethod?: "momo" | "vnpay" | "card" | "bank_transfer" | "cash" | null;
+  confirmed?: boolean;
+  replacingBookingCode?: string | null;
   started?: boolean;
 };
 
@@ -121,6 +122,17 @@ type BookingCheckoutCard = {
   transactionCode: string;
   paymentMethod: string;
   paymentStatus: string;
+  tourName?: string | null;
+  departureDate?: string | null;
+  endDate?: string | null;
+  pickupName?: string | null;
+  pickupAddress?: string | null;
+  pickupTime?: string | null;
+  bankCode?: string | null;
+  accountNo?: string | null;
+  accountName?: string | null;
+  transferContent?: string | null;
+  qrProvider?: "sepay" | "internal" | string | null;
 };
 
 type PickupPointCard = {
@@ -199,13 +211,13 @@ export class ChatbotService {
     private readonly ragService: RagService,
     private readonly nluService: ChatbotNluService,
     private readonly confidenceService: ChatbotConfidenceService,
-    private readonly toolsService: ChatbotToolsService,
   ) {
-    const apiKey = this.configService.get<string>("GEMINI_API_KEY");
+    const enableGemini = this.isEnvEnabled("CHATBOT_ENABLE_GEMINI", false);
+    const apiKey = this.configService.get<string>("GEMINI_API_KEY") || "";
     this.geminiModel =
-      this.configService.get<string>("GEMINI_MODEL") || "gemini-2.5-flash";
+      this.configService.get<string>("GEMINI_MODEL") || "gemini-2.0-flash";
 
-    this.gemini = apiKey ? new GoogleGenAI({ apiKey }) : null;
+    this.gemini = enableGemini && apiKey ? new GoogleGenAI({ apiKey }) : null;
   }
 
   async message(dto: ChatMessageDto, user: AuthUser) {
@@ -216,89 +228,12 @@ export class ChatbotService {
       userMessage,
     );
 
-    // Ưu tiên tuyệt đối cho các tool nghiệp vụ/admin trước NLU + RAG + memory tìm tour.
-    // Nếu không, các câu như "Tỷ lệ thanh toán thành công hiện tại thế nào?"
-    // hoặc "Điểm đến nào được đặt nhiều nhất?" có thể bị hiểu nhầm thành tìm tour.
-    const priorityToolAnswer = await this.toolsService.tryAnswer({
-      message: userMessage,
+    const adminGateAnswer = await this.tryHandleAdminAdvancedQuestion(
+      userMessage,
       user,
-      intent: "priority_business_tool",
-    });
-
-    if (priorityToolAnswer) {
-      const priorityIntent =
-        String(user?.role || "").toLowerCase() === "admin"
-          ? "admin_assistant"
-          : "business_tool";
-
-      await this.prisma.chatMessage.create({
-        data: {
-          conversationId: conversation.id,
-          role: "user",
-          content: userMessage,
-          intent: priorityIntent,
-          meta: { intent: priorityIntent, source: "priority_tool" },
-        },
-      });
-
-      await this.prisma.chatConversation.update({
-        where: { id: conversation.id },
-        data: {
-          lastIntent: priorityIntent,
-          title: conversation.title ?? this.buildConversationTitle(userMessage),
-          summary: "Trả lời bằng tool nghiệp vụ/admin.",
-        },
-      });
-
-      await this.prisma.chatMessage.create({
-        data: {
-          conversationId: conversation.id,
-          role: "assistant",
-          content: priorityToolAnswer,
-          intent: priorityIntent,
-          meta: {
-            intent: priorityIntent,
-            source: "priority_tool",
-            confidence: { level: "high", score: 1 },
-            cards: [],
-            vouchers: [],
-            bookings: [],
-            pickupPoints: [],
-            suggestedReplies:
-              priorityIntent === "admin_assistant"
-                ? [
-                    "Có bao nhiêu booking đang chờ thanh toán?",
-                    "Tour nào sắp khởi hành trong 7 ngày tới?",
-                    "Có booking nào chưa có hướng dẫn viên không?",
-                    "Top tour bán chạy là gì?",
-                  ]
-                : [],
-          },
-        },
-      });
-
-      return {
-        conversationId: conversation.id.toString(),
-        intent: priorityIntent,
-        nlu: { intent: priorityIntent, entities: {}, confidence: 1 },
-        confidence: { level: "high", score: 1 },
-        answer: priorityToolAnswer,
-        cards: [],
-        tours: [],
-        vouchers: [],
-        bookings: [],
-        pickupPoints: [],
-        suggestedReplies:
-          priorityIntent === "admin_assistant"
-            ? [
-                "Có bao nhiêu booking đang chờ thanh toán?",
-                "Tour nào sắp khởi hành trong 7 ngày tới?",
-                "Có booking nào chưa có hướng dẫn viên không?",
-                "Top tour bán chạy là gì?",
-              ]
-            : [],
-      };
-    }
+      conversation.id,
+    );
+    if (adminGateAnswer) return adminGateAnswer;
 
     const recentMessages = await this.prisma.chatMessage.findMany({
       where: { conversationId: conversation.id },
@@ -306,13 +241,30 @@ export class ChatbotService {
       take: 12,
     });
 
-    const currentMemory = this.toMemoryState(conversation.memoryJson);
-    const ruleMemory = this.extractMemory(userMessage, currentMemory);
-    const preliminaryMemory = this.mergeMemory(currentMemory, ruleMemory);
+    const dbMemory = this.toMemoryState(conversation.memoryJson);
+    const clientMemory = this.toMemoryState((dto as any).memory);
+    let currentMemory = this.mergeMemory(dbMemory, clientMemory);
     const recentForNlu = recentMessages.map((item: any) => ({
       role: item.role,
       content: item.content,
     }));
+
+    // Nếu memory bị mất lastTourOptions nhưng user vẫn hỏi "tour số 1",
+    // thử phục hồi danh sách tour từ câu trả lời gần nhất của bot.
+    // Trường hợp này thường xảy ra khi reload trang, đổi conversation, hoặc bản cũ chưa lưu memory đúng.
+    if (
+      this.isNumberedTourReference(userMessage) &&
+      (!Array.isArray(currentMemory.lastTourOptions) ||
+        currentMemory.lastTourOptions.length === 0)
+    ) {
+      currentMemory = await this.restoreLastTourOptionsFromRecentMessages(
+        currentMemory,
+        recentForNlu,
+      );
+    }
+
+    const ruleMemory = this.extractMemory(userMessage, currentMemory);
+    const preliminaryMemory = this.mergeMemory(currentMemory, ruleMemory);
 
     const fallbackIntent = this.detectIntent(
       userMessage,
@@ -328,6 +280,15 @@ export class ChatbotService {
       fallbackEntities: this.memoryToNluEntities(ruleMemory),
     });
 
+    // Nếu câu hiện tại chỉ là chọn điểm đón/thanh toán mà không nhắc rõ voucher,
+    // không cho NLU/Groq gán nhầm các số như "mã điểm đón 3914" thành voucherCode.
+    if (
+      (nlu as any).entities?.voucherCode &&
+      !this.hasExplicitVoucherCodeSignal(userMessage)
+    ) {
+      delete (nlu as any).entities.voucherCode;
+    }
+
     const mergedMemory = this.mergeMemory(
       preliminaryMemory,
       this.memoryFromNluEntities(nlu.entities, preliminaryMemory),
@@ -341,7 +302,10 @@ export class ChatbotService {
     // bẻ sang voucher_check/pickup_point/general_consulting. Nếu không, câu như
     // “chọn điểm đón mã 40, không dùng voucher, thanh toán momo” sẽ chỉ bị trả lời tư vấn,
     // memory bookingDraft không được lưu, và câu sau “1 người lớn” sẽ hỏi lặp lại điểm đón.
-    if (fallbackIntent === "booking_create") {
+    if (
+      fallbackIntent === "booking_create" &&
+      !this.isFreshTourSearchRequest(userMessage)
+    ) {
       intent = "booking_create";
       (nlu as any).intent = intent;
     }
@@ -365,8 +329,7 @@ export class ChatbotService {
       (nlu as any).intent = intent;
     }
 
-    // Guard: câu hỏi voucher có % giảm cụ thể phải đi vào voucher_check,
-    // không để NLU chuyển thành tư vấn chung rồi liệt kê voucher thường.
+    // Guard: câu hỏi voucher phải đi vào voucher_check, không bị booking draft cũ kéo sang chọn lịch.
     if (
       fallbackIntent === "voucher_check" &&
       /\b(voucher|ma giam gia|giam gia|khuyen mai|uu dai|coupon)\b/.test(
@@ -377,14 +340,69 @@ export class ChatbotService {
       (nlu as any).intent = intent;
     }
 
+    // Guard: câu hỏi chính sách/hoàn tiền phải đi vào tour_policy, không được hiểu thành hỏi lịch khởi hành.
+    if (fallbackIntent === "tour_policy") {
+      intent = "tour_policy";
+      (nlu as any).intent = intent;
+    }
+
     // Guard: câu so sánh/"nên chọn A hay B" phải ưu tiên tour_compare.
-    if (
-      fallbackIntent === "tour_compare" &&
-      ["tour_search", "general_consulting", "follow_up", "small_talk"].includes(
-        String(intent),
-      )
-    ) {
+    // Đặc biệt khi đang có bookingDraft/lastDepartureOptions, Gemini có thể kéo nhầm
+    // câu "So sánh tour số 1 và số 2" vào booking_create rồi bot quay lại hỏi chọn lịch.
+    if (fallbackIntent === "tour_compare") {
       intent = "tour_compare";
+      (nlu as any).intent = intent;
+    }
+
+    // Guard: câu hỏi chi tiết về tour đã gợi ý phải là follow_up, không phải tiếp tục booking.
+    // Ví dụ: "Tour số 1 có phù hợp cho trẻ nhỏ không?" đang có draft cũ thì bot vẫn phải trả lời
+    // về tour, không được nhảy sang validate departure và hỏi chọn lịch.
+    const asksTourDetailFromOptions =
+      /\btour\s*(?:so|số)?\s*\d+\b/.test(normalizedForIntentGuard) &&
+      this.isTourDetailQuestion(userMessage);
+
+    if (fallbackIntent === "follow_up" || asksTourDetailFromOptions) {
+      intent = "follow_up";
+      (nlu as any).intent = intent;
+
+      // Nếu user hỏi "tour số 1/tour số 2" thì đây là tham chiếu tới danh sách tour
+      // vừa hiển thị, không phải từ khóa tìm kiếm mới. Phải resolve ngay tại đây để
+      // tránh buildPromptContext search lại và lấy nhầm tour khác (ví dụ Đà Lạt -> Quy Nhơn).
+      const referencedTour = this.resolveTourChoiceFromMessage(
+        userMessage,
+        preliminaryMemory,
+      );
+      if (referencedTour) {
+        mergedMemory.lastTourId = String(referencedTour.tourId || "");
+        mergedMemory.lastTourName = String(referencedTour.name || "");
+        if (referencedTour.departureId) {
+          mergedMemory.bookingDraft = {
+            ...(mergedMemory.bookingDraft || {}),
+            departureId: String(referencedTour.departureId),
+          };
+        }
+      }
+    }
+
+    // Guard: các câu hỏi/so sánh/tư vấn tour không phải là tín hiệu tiếp tục đặt tour.
+    // Chỉ giữ booking_create khi user có hành động rõ: đặt, chọn lịch, chọn điểm đón, xác nhận, thanh toán...
+    const hasExplicitBookingAction =
+      /\b(dat tour|dat cho|giu cho|chot tour|toi muon dat|muon dat tour|dat luon|tao booking|book tour|booking tour|chon lich|lich so|chọn lịch|diem don|điểm đón|pickup|voucher|ma giam gia|momo|vnpay|vn pay|qr|chuyen khoan|thanh toan|xac nhan|xác nhận|dong y|đồng ý|khong dung voucher|không dùng voucher|bo qua voucher|bỏ qua voucher)\b/.test(
+        normalizedForIntentGuard,
+      ) ||
+      /\b\d+\s*(nguoi|người|khach|khách|nguoi lon|người lớn|tre em|trẻ em)\b/.test(
+        normalizedForIntentGuard,
+      );
+
+    if (
+      String(intent) === "booking_create" &&
+      !hasExplicitBookingAction &&
+      (asksTourDetailFromOptions ||
+        /\b(so sanh|so sánh|khac nhau|khác nhau|phu hop|phù hợp|tre nho|trẻ nhỏ|tre em|trẻ em|lich trinh|lịch trình|khach san|khách sạn|an uong|ăn uống)\b/.test(
+          normalizedForIntentGuard,
+        ))
+    ) {
+      intent = fallbackIntent === "tour_compare" ? "tour_compare" : "follow_up";
       (nlu as any).intent = intent;
     }
 
@@ -417,9 +435,14 @@ export class ChatbotService {
     // Không cập nhật trong booking_create, vì câu “đặt tour 1” phải dùng
     // lastTourOptions của câu gợi ý trước đó. Nếu ghi đè tại đây, bot có thể
     // chọn nhầm tour số 1 thành một tour khác do buildPromptContext tự tìm lại.
+    const isNumberedTourFollowUp =
+      ["follow_up", "tour_compare"].includes(String(intent)) &&
+      this.isNumberedTourReference(userMessage);
+
     if (
       promptContext.tours[0] &&
-      !["booking_create", "booking_change"].includes(intent)
+      !["booking_create", "booking_change"].includes(intent) &&
+      !isNumberedTourFollowUp
     ) {
       mergedMemory.lastTourId = promptContext.tours[0].tourId;
       mergedMemory.lastTourName = promptContext.tours[0].name;
@@ -438,21 +461,14 @@ export class ChatbotService {
       bookingCheckout?: BookingCheckoutCard;
     } | null = null;
 
-    // Các tool nghiệp vụ tách riêng xử lý các mảng mới: SePay/MBBank,
-    // refund assistant và Admin AI Assistant. Tool chạy trước state-machine booking
-    // để câu hỏi nghiệp vụ không bị Gemini hoặc memory cũ kéo sai hướng.
-    const toolBusinessAnswer = await this.toolsService.tryAnswer({
-      message: userMessage,
-      user,
-      intent,
-    });
-
     // Các câu cần chặn/tra cứu nghiệp vụ phải chạy trước booking flow.
     // Nếu không, câu như "Tôi muốn đặt tour chưa có trong hệ thống" có thể bị kéo memory cũ
     // rồi nhảy sang hỏi điểm đón của tour cũ.
-    const earlyDirectBusinessAnswer =
-      toolBusinessAnswer ||
-      (await this.tryEarlyBusinessAnswer(promptContext, intent, user));
+    const earlyDirectBusinessAnswer = await this.tryEarlyBusinessAnswer(
+      promptContext,
+      intent,
+      user,
+    );
 
     if (earlyDirectBusinessAnswer) {
       mergedMemory.bookingDraft = null;
@@ -629,6 +645,7 @@ export class ChatbotService {
       nlu,
       confidence: promptContext.answerConfidence,
       answer,
+      memory: mergedMemory,
       cards: responseTours,
       tours: responseTours,
       vouchers: responseVouchers,
@@ -637,6 +654,861 @@ export class ChatbotService {
       bookingCheckout: promptContext.bookingCheckout,
       suggestedReplies,
     };
+  }
+
+  async listConversations(user: AuthUser, scope: string = "user") {
+    if (!user?.userId) return [];
+    const where: any = { userId: user.userId };
+    const conversations = await this.prisma.chatConversation.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      take: 30,
+      select: {
+        id: true,
+        title: true,
+        summary: true,
+        lastIntent: true,
+        updatedAt: true,
+        createdAt: true,
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { content: true, role: true, createdAt: true },
+        },
+      },
+    });
+
+    return conversations.map((item: any) => ({
+      id: item.id.toString(),
+      title: item.title || "Cuộc hội thoại",
+      summary: item.summary || item.messages?.[0]?.content || "",
+      lastIntent: item.lastIntent || null,
+      updatedAt: item.updatedAt,
+      createdAt: item.createdAt,
+      lastMessage: item.messages?.[0]?.content || "",
+      scope,
+    }));
+  }
+
+  async getConversation(conversationId: string, user: AuthUser) {
+    if (!user?.userId)
+      throw new NotFoundException("Bạn cần đăng nhập để xem lại hội thoại.");
+    if (!/^\d+$/.test(String(conversationId || ""))) {
+      throw new NotFoundException("Mã hội thoại không hợp lệ.");
+    }
+
+    const conversation = await this.prisma.chatConversation.findUnique({
+      where: { id: BigInt(conversationId) },
+      include: {
+        messages: { orderBy: { createdAt: "asc" }, take: 80 },
+      },
+    });
+
+    if (
+      !conversation ||
+      String(conversation.userId || "") !== String(user.userId)
+    ) {
+      throw new NotFoundException("Không tìm thấy hội thoại chat.");
+    }
+
+    return {
+      id: conversation.id.toString(),
+      conversationId: conversation.id.toString(),
+      title: conversation.title || "Cuộc hội thoại",
+      summary: conversation.summary || null,
+      lastIntent: conversation.lastIntent || null,
+      memory: this.toMemoryState(conversation.memoryJson),
+      messages: conversation.messages.map((msg: any) => {
+        const meta = msg.meta && typeof msg.meta === "object" ? msg.meta : {};
+        return {
+          id: msg.id.toString(),
+          role: msg.role,
+          content: msg.content,
+          intent: msg.intent || meta.intent || null,
+          time: this.formatTimeForChat(msg.createdAt),
+          createdAt: msg.createdAt,
+          cards: meta.cards || meta.tours || [],
+          tours: meta.tours || meta.cards || [],
+          vouchers: meta.vouchers || [],
+          bookings: meta.bookings || [],
+          pickupPoints: meta.pickupPoints || [],
+          bookingCheckout: meta.bookingCheckout || null,
+          suggestedReplies: Array.isArray(meta.suggestedReplies)
+            ? meta.suggestedReplies
+            : [],
+        };
+      }),
+    };
+  }
+
+  private async tryHandleAdminAdvancedQuestion(
+    userMessage: string,
+    user: AuthUser,
+    conversationId: bigint,
+  ) {
+    if (String(user?.role || "").toLowerCase() !== "admin") return null;
+    const intent = this.detectAdminAdvancedIntent(userMessage);
+    if (!intent) return null;
+
+    const answer = await this.buildAdminAdvancedAnswer(intent, userMessage);
+
+    await this.prisma.chatMessage.create({
+      data: {
+        conversationId,
+        role: "user",
+        content: userMessage,
+        intent,
+        meta: { intent, adminIntent: true },
+      },
+    });
+
+    await this.prisma.chatConversation.update({
+      where: { id: conversationId },
+      data: {
+        lastIntent: intent,
+        title: "Admin: " + this.buildConversationTitle(userMessage),
+        summary: answer.slice(0, 500),
+        memoryJson: { adminIntent: intent },
+      },
+    });
+
+    await this.prisma.chatMessage.create({
+      data: {
+        conversationId,
+        role: "assistant",
+        content: answer,
+        intent,
+        meta: { intent, adminIntent: true },
+      },
+    });
+
+    return {
+      conversationId: conversationId.toString(),
+      intent,
+      nlu: { intent, entities: {}, confidence: 1 },
+      confidence: {
+        level: "high",
+        shouldAnswer: true,
+        reasons: ["admin_intent_gate"],
+      },
+      answer,
+      memory: { intent },
+      cards: [],
+      tours: [],
+      vouchers: [],
+      bookings: [],
+      pickupPoints: [],
+      bookingCheckout: null,
+      suggestedReplies: this.buildAdminSuggestedReplies(intent),
+    };
+  }
+
+  private detectAdminAdvancedIntent(message: string): string | null {
+    const n = this.stripText(message);
+
+    if (
+      /\b(doanh thu|revenue|thang nay|thang truoc|so voi|hom nay|tuan nay|quy nay)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_revenue_time_compare";
+    }
+    if (
+      /\b(bao nhieu booking|booking nao|don nao|cho thanh toan|cho xac nhan|pending|confirmed|cancelled|da huy|trang thai booking|trang thai don)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_booking_status";
+    }
+    if (
+      /\b(luot xem cao|it nguoi dat|it dat|khong co booking|chuyen doi thap|bat thuong|tour nao dang yeu|tour nao yeu|tour nao e|tour e|tour nao it dat|tour nao can toi uu|can toi uu)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_tour_anomaly";
+    }
+    if (
+      /\b(nen giam gia|giam gia tour|tour nao nen giam|nen tao uu dai|nen khuyen mai|tour nao can uu dai|de xuat hanh dong)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_discount_action";
+    }
+    if (
+      /\b(khach hang tiem nang|nhom khach|phan nhom|hanh vi|hay dat tour bien|dat tour bien|thich bien|gia dinh|nghi duong|san khuyen mai)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_customer_segments";
+    }
+    if (
+      /\b(voucher|ma giam gia|hieu qua nhat|it duoc dung|thap hieu qua|ty le su dung voucher)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_voucher_performance";
+    }
+    if (
+      /\b(refund|hoan tien|yeu cau hoan|can xu ly gap|cho duyet|ton dong)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_refund_urgent";
+    }
+    if (
+      /\b(canh bao|van de van hanh|can xu ly|hom nay co gi|bat thuong he thong|tong quan van hanh)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_operation_alert";
+    }
+
+    return null;
+  }
+
+  private async buildAdminAdvancedAnswer(intent: string, message: string) {
+    switch (intent) {
+      case "admin_revenue_time_compare":
+        return this.buildAdminRevenueCompareAnswer();
+      case "admin_booking_status":
+        return this.buildAdminBookingStatusAnswer(message);
+      case "admin_tour_anomaly":
+        return this.buildAdminTourAnomalyAnswer();
+      case "admin_discount_action":
+        return this.buildAdminDiscountActionAnswer();
+      case "admin_customer_segments":
+        return this.buildAdminCustomerSegmentsAnswer();
+      case "admin_voucher_performance":
+        return this.buildAdminVoucherPerformanceAnswer();
+      case "admin_refund_urgent":
+        return this.buildAdminRefundUrgentAnswer();
+      case "admin_operation_alert":
+        return this.buildAdminOperationAlertAnswer();
+      default:
+        return "Mình chưa nhận diện được câu hỏi quản trị này. Admin có thể hỏi về doanh thu, booking, tour yếu, voucher, refund hoặc phân nhóm khách hàng.";
+    }
+  }
+
+  private buildAdminSuggestedReplies(intent: string) {
+    const common = [
+      "Doanh thu tháng này so với tháng trước thế nào?",
+      "Có bao nhiêu booking chờ thanh toán?",
+      "Tour nào lượt xem cao nhưng ít người đặt?",
+      "Voucher nào hiệu quả nhất?",
+    ];
+    if (intent === "admin_tour_anomaly" || intent === "admin_discount_action") {
+      return [
+        "Nên giảm giá tour nào?",
+        "Tour nào lượt xem cao nhưng ít người đặt?",
+        "Nhóm khách nào hay đặt tour biển?",
+      ];
+    }
+    if (intent === "admin_refund_urgent") {
+      return [
+        "Có vấn đề vận hành nào không?",
+        "Có bao nhiêu booking chờ thanh toán?",
+        "Doanh thu tháng này thế nào?",
+      ];
+    }
+    return common;
+  }
+
+  private startOfMonth(date: Date) {
+    return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+  }
+
+  private endOfMonth(date: Date) {
+    return new Date(
+      date.getFullYear(),
+      date.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  private percent(value: number, total: number) {
+    if (!total) return "0%";
+    return `${((value / total) * 100).toFixed(1)}%`;
+  }
+
+  private async buildAdminRevenueCompareAnswer() {
+    const now = new Date();
+    const thisStart = this.startOfMonth(now);
+    const thisEnd = this.endOfMonth(now);
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevStart = this.startOfMonth(prev);
+    const prevEnd = this.endOfMonth(prev);
+
+    const [
+      thisRevenue,
+      prevRevenue,
+      paidToday,
+      bookingsThisMonth,
+      paidBookingsThisMonth,
+    ] = await Promise.all([
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: {
+          paymentStatus: "paid",
+          paidAt: { gte: thisStart, lte: thisEnd },
+        },
+      }),
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: {
+          paymentStatus: "paid",
+          paidAt: { gte: prevStart, lte: prevEnd },
+        },
+      }),
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: {
+          paymentStatus: "paid",
+          paidAt: {
+            gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+          },
+        },
+      }),
+      this.prisma.booking.count({
+        where: { createdAt: { gte: thisStart, lte: thisEnd } },
+      }),
+      this.prisma.booking.count({
+        where: {
+          bookingStatus: { in: ["confirmed", "completed"] },
+          createdAt: { gte: thisStart, lte: thisEnd },
+        },
+      }),
+    ]);
+
+    const current = Number(thisRevenue._sum.amount || 0);
+    const previous = Number(prevRevenue._sum.amount || 0);
+    const diff = current - previous;
+    const diffRate =
+      previous > 0
+        ? `${diff >= 0 ? "+" : ""}${((diff / previous) * 100).toFixed(1)}%`
+        : current > 0
+          ? "+100%"
+          : "0%";
+
+    return [
+      "Doanh thu theo thời gian:",
+      `- Tháng này: ${this.formatCurrency(current)}`,
+      `- Tháng trước: ${this.formatCurrency(previous)}`,
+      `- Chênh lệch: ${diff >= 0 ? "+" : ""}${this.formatCurrency(diff)} (${diffRate})`,
+      `- Doanh thu hôm nay: ${this.formatCurrency(Number(paidToday._sum.amount || 0))}`,
+      `- Booking tạo trong tháng: ${bookingsThisMonth}`,
+      `- Booking đã xác nhận/hoàn thành trong tháng: ${paidBookingsThisMonth}`,
+      "",
+      diff < 0
+        ? "Nhận xét: doanh thu đang giảm. Nên kiểm tra tour có lượt xem cao nhưng chưa đặt, booking chờ thanh toán và voucher đang ít được dùng."
+        : "Nhận xét: doanh thu đang ổn. Nên tiếp tục đẩy các tour/voucher có tỷ lệ chuyển đổi tốt.",
+    ].join("\n");
+  }
+
+  private async buildAdminBookingStatusAnswer(message: string) {
+    const n = this.stripText(message);
+    const statusGroups: any = {
+      pending_payment: ["pending_payment"],
+      waiting_confirmation: ["waiting_confirmation"],
+      confirmed: ["confirmed"],
+      completed: ["completed"],
+      cancelled: ["cancelled", "expired"],
+    };
+    let selected: string[] | null = null;
+    if (/\b(cho thanh toan|pending payment|chua thanh toan)\b/.test(n))
+      selected = statusGroups.pending_payment;
+    if (/\b(cho xac nhan|waiting confirmation|can xac nhan)\b/.test(n))
+      selected = statusGroups.waiting_confirmation;
+    if (/\b(da xac nhan|confirmed)\b/.test(n))
+      selected = statusGroups.confirmed;
+    if (/\b(da huy|huy|cancel|expired|qua han)\b/.test(n))
+      selected = statusGroups.cancelled;
+
+    const [allGroups, rows] = await Promise.all([
+      this.prisma.booking.groupBy({
+        by: ["bookingStatus"],
+        _count: { _all: true },
+      }),
+      selected
+        ? this.prisma.booking.findMany({
+            where: { bookingStatus: { in: selected as any } },
+            take: 8,
+            orderBy: { createdAt: "desc" },
+            include: {
+              tour: true,
+              user: true,
+              payments: { take: 1, orderBy: { createdAt: "desc" } },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const lines = ["Tình trạng booking hiện tại:"];
+    for (const item of allGroups as any[]) {
+      lines.push(`- ${item.bookingStatus}: ${item._count._all}`);
+    }
+
+    if (selected) {
+      lines.push("", "Danh sách cần kiểm tra gần nhất:");
+      if (!rows.length)
+        lines.push("- Không có booking phù hợp trạng thái này.");
+      rows.forEach((b: any, index: number) => {
+        lines.push(
+          `${index + 1}. ${b.bookingCode} - ${b.tour?.name || "Tour"} - ${this.formatCurrency(Number(b.finalAmount || 0))} - ${b.bookingStatus}`,
+        );
+      });
+    }
+
+    lines.push(
+      "",
+      "Ưu tiên: pending_payment quá lâu → waiting_confirmation → booking sắp khởi hành → booking chưa phân công HDV.",
+    );
+    return lines.join("\n");
+  }
+
+  private async getTourPerformanceRows(days = 30) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const [tours, behaviors, bookings, favorites] = await Promise.all([
+      this.prisma.tour.findMany({
+        where: {
+          status: "published" as any,
+        },
+        take: 200,
+        orderBy: {
+          createdAt: "desc",
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          basePriceAdult: true,
+          destination: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      }),
+
+      (this.prisma as any).userBehavior?.groupBy
+        ? (this.prisma as any).userBehavior.groupBy({
+            by: ["tourId", "action"],
+            where: {
+              createdAt: { gte: since },
+              tourId: { not: null },
+            },
+            _count: { _all: true },
+            _sum: { score: true },
+          })
+        : Promise.resolve([]),
+
+      this.prisma.booking.groupBy({
+        by: ["tourId"],
+        where: {
+          createdAt: { gte: since },
+        },
+        _count: { _all: true },
+        _sum: { finalAmount: true },
+      }),
+
+      (this.prisma as any).favoriteTour?.groupBy
+        ? (this.prisma as any).favoriteTour.groupBy({
+            by: ["tourId"],
+            where: {
+              createdAt: { gte: since },
+            },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const behaviorMap = new Map<string, any>();
+    for (const row of behaviors as any[]) {
+      const key = String(row.tourId || "");
+      const current = behaviorMap.get(key) || {
+        views: 0,
+        searches: 0,
+        score: 0,
+        signals: 0,
+      };
+      const action = String(row.action || "");
+      const count = Number(row._count?._all || 0);
+      current.signals += count;
+      current.score += Number(row._sum?.score || 0);
+      if (["view", "view_detail", "tour_view"].includes(action))
+        current.views += count;
+      if (["search", "ask_ai"].includes(action)) current.searches += count;
+      behaviorMap.set(key, current);
+    }
+
+    const bookingMap = new Map(
+      (bookings as any[]).map((row) => [String(row.tourId), row]),
+    );
+    const favoriteMap = new Map(
+      (favorites as any[]).map((row) => [
+        String(row.tourId),
+        Number(row._count?._all || 0),
+      ]),
+    );
+
+    return (tours as any[]).map((tour: any) => {
+      const key = String(tour.id);
+      const b = bookingMap.get(key);
+      const behavior = behaviorMap.get(key) || {
+        views: 0,
+        searches: 0,
+        score: 0,
+        signals: 0,
+      };
+      const totalBookings = Number(b?._count?._all || 0);
+      const revenue = Number(b?._sum?.finalAmount || 0);
+      const favoritesCount = Number(favoriteMap.get(key) || 0);
+      const interest =
+        behavior.views +
+        behavior.searches +
+        favoritesCount * 3 +
+        behavior.score;
+      const conversionRate =
+        behavior.views > 0
+          ? totalBookings / behavior.views
+          : totalBookings > 0
+            ? 1
+            : 0;
+      return {
+        id: key,
+        name: tour.name,
+        destination: tour.destination?.name || "",
+        price: Number(tour.basePriceAdult || 0),
+        views: behavior.views,
+        searches: behavior.searches,
+        favorites: favoritesCount,
+        signals: behavior.signals,
+        behaviorScore: behavior.score,
+        bookings: totalBookings,
+        revenue,
+        interest,
+        conversionRate,
+      };
+    });
+  }
+
+  private async buildAdminTourAnomalyAnswer() {
+    const rows = await this.getTourPerformanceRows(30);
+    const weak = rows
+      .filter((r: any) => r.interest >= 3 && r.bookings <= 1)
+      .sort(
+        (a: any, b: any) =>
+          b.interest - b.bookings * 5 - (a.interest - a.bookings * 5),
+      )
+      .slice(0, 6);
+
+    if (!weak.length) {
+      return "Tour đang yếu trong 30 ngày gần nhất:\n- Chưa có tour nào có tín hiệu yếu rõ ràng.\n\nGợi ý: tiếp tục theo dõi lượt xem, yêu thích và tỷ lệ chuyển đổi theo từng tour.";
+    }
+
+    return [
+      "Tour đang yếu trong 30 ngày gần nhất:",
+      ...weak.map(
+        (r: any, i: number) =>
+          `${i + 1}. ${r.name} - ${r.views} lượt xem, ${r.favorites} yêu thích, ${r.bookings} booking, chuyển đổi ${this.percent(r.bookings, Math.max(r.views, 1))} → có quan tâm nhưng chuyển đổi thấp.`,
+      ),
+      "",
+      "Ưu tiên xử lý: kiểm tra giá, ảnh đại diện, lịch khởi hành, mô tả lịch trình và điều kiện voucher của các tour trên.",
+    ].join("\n");
+  }
+
+  private async buildAdminDiscountActionAnswer() {
+    const rows = await this.getTourPerformanceRows(30);
+    const candidates = rows
+      .filter((r: any) => r.interest >= 4 && r.bookings === 0)
+      .sort((a: any, b: any) => b.interest - a.interest)
+      .slice(0, 6);
+
+    if (!candidates.length) {
+      return "Tour nên giảm giá / tạo ưu đãi:\n- Chưa có tour nào đủ tín hiệu để đề xuất giảm giá.\n\nGợi ý: không nên giảm giá đại trà; chỉ giảm khi có lượt xem/yêu thích nhưng không ra booking.";
+    }
+
+    return [
+      "Tour nên cân nhắc giảm giá / tạo ưu đãi:",
+      ...candidates.map(
+        (r: any, i: number) =>
+          `${i + 1}. ${r.name} - ${r.views} lượt xem, ${r.favorites} yêu thích, 0 booking → đề xuất voucher 5-10% hoặc combo ưu đãi.`,
+      ),
+      "",
+      "Lý do: nhóm này đã có tín hiệu quan tâm nhưng chưa chuyển đổi, phù hợp thử ưu đãi ngắn hạn thay vì giảm toàn bộ tour.",
+    ].join("\n");
+  }
+
+  private async buildAdminCustomerSegmentsAnswer() {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const behaviors =
+      (await (this.prisma as any).userBehavior?.findMany?.({
+        where: { createdAt: { gte: since } },
+        take: 5000,
+        select: {
+          keyword: true,
+          action: true,
+          score: true,
+          meta: true,
+          tour: {
+            select: { name: true, destination: { select: { name: true } } },
+          },
+        },
+      })) || [];
+
+    const segments: Record<string, number> = {
+      "Thích biển/đảo": 0,
+      "Du lịch gia đình": 0,
+      "Nghỉ dưỡng": 0,
+      "Săn khuyến mãi": 0,
+      "Thích chụp ảnh": 0,
+      "Chưa rõ sở thích": 0,
+    };
+
+    const add = (label: string, score = 1) => {
+      segments[label] = (segments[label] || 0) + score;
+    };
+    for (const row of behaviors as any[]) {
+      const raw = `${row.keyword || ""} ${row.tour?.name || ""} ${row.tour?.destination?.name || ""} ${JSON.stringify(row.meta || {})}`;
+      const n = this.stripText(raw);
+      const score = Math.max(1, Number(row.score || 1));
+      let matched = false;
+      if (
+        /\b(bien|dao|phu quoc|nha trang|quy nhon|da nang|ha long)\b/.test(n)
+      ) {
+        add("Thích biển/đảo", score);
+        matched = true;
+      }
+      if (/\b(gia dinh|tre em|tre nho|family)\b/.test(n)) {
+        add("Du lịch gia đình", score);
+        matched = true;
+      }
+      if (/\b(nghi duong|resort|it di chuyen|nhe nhang|khong met)\b/.test(n)) {
+        add("Nghỉ dưỡng", score);
+        matched = true;
+      }
+      if (/\b(voucher|giam gia|khuyen mai|uu dai|gia re|duoi)\b/.test(n)) {
+        add("Săn khuyến mãi", score);
+        matched = true;
+      }
+      if (/\b(chup hinh|check in|song ao|canh dep|view dep)\b/.test(n)) {
+        add("Thích chụp ảnh", score);
+        matched = true;
+      }
+      if (!matched) add("Chưa rõ sở thích", 1);
+    }
+
+    const ranked = Object.entries(segments).sort((a, b) => b[1] - a[1]);
+    return [
+      "Phân nhóm khách hàng theo hành vi 30 ngày gần nhất:",
+      ...ranked.map(
+        ([label, value], index) => `${index + 1}. ${label}: ${value} tín hiệu`,
+      ),
+      "",
+      "Ứng dụng: dùng các nhóm này để cá nhân hóa gợi ý tour, voucher, banner trang chủ và nội dung chatbot.",
+    ].join("\n");
+  }
+
+  private async buildAdminVoucherPerformanceAnswer() {
+    const [vouchers, bookingGroups, userVoucherGroups] = await Promise.all([
+      this.prisma.voucher.findMany({
+        take: 100,
+        orderBy: { createdAt: "desc" } as any,
+      }),
+      this.prisma.booking.groupBy({
+        by: ["voucherCode"],
+        where: { voucherCode: { not: null } },
+        _count: { _all: true },
+        _sum: { finalAmount: true },
+      }),
+      (this.prisma as any).userVoucher?.groupBy
+        ? (this.prisma as any).userVoucher.groupBy({
+            by: ["voucherId", "status"],
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const bookingMap = new Map(
+      (bookingGroups as any[]).map((row) => [
+        String(row.voucherCode || "").toUpperCase(),
+        row,
+      ]),
+    );
+    const userVoucherMap = new Map<string, any>();
+    for (const row of userVoucherGroups as any[]) {
+      const key = String(row.voucherId);
+      const current = userVoucherMap.get(key) || { total: 0, used: 0 };
+      current.total += Number(row._count?._all || 0);
+      if (String(row.status) === "used")
+        current.used += Number(row._count?._all || 0);
+      userVoucherMap.set(key, current);
+    }
+
+    const rows = (vouchers as any[]).map((v: any) => {
+      const b = bookingMap.get(String(v.code || "").toUpperCase());
+      const uv = userVoucherMap.get(String(v.id)) || { total: 0, used: 0 };
+      return {
+        code: v.code,
+        name: v.name,
+        status: v.status,
+        assigned: uv.total,
+        usedByUser: uv.used,
+        bookingCount: Number(b?._count?._all || 0),
+        revenue: Number(b?._sum?.finalAmount || 0),
+        usageRate: uv.total ? uv.used / uv.total : 0,
+      };
+    });
+
+    const best = rows
+      .slice()
+      .sort(
+        (a: any, b: any) =>
+          b.bookingCount * 10 +
+          b.revenue / 1000000 +
+          b.usageRate * 20 -
+          (a.bookingCount * 10 + a.revenue / 1000000 + a.usageRate * 20),
+      )
+      .slice(0, 5);
+    const weak = rows
+      .filter(
+        (r: any) =>
+          r.assigned >= 5 && r.usedByUser === 0 && r.bookingCount === 0,
+      )
+      .slice(0, 3);
+
+    return [
+      "Voucher hiệu quả nhất:",
+      ...(best.length
+        ? best.map(
+            (r: any, i: number) =>
+              `${i + 1}. ${r.code} - ${r.bookingCount} booking, ${r.usedByUser}/${r.assigned} lượt dùng, doanh thu ${this.formatCurrency(r.revenue)}, tỷ lệ dùng ${this.percent(r.usedByUser, r.assigned)}.`,
+          )
+        : ["- Chưa có dữ liệu sử dụng voucher."]),
+      "",
+      "Voucher cần xem lại:",
+      ...(weak.length
+        ? weak.map(
+            (r: any) =>
+              `- ${r.code}: đã cấp ${r.assigned} nhưng chưa phát sinh booking.`,
+          )
+        : ["- Chưa có voucher yếu rõ ràng."]),
+      "",
+      "Gợi ý: giữ voucher có booking/doanh thu tốt; với voucher ít dùng, kiểm tra điều kiện áp dụng, thời hạn và vị trí hiển thị.",
+    ].join("\n");
+  }
+
+  private async buildAdminRefundUrgentAnswer() {
+    const refunds = await this.prisma.refundRequest.findMany({
+      where: { status: "pending" as any },
+      orderBy: { createdAt: "asc" },
+      take: 8,
+      include: {
+        booking: {
+          include: {
+            tour: true,
+            payments: { take: 1, orderBy: { createdAt: "desc" } },
+          },
+        },
+        user: true,
+      },
+    });
+
+    if (!refunds.length) {
+      return "Yêu cầu hoàn tiền cần xử lý:\n✅ Hiện không có refund pending.";
+    }
+
+    return [
+      `Yêu cầu hoàn tiền cần xử lý: ${refunds.length} yêu cầu pending gần nhất`,
+      ...refunds.map(
+        (r: any, i: number) =>
+          `${i + 1}. ${r.booking?.bookingCode || "Booking"} - ${r.booking?.tour?.name || "Tour"} - ${this.formatCurrency(Number(r.refundAmount || r.booking?.finalAmount || 0))} - tạo ${this.formatDate(String(r.createdAt))}`,
+      ),
+      "",
+      "Ưu tiên: yêu cầu cũ nhất → booking đã thanh toán → booking sắp khởi hành → số tiền hoàn cao.",
+    ].join("\n");
+  }
+
+  private async buildAdminOperationAlertAnswer() {
+    const now = new Date();
+    const next30 = new Date(now.getTime() + 30 * 60 * 1000);
+    const next7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const [
+      expiring,
+      pendingPayment,
+      waitingConfirmation,
+      refundPending,
+      noGuide,
+      paidToday,
+      revenueMonth,
+    ] = await Promise.all([
+      this.prisma.booking.count({
+        where: {
+          bookingStatus: "pending_payment" as any,
+          holdExpiresAt: { gte: now, lte: next30 },
+        },
+      }),
+      this.prisma.booking.count({
+        where: { bookingStatus: "pending_payment" as any },
+      }),
+      this.prisma.booking.count({
+        where: { bookingStatus: "waiting_confirmation" as any },
+      }),
+      this.prisma.refundRequest.count({ where: { status: "pending" as any } }),
+      this.prisma.booking.count({
+        where: {
+          bookingStatus: { in: ["confirmed", "waiting_confirmation"] as any },
+          guideAssignments: {
+            none: { status: { in: ["assigned", "confirmed"] as any } },
+          },
+        },
+      }),
+      this.prisma.payment.count({
+        where: {
+          paymentStatus: "paid" as any,
+          paidAt: {
+            gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+          },
+        },
+      }),
+      this.prisma.payment.aggregate({
+        _sum: { amount: true },
+        where: {
+          paymentStatus: "paid" as any,
+          paidAt: { gte: this.startOfMonth(now), lte: this.endOfMonth(now) },
+        },
+      }),
+    ]);
+
+    return [
+      "Tổng quan vận hành:",
+      `- Booking sắp hết hạn giữ chỗ 30 phút: ${expiring}`,
+      `- Booking chờ thanh toán: ${pendingPayment}`,
+      `- Booking chờ xác nhận thanh toán: ${waitingConfirmation}`,
+      `- Refund chờ duyệt: ${refundPending}`,
+      `- Booking chưa phân công HDV: ${noGuide}`,
+      `- Booking đã thanh toán hôm nay: ${paidToday}`,
+      `- Doanh thu tháng này: ${this.formatCurrency(Number(revenueMonth._sum.amount || 0))}`,
+      "",
+      "Cảnh báo:",
+      expiring
+        ? `⚠ ${expiring} booking sắp hết hạn giữ chỗ.`
+        : "✅ Không có booking sắp hết hạn giữ chỗ trong 30 phút.",
+      waitingConfirmation
+        ? `⚠ ${waitingConfirmation} booking đang chờ xác nhận thanh toán.`
+        : "✅ Không có booking chờ xác nhận thanh toán.",
+      refundPending
+        ? `⚠ ${refundPending} yêu cầu hoàn tiền đang chờ duyệt.`
+        : "✅ Không có refund pending.",
+      noGuide
+        ? `⚠ ${noGuide} booking đã xác nhận/chờ xác nhận nhưng chưa có HDV.`
+        : "✅ Booking đã phân công HDV ổn định.",
+      "",
+      "Thứ tự xử lý: giữ chỗ sắp hết hạn → thanh toán chờ xác nhận → refund → phân công HDV.",
+    ].join("\n");
   }
 
   private async getOrCreateConversation(
@@ -768,6 +1640,160 @@ export class ChatbotService {
       .replace(/[^a-z0-9\s]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  private isBookingConfirmationMessage(message: string) {
+    const normalized = this.stripText(message);
+    return /\b(xac nhan dat|xac nhan booking|xac nhan don|dong y dat|dong y tao|dat luon|chot don|chot booking|chot tour|tao booking|tao don|ok dat|oke dat|confirm)\b/.test(
+      normalized,
+    );
+  }
+
+  private wantsBestVoucher(message: string) {
+    const normalized = this.stripText(message);
+    return /\b(voucher tot nhat|ma tot nhat|ma giam gia tot nhat|ap voucher tot nhat|ap ma tot nhat|chon voucher tot nhat|giam nhieu nhat|ma nao tot|voucher nao tot|co ma nao tot|co voucher nao tot)\b/.test(
+      normalized,
+    );
+  }
+
+  private hasExplicitVoucherCodeSignal(message: string) {
+    const normalized = this.stripText(message);
+
+    // Các cụm này mới được xem là người dùng đang nhập mã khuyến mãi.
+    // Cố tình không bắt cụm "ma" đứng một mình để tránh nhầm với "mã điểm đón".
+    return /\b(voucher|coupon|ma giam gia|ma uu dai|ma voucher|code giam gia|khuyen mai|uu dai)\b/.test(
+      normalized,
+    );
+  }
+
+  private isVoucherInquiry(message: string) {
+    const normalized = this.stripText(message);
+    return /\b(toi co voucher nao|minh co voucher nao|co voucher nao|co ma giam gia nao|voucher nao dung duoc|ma nao dung duoc|kiem tra voucher|xem voucher|danh sach voucher|voucher cua toi|ma giam gia cua toi|uu dai cua toi|khuyen mai nao)\b/.test(
+      normalized,
+    );
+  }
+
+  private isVoucherApplicationMessage(message: string) {
+    const normalized = this.stripText(message);
+    return /\b(dung voucher|ap voucher|su dung voucher|nhap voucher|chon voucher|dung ma giam gia|ap ma giam gia|su dung ma giam gia|ma voucher|coupon|khong dung voucher|khong co voucher|bo qua voucher|voucher tot nhat|ma giam gia tot nhat|ap ma tot nhat)\b/.test(
+      normalized,
+    );
+  }
+
+  private isFreshTourAdviceMessage(message: string) {
+    const normalized = this.stripText(message);
+    return (
+      this.isFreshTourSearchRequest(message) ||
+      /\b(toi muon di|minh muon di|muon di|toi muon tour|minh muon tour|can tim|tim tour|goi y|de xuat|ngan sach|di bien|nghi duong|it di chuyen|khach san tot|chup hinh|check in|song ao|mat me|nhe nhang|phu hop cho gia dinh|phu hop gia dinh)\b/.test(
+        normalized,
+      )
+    );
+  }
+
+  private calculateBookingAmount(
+    departure: any,
+    adultCount: number,
+    childCount: number,
+  ) {
+    return (
+      Number(departure?.adultPrice || 0) * adultCount +
+      Number(departure?.childPrice || 0) * childCount
+    );
+  }
+
+  private calculateVoucherDiscount(voucher: any, amount: number) {
+    if (!voucher || amount <= 0) return 0;
+    const minOrderAmount = Number(voucher.minOrderAmount || 0);
+    if (amount < minOrderAmount) return 0;
+    const type = String(voucher.discountType || "percent").toLowerCase();
+    const value = Number(voucher.discountValue || 0);
+    let discount =
+      type === "fixed" || type === "amount" ? value : (amount * value) / 100;
+    const maxDiscount = Number(voucher.maxDiscount || 0);
+    if (maxDiscount > 0) discount = Math.min(discount, maxDiscount);
+    return Math.max(0, Math.min(amount, Math.round(discount)));
+  }
+
+  private async findBestVoucherForBooking(user: AuthUser, amount: number) {
+    if (!user?.userId || amount <= 0) return null;
+    const db = this.prisma as any;
+    if (!db.userVoucher) return null;
+    const now = new Date();
+    const rows = await db.userVoucher.findMany({
+      where: {
+        userId: user.userId,
+        status: "available",
+        voucher: {
+          status: "active",
+          startDate: { lte: now },
+          endDate: { gte: now },
+        },
+      },
+      include: { voucher: true },
+      take: 20,
+    });
+    return (
+      rows
+        .map((row: any) => ({
+          voucher: row.voucher,
+          discount: this.calculateVoucherDiscount(row.voucher, amount),
+        }))
+        .filter((item: any) => item.discount > 0)
+        .sort((a: any, b: any) => b.discount - a.discount)[0] || null
+    );
+  }
+
+  private buildBookingPreviewAnswer(input: {
+    tour: any;
+    departure: any;
+    pickup: any;
+    adultCount: number;
+    childCount: number;
+    originalAmount: number;
+    discountAmount: number;
+    finalAmount: number;
+    voucherCode?: string | null;
+    paymentMethod?: string | null;
+    replacingBookingCode?: string | null;
+  }) {
+    const {
+      tour,
+      departure,
+      pickup,
+      adultCount,
+      childCount,
+      originalAmount,
+      discountAmount,
+      finalAmount,
+      voucherCode,
+      paymentMethod,
+      replacingBookingCode,
+    } = input;
+    return [
+      replacingBookingCode
+        ? `Mình sẽ hủy booking cũ ${replacingBookingCode} và tạo lại mã QR mới với thông tin đã đổi. Bạn kiểm tra lại trước khi xác nhận nha:`
+        : "Mình tóm tắt booking trước khi tạo mã QR để tránh đặt nhầm nha:",
+      "",
+      `Tour: ${tour.name}`,
+      `Ngày khởi hành: ${this.formatDate(new Date(departure.departureDate).toISOString())}`,
+      `Số khách: ${adultCount} người lớn${childCount ? `, ${childCount} trẻ em` : ""}`,
+      pickup
+        ? `Điểm đón: ${pickup.name} - ${pickup.address}`
+        : "Điểm đón: Travela sẽ liên hệ xác nhận",
+      voucherCode
+        ? `Voucher: ${voucherCode}${discountAmount ? `, giảm ${this.formatCurrency(discountAmount)}` : ""}`
+        : "Voucher: không dùng",
+      `Thanh toán: ${paymentMethod || "chưa chọn"}`,
+      `Tạm tính: ${this.formatCurrency(originalAmount)}`,
+      discountAmount
+        ? `Giảm giá: -${this.formatCurrency(discountAmount)}`
+        : null,
+      `Tổng cần thanh toán: ${this.formatCurrency(finalAmount)}`,
+      "",
+      "Bạn nhắn “xác nhận đặt” để mình tạo booking và gửi mã QR. Nếu muốn đổi số khách, nhắn ví dụ: “đổi thành 2 người lớn, 1 trẻ em”.",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
 
   private extractMemory(message: string, current: MemoryState): MemoryState {
@@ -904,7 +1930,7 @@ export class ChatbotService {
   ): ChatBookingDraft | null {
     const normalized = this.stripText(message);
     const bookingFollowUpSignal =
-      /\b(momo|vnpay|vn pay|chuyen khoan|bank|tien mat|cash|chon|diem don|pickup|voucher|khong dung|khong co voucher|bo qua|tiep tuc|xac nhan|dong y|ok|oke|\d+\s*(nguoi|khach|nguoi lon|tre em))\b/.test(
+      /\b(momo|vnpay|vn pay|chuyen khoan|bank|tien mat|cash|chon|diem don|pickup|voucher|khong dung|khong co voucher|bo qua|tiep tuc|xac nhan|dong y|ok|oke|doi thanh|doi so luong|doi so nguoi|them nguoi|giam nguoi|\d+\s*(nguoi|khach|nguoi lon|tre em))\b/.test(
         normalized,
       );
 
@@ -922,6 +1948,15 @@ export class ChatbotService {
       ...(current.bookingDraft || {}),
       started: true,
     };
+
+    if (this.isBookingConfirmationMessage(message)) {
+      draft.confirmed = true;
+    }
+
+    if (this.wantsBestVoucher(message)) {
+      draft.skipVoucher = false;
+      draft.voucherCode = "__BEST__";
+    }
 
     const selectedTourOption = this.resolveTourChoiceFromMessage(
       message,
@@ -999,10 +2034,16 @@ export class ChatbotService {
     );
     if (nameMatch) draft.contactName = nameMatch[1].trim();
 
-    const voucherMatch = String(message)
-      .toUpperCase()
-      .match(/(?:VOUCHER|MÃ|MA)\s*[:\-]?\s*([A-Z0-9_\-]{4,30})/);
-    if (voucherMatch) draft.voucherCode = voucherMatch[1];
+    // Chỉ nhận mã voucher khi người dùng nhắc rõ voucher/mã giảm giá.
+    // Không dùng regex chung "MÃ 1234" vì sẽ bắt nhầm "điểm đón mã 1234" thành voucher.
+    if (this.hasExplicitVoucherCodeSignal(message)) {
+      const voucherMatch = String(message)
+        .toUpperCase()
+        .match(
+          /(?:VOUCHER|COUPON|MÃ\s+GIẢM\s+GIÁ|MA\s+GIAM\s+GIA|MÃ\s+ƯU\s+ĐÃI|MA\s+UU\s+DAI|MÃ\s+VOUCHER|MA\s+VOUCHER)\s*(?:LÀ|LA|:|=|-)?\s*([A-Z0-9_\-]{3,30})/,
+        );
+      if (voucherMatch) draft.voucherCode = voucherMatch[1];
+    }
 
     if (
       /\b(khong dung voucher|khong co voucher|bo qua voucher|khong ap voucher|khong dung ma|khong co ma|bo qua ma)\b/.test(
@@ -1014,7 +2055,7 @@ export class ChatbotService {
 
     if (
       /\b(tiep tuc|xac nhan|dong y|ok|oke)\b/.test(normalized) &&
-      /\b(thanh toan|sepay|vietqr|mbbank|momo|vnpay|vn pay|chuyen khoan|bank|tien mat|cash)\b/.test(
+      /\b(thanh toan|momo|vnpay|vn pay|chuyen khoan|bank|tien mat|cash)\b/.test(
         normalized,
       ) &&
       !draft.voucherCode
@@ -1034,17 +2075,124 @@ export class ChatbotService {
     if (/\b(vnpay|vn pay)\b/.test(normalized)) draft.paymentMethod = "vnpay";
     else if (/\b(momo|vi momo|ví momo)\b/.test(normalized))
       draft.paymentMethod = "momo";
-    else if (
-      /\b(sepay|vietqr|mbbank|mb bank|qr ngan hang|chuyen khoan|chuyển khoản|bank)\b/.test(
-        normalized,
-      )
-    )
+    else if (/\b(chuyen khoan|chuyển khoản|bank)\b/.test(normalized))
       draft.paymentMethod = "bank_transfer";
     else if (/\b(tien mat|tiền mặt|cash)\b/.test(normalized))
       draft.paymentMethod = "cash";
     else if (/\b(the|card)\b/.test(normalized)) draft.paymentMethod = "card";
 
     return draft;
+  }
+
+  private isNumberedTourReference(message: string) {
+    const normalized = this.stripText(message);
+    return /\btour\s*(?:so|số)?\s*\d+\b/.test(normalized);
+  }
+
+  private isFreshTourSearchRequest(message: string) {
+    const normalized = this.stripText(message);
+    const hasDestination =
+      this.extractMentionedDestinations(normalized).length > 0;
+    const hasFreshSearchPhrase =
+      /\b(toi muon di|minh muon di|muon di|toi muon dat tour|minh muon dat tour|muon dat tour|tim tour|can tim tour|co tour nao|goi y tour|goi y cho toi|de xuat tour)\b/.test(
+        normalized,
+      );
+
+    const isOnlyBookingStep =
+      /\b(chon lich|lich so|chọn lịch|chon diem don|diem don ma|điểm đón mã|pickup|voucher|ma giam gia|khong dung voucher|thanh toan|momo|vnpay|vn pay|qr|chuyen khoan|xac nhan|xác nhận|dong y|đồng ý|bk\d{5,})\b/.test(
+        normalized,
+      ) && !hasDestination;
+
+    const hasTravelConstraints = Boolean(
+      this.parseBudget(normalized) ||
+      this.parseDurationDays(normalized) ||
+      /\b(ngan sach|gia|ngay|dem|nguoi|nguoi lon|tre em|tre nho|gia dinh|di cung)\b/.test(
+        normalized,
+      ),
+    );
+
+    return (
+      (hasDestination || hasTravelConstraints) &&
+      hasFreshSearchPhrase &&
+      !isOnlyBookingStep
+    );
+  }
+
+  private extractTourNamesFromAssistantText(content: string) {
+    const names: string[] = [];
+    const lines = String(content || "").split(/\r?\n/);
+
+    for (const line of lines) {
+      const match = line.match(/^\s*\d+[.)]\s*(.+?)(?::| - |,| —| –|$)/u);
+      if (!match?.[1]) continue;
+      const name = match[1].trim();
+      if (/^tour\s+/i.test(name) && name.length >= 8) {
+        names.push(name);
+      }
+    }
+
+    return Array.from(new Set(names)).slice(0, 5);
+  }
+
+  private async restoreLastTourOptionsFromRecentMessages(
+    memory: MemoryState,
+    recentMessages: Array<{ role: string; content: string }>,
+  ): Promise<MemoryState> {
+    const latestAssistant = [...recentMessages]
+      .reverse()
+      .find(
+        (item) =>
+          item.role === "assistant" &&
+          /\b1[.)]\s*tour\b/i.test(this.stripText(item.content || "")),
+      );
+
+    if (!latestAssistant) return memory;
+
+    const names = this.extractTourNamesFromAssistantText(
+      latestAssistant.content,
+    );
+    if (!names.length) return memory;
+
+    const rows = await this.prisma.tour.findMany({
+      where: {
+        status: "published" as any,
+        OR: names.map((name) => ({ name: { contains: name } as any })),
+      } as any,
+      include: {
+        departures: {
+          where: { status: { in: ["open", "full"] as any } },
+          orderBy: { departureDate: "asc" },
+          take: 1,
+        },
+      } as any,
+      take: 10,
+    });
+
+    const options = names
+      .map((name) => {
+        const normalizedName = this.stripText(name);
+        const row = rows.find(
+          (tour: any) => this.stripText(tour.name || "") === normalizedName,
+        );
+        if (!row?.id) return null;
+        return {
+          tourId: String(row.id),
+          departureId: row.departures?.[0]?.id
+            ? String(row.departures[0].id)
+            : null,
+          name: String(row.name || name),
+        };
+      })
+      .filter(Boolean) as NonNullable<MemoryState["lastTourOptions"]>;
+
+    if (!options.length) return memory;
+
+    return {
+      ...memory,
+      lastTourId: options[0].tourId,
+      lastTourName: options[0].name,
+      lastTourOptions: options,
+    };
   }
 
   private resolveTourChoiceFromMessage(message: string, memory: MemoryState) {
@@ -1071,6 +2219,31 @@ export class ChatbotService {
 
     if (index == null || index < 0 || index >= options.length) return null;
     return options[index];
+  }
+
+  private resolveTourChoicesFromMessage(message: string, memory: MemoryState) {
+    const normalized = this.stripText(message);
+    const options = Array.isArray(memory.lastTourOptions)
+      ? memory.lastTourOptions
+      : [];
+    if (!options.length) return [];
+
+    const indexes = new Set<number>();
+    const re = /(?:tour\s*)?(?:so|số|thu|thứ)?\s*(\d+)/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(normalized))) {
+      const index = Number(match[1]) - 1;
+      if (index >= 0 && index < options.length) indexes.add(index);
+    }
+
+    if (/\b(tour dau tien|tour mot|so mot|thu nhat)\b/.test(normalized))
+      indexes.add(0);
+    if (/\b(tour hai|so hai|thu hai)\b/.test(normalized)) indexes.add(1);
+    if (/\b(tour ba|so ba|thu ba)\b/.test(normalized)) indexes.add(2);
+
+    return Array.from(indexes)
+      .map((index) => options[index])
+      .filter(Boolean);
   }
 
   private resolveDepartureChoiceFromMessage(
@@ -1310,23 +2483,13 @@ export class ChatbotService {
         normalized,
       );
 
-    const hasPaymentSupportCommand =
-      /\b(sepay|vietqr|mbbank|mb bank|qr mb|qr ngan hang|ma dh|ma thanh toan|chuyen khoan|da chuyen tien|da thanh toan|sao chua xac nhan|chua xac nhan|sai noi dung|chuyen sai|thanh toan bang ngan hang|thanh toan qr)\b/.test(
-        normalized,
-      );
-
-    const hasAdminAssistantCommand =
-      /\b(admin|quan ly|van hanh|dashboard|doanh thu|booking cho|booking can|sap khoi hanh|huong dan vien|hdv|yeu cau hoan tien|doi soat|top tour|top diem den|ti le|thong ke|bao cao|hom nay co gi|can xu ly)\b/.test(
-        normalized,
-      );
-
     const hasPickupCommand =
       /\b(diem don|don o dau|don tai dau|noi don|cho don|ben xe|pickup|xe don|gio don|dia diem don)\b/.test(
         normalized,
       );
 
     const hasCompareCommand =
-      /\b(so sanh|khac nhau|nen chon tour nao|tour nao tot hon|tour nao hop hon|tour nao dang tien hon)\b/.test(
+      /\b(so sanh|khac nhau|nen chon tour nao|tour nao tot hon|tour nao hop hon|tour nao dang tien hon|tour nao tiet kiem hon|tour nao re hon|tour nao gia tot hon|tour nao nhe nhang hon)\b/.test(
         normalized,
       );
 
@@ -1344,24 +2507,34 @@ export class ChatbotService {
       (/\bbk\d{5,}\b/.test(normalized) &&
         /\b(doi|sua|cap nhat|thanh|them|giam)\b/.test(normalized));
 
-    if (hasExplicitBookingChangeRequest) {
+    // Nếu đang trong draft đặt tour chưa tạo QR, câu “đổi thành 2 người lớn”
+    // là chỉnh draft hiện tại, không phải đổi booking đã tồn tại.
+    if (
+      hasExplicitBookingChangeRequest &&
+      !(memory.bookingDraft?.started && !/\bbk\d{5,}\b/.test(normalized))
+    ) {
       return "booking_change";
     }
 
-    if (hasAdminAssistantCommand) {
-      return "general_consulting";
+    // Câu hỏi "Tôi có voucher nào?" là tra cứu voucher, không phải tiếp tục booking.
+    // Chỉ các câu áp mã rõ ràng như "dùng voucher SALE10" mới đi vào booking flow.
+    if (hasVoucherCommand && this.isVoucherInquiry(message)) {
+      return "voucher_check";
     }
 
-    if (hasPaymentSupportCommand) {
-      return "booking_status";
+    // User có thể đang bị kẹt draft/lịch cũ nhưng lại bắt đầu nhu cầu mới:
+    // “Tôi muốn đặt tour Đà Lạt cho 2 người lớn...” phải tìm tour Đà Lạt,
+    // không được dùng lại departureOptions cũ rồi hỏi chọn lịch.
+    if (this.isFreshTourSearchRequest(message)) {
+      return "tour_search";
     }
 
     const hasTourDetailQuestion = this.isTourDetailQuestion(message);
 
     const hasBookingFollowUpSignal =
-      /\b(momo|vnpay|vn pay|chuyen khoan|bank|tien mat|cash|chon|diem don|pickup|khong dung voucher|khong co voucher|bo qua voucher|voucher|lich|ngay khoi hanh|khoi hanh|tiep tuc|xac nhan|dong y|ok|oke|\d+\s*(nguoi|khach|nguoi lon|tre em))\b/.test(
+      /\b(momo|vnpay|vn pay|chuyen khoan|bank|tien mat|cash|chon|diem don|pickup|khong dung voucher|khong co voucher|bo qua voucher|lich|ngay khoi hanh|khoi hanh|tiep tuc|xac nhan|dong y|ok|oke|doi thanh|doi so luong|doi so nguoi|them nguoi|giam nguoi|\d+\s*(nguoi|khach|nguoi lon|tre em))\b/.test(
         normalized,
-      );
+      ) || this.isVoucherApplicationMessage(message);
 
     // Nếu đang có draft đặt tour, câu “1 người lớn”, “chọn điểm đón...”, “momo”
     // phải tiếp tục draft hiện tại trước. Không được nhảy sang booking_change chỉ
@@ -2703,6 +3876,15 @@ export class ChatbotService {
       started: true,
     };
 
+    if (this.isBookingConfirmationMessage(ctx.userMessage)) {
+      draft.confirmed = true;
+    }
+
+    if (this.wantsBestVoucher(ctx.userMessage)) {
+      draft.skipVoucher = false;
+      draft.voucherCode = "__BEST__";
+    }
+
     const explicitDestination = this.detectDestination(
       this.stripText(ctx.userMessage),
     );
@@ -2722,6 +3904,7 @@ export class ChatbotService {
       draft.paymentMethod = null;
       draft.adultCount = null;
       draft.childCount = 0;
+      draft.confirmed = false;
     }
 
     // Ưu tiên xử lý “chọn lịch số 1/2/3” trước khi validate departure cũ.
@@ -3038,12 +4221,71 @@ export class ChatbotService {
     if (!draft.paymentMethod) {
       return {
         answer: [
-          `Mình đã ghi nhận tour ${tour.name}${pickup ? `, điểm đón ${pickup.name}` : draft.pickupPointId ? `, điểm đón mã ${draft.pickupPointId}` : ""}${draft.voucherCode ? `, voucher ${draft.voucherCode}` : draft.skipVoucher ? ", không dùng voucher" : ""}.`,
-          "Bạn muốn thanh toán bằng phương thức nào: Momo hay VNPay?",
-          "Bạn có thể nhắn: “thanh toán momo” hoặc “thanh toán vnpay”.",
+          `Mình đã ghi nhận tour ${tour.name}${pickup ? `, điểm đón ${pickup.name}` : draft.pickupPointId ? `, điểm đón mã ${draft.pickupPointId}` : ""}${draft.voucherCode && draft.voucherCode !== "__BEST__" ? `, voucher ${draft.voucherCode}` : draft.voucherCode === "__BEST__" ? ", dùng voucher tốt nhất" : draft.skipVoucher ? ", không dùng voucher" : ""}.`,
+          "Bạn muốn thanh toán bằng phương thức nào: Momo, VNPay hay chuyển khoản QR ngân hàng?",
+          "Bạn có thể nhắn: “thanh toán momo”, “thanh toán vnpay” hoặc “thanh toán chuyển khoản”.",
         ].join("\n"),
         memory: {
           bookingDraft: draft,
+          lastDepartureOptions: departureOptionsForMemory,
+        },
+      };
+    }
+
+    const originalAmount = this.calculateBookingAmount(
+      departure,
+      adultCount,
+      childCount,
+    );
+    let previewDiscountAmount = 0;
+
+    if (draft.voucherCode === "__BEST__") {
+      const best = await this.findBestVoucherForBooking(user, originalAmount);
+      if (best?.voucher?.code) {
+        draft.voucherCode = String(best.voucher.code).toUpperCase();
+        draft.skipVoucher = false;
+        previewDiscountAmount = Number(best.discount || 0);
+      } else {
+        draft.voucherCode = null;
+        draft.skipVoucher = true;
+      }
+    }
+
+    if (draft.voucherCode && draft.voucherCode !== "__BEST__") {
+      const voucher = await (this.prisma as any).voucher?.findFirst({
+        where: {
+          code: String(draft.voucherCode).toUpperCase(),
+          status: "active",
+        },
+      });
+      previewDiscountAmount = this.calculateVoucherDiscount(
+        voucher,
+        originalAmount,
+      );
+    }
+
+    const previewFinalAmount = Math.max(
+      0,
+      originalAmount - previewDiscountAmount,
+    );
+
+    if (!draft.confirmed) {
+      return {
+        answer: this.buildBookingPreviewAnswer({
+          tour,
+          departure,
+          pickup,
+          adultCount,
+          childCount,
+          originalAmount,
+          discountAmount: previewDiscountAmount,
+          finalAmount: previewFinalAmount,
+          voucherCode: draft.voucherCode,
+          paymentMethod: draft.paymentMethod,
+          replacingBookingCode: draft.replacingBookingCode || null,
+        }),
+        memory: {
+          bookingDraft: { ...draft, confirmed: false },
           lastDepartureOptions: departureOptionsForMemory,
         },
       };
@@ -3163,9 +4405,21 @@ export class ChatbotService {
 
       const mobilePaymentUrl = this.buildPublicFrontendUrl(rawPaymentUrl);
 
-      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
+      const transactionCode = String(
+        payment.transactionCode || payment.internalTransactionCode || "",
+      );
+      const checkoutAmount = Number(
+        payment.finalAmount || payment.amount || created.finalAmount || 0,
+      );
+      const bankInfo = this.getSepayBankInfo();
+      const sepayQrCodeUrl = this.buildSepayQrCodeUrl(
+        checkoutAmount,
+        transactionCode,
+      );
+      const fallbackQrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
         mobilePaymentUrl,
       )}`;
+      const qrCodeUrl = sepayQrCodeUrl || fallbackQrCodeUrl;
 
       const checkout: BookingCheckoutCard = {
         type: "booking_checkout",
@@ -3174,9 +4428,7 @@ export class ChatbotService {
         amount: Number(
           payment.amount || payment.finalAmount || created.finalAmount || 0,
         ),
-        finalAmount: Number(
-          payment.finalAmount || payment.amount || created.finalAmount || 0,
-        ),
+        finalAmount: checkoutAmount,
         holdExpiresAt: payment.holdExpiresAt
           ? new Date(payment.holdExpiresAt as any).toISOString()
           : created.holdExpiresAt
@@ -3185,22 +4437,39 @@ export class ChatbotService {
         paymentUrl: mobilePaymentUrl,
         mobilePaymentUrl,
         qrCodeUrl,
-        transactionCode: String(
-          payment.transactionCode || payment.internalTransactionCode || "",
-        ),
+        transactionCode,
         paymentMethod: String(payment.paymentMethod || draft.paymentMethod),
         paymentStatus: String(payment.paymentStatus || "pending"),
+        tourName: String(tour.name || ""),
+        departureDate: departure.departureDate
+          ? new Date(departure.departureDate).toISOString()
+          : null,
+        endDate: departure.endDate
+          ? new Date(departure.endDate).toISOString()
+          : null,
+        pickupName: pickup?.name ? String(pickup.name) : null,
+        pickupAddress: pickup?.address ? String(pickup.address) : null,
+        pickupTime: pickup?.pickupTime
+          ? new Date(pickup.pickupTime).toISOString()
+          : null,
+        bankCode: bankInfo.bankCode,
+        accountNo: bankInfo.accountNo,
+        accountName: bankInfo.accountName,
+        transferContent: this.sanitizeSepayTransferContent(transactionCode),
+        qrProvider: sepayQrCodeUrl ? "sepay" : "internal",
       };
 
       return {
         answer: [
-          `Mình đã tạo booking ${checkout.bookingCode} cho tour ${tour.name}.`,
+          draft.replacingBookingCode
+            ? `Mình đã hủy booking cũ ${draft.replacingBookingCode} và tạo booking mới ${checkout.bookingCode} cho tour ${tour.name}.`
+            : `Mình đã tạo booking ${checkout.bookingCode} cho tour ${tour.name}.`,
           `Số khách: ${adultCount} người lớn${childCount ? `, ${childCount} trẻ em` : ""}.`,
           `Khởi hành: ${this.formatDate(new Date(departure.departureDate).toISOString())}.`,
           pickup
             ? `Điểm đón: ${pickup.name} - ${pickup.address}.`
             : "Điểm đón: Travela sẽ liên hệ xác nhận.",
-          `Tổng tiền: ${this.formatCurrency(checkout.finalAmount)}. Mình đã tạo mã QR thanh toán bên dưới, bạn vui lòng quét QR để hoàn tất trong thời gian giữ chỗ.`,
+          `Tổng tiền: ${this.formatCurrency(checkout.finalAmount)}. Mình đã tạo mã QR SePay/VietQR bên dưới, bạn mở app ngân hàng để quét mã và chuyển khoản đúng nội dung ${checkout.transferContent || checkout.transactionCode}.`,
         ].join("\n"),
         bookingCheckout: checkout,
         memory: {
@@ -3340,30 +4609,11 @@ export class ChatbotService {
     }
 
     const normalized = this.stripText(ctx.userMessage);
-    if (
-      [
-        "pending_payment",
-        "waiting_payment",
-        "waiting_confirmation",
-        "draft",
-        "created",
-      ].includes(bookingStatus)
-    ) {
-      await this.bookingsService.adminUpdateStatus(
-        Number((oldBooking as any).id),
-        {
-          bookingStatus: "cancelled" as any,
-          reason: "User requested booking change via Travela AI",
-        } as any,
-        user.userId,
-      );
-    }
-
     const adultMatch = normalized.match(
-      /(\d+)\s*(?:nguoi lon|adult|nguoi truong thanh)/,
+      /(\d+)\s*(?:nguoi lon|adult|nguoi truong thanh|nl)/,
     );
     const peopleMatch = normalized.match(/(\d+)\s*(?:nguoi|khach)\b/);
-    const childMatch = normalized.match(/(\d+)\s*(?:tre em|child|em be|be)/);
+    const childMatch = normalized.match(/(\d+)\s*(?:tre em|child|em be|be|te)/);
     const pickupMatch = normalized.match(
       /(?:diem don|pickup)\s*(?:so|id|ma|mã)?\s*(\d+)/,
     );
@@ -3405,8 +4655,29 @@ export class ChatbotService {
       contactPhone: (oldBooking as any).contactPhone,
       paymentMethod: paymentMethod as any,
       skipVoucher: true,
+      confirmed: true,
+      replacingBookingCode: bookingCode,
       started: true,
     };
+
+    if (
+      [
+        "pending_payment",
+        "waiting_payment",
+        "waiting_confirmation",
+        "draft",
+        "created",
+      ].includes(bookingStatus)
+    ) {
+      await this.bookingsService.adminUpdateStatus(
+        Number((oldBooking as any).id),
+        {
+          bookingStatus: "cancelled" as any,
+          reason: "User requested booking change via Travela AI",
+        } as any,
+        user.userId,
+      );
+    }
 
     return this.processBookingFlow(
       {
@@ -3432,18 +4703,35 @@ export class ChatbotService {
   private async generateGeminiAnswer(ctx: PromptContext): Promise<string> {
     const { systemInstruction, prompt } = this.buildLlmPrompt(ctx);
 
-    // 1) Ưu tiên Gemini
+    // Rule/local đã xử lý trước đó. Đến đây mới gọi LLM theo thứ tự:
+    // 1) Groq/OpenAI-compatible chính
+    // 2) OpenRouter fallback
+    // 3) Gemini optional nếu CHATBOT_ENABLE_GEMINI=true
+    const primaryProvider = this.getProviderName("CHATBOT_PROVIDER", "groq");
+    const fallbackProvider = this.getProviderName(
+      "CHATBOT_FALLBACK_PROVIDER",
+      "openrouter",
+    );
+
+    const primaryAnswer = await this.callOpenAICompatibleLlm(
+      systemInstruction,
+      prompt,
+      primaryProvider,
+    );
+    if (primaryAnswer) return primaryAnswer;
+
+    if (fallbackProvider && fallbackProvider !== primaryProvider) {
+      const fallbackAnswer = await this.callOpenAICompatibleLlm(
+        systemInstruction,
+        prompt,
+        fallbackProvider,
+      );
+      if (fallbackAnswer) return fallbackAnswer;
+    }
+
     const geminiAnswer = await this.callGemini(systemInstruction, prompt);
     if (geminiAnswer) return geminiAnswer;
 
-    // 2) Nếu Gemini hết quota/lỗi/quá tải thì qua Groq hoặc OpenAI-compatible API
-    const groqAnswer = await this.callOpenAICompatibleLlm(
-      systemInstruction,
-      prompt,
-    );
-    if (groqAnswer) return groqAnswer;
-
-    // 3) Nếu cả 2 API đều lỗi thì trả lời local để chatbot không chết
     return String(this.generateNaturalAnswer(ctx));
   }
 
@@ -3595,39 +4883,119 @@ YÊU CẦU TRẢ LỜI:
     return null;
   }
 
+  private getProviderName(key: string, fallback = "groq") {
+    return String(
+      this.configService.get<string>(key) || process.env[key] || fallback,
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+  private isEnvEnabled(key: string, defaultValue = false) {
+    const raw = this.configService.get<string>(key) ?? process.env[key];
+    if (raw === undefined || raw === null || raw === "") return defaultValue;
+    return ["1", "true", "yes", "on"].includes(String(raw).toLowerCase());
+  }
+
+  private getOpenAIProviderConfig(provider: string) {
+    const name = String(provider || "groq").toLowerCase();
+
+    if (name === "openrouter") {
+      return {
+        name,
+        apiKey:
+          this.configService.get<string>("OPENROUTER_API_KEY") ||
+          process.env.OPENROUTER_API_KEY ||
+          "",
+        baseUrl: (
+          this.configService.get<string>("OPENROUTER_BASE_URL") ||
+          process.env.OPENROUTER_BASE_URL ||
+          "https://openrouter.ai/api/v1"
+        ).replace(/\/$/, ""),
+        model:
+          this.configService.get<string>("OPENROUTER_MODEL") ||
+          process.env.OPENROUTER_MODEL ||
+          "openrouter/free",
+      };
+    }
+
+    if (name === "groq") {
+      return {
+        name,
+        apiKey:
+          this.configService.get<string>("GROQ_API_KEY") ||
+          process.env.GROQ_API_KEY ||
+          this.configService.get<string>("CHATBOT_API_KEY") ||
+          process.env.CHATBOT_API_KEY ||
+          "",
+        baseUrl: (
+          this.configService.get<string>("GROQ_BASE_URL") ||
+          process.env.GROQ_BASE_URL ||
+          "https://api.groq.com/openai/v1"
+        ).replace(/\/$/, ""),
+        model:
+          this.configService.get<string>("GROQ_MODEL") ||
+          process.env.GROQ_MODEL ||
+          this.configService.get<string>("CHATBOT_MODEL") ||
+          process.env.CHATBOT_MODEL ||
+          "llama-3.1-8b-instant",
+      };
+    }
+
+    return {
+      name: "custom",
+      apiKey:
+        this.configService.get<string>("CHATBOT_API_KEY") ||
+        process.env.CHATBOT_API_KEY ||
+        "",
+      baseUrl: (
+        this.configService.get<string>("CHATBOT_BASE_URL") ||
+        process.env.CHATBOT_BASE_URL ||
+        "https://api.groq.com/openai/v1"
+      ).replace(/\/$/, ""),
+      model:
+        this.configService.get<string>("CHATBOT_MODEL") ||
+        process.env.CHATBOT_MODEL ||
+        "llama-3.1-8b-instant",
+    };
+  }
+
   private async callOpenAICompatibleLlm(
     systemInstruction: string,
     prompt: string,
+    provider = "groq",
   ): Promise<string | null> {
-    const apiKey =
-      this.configService.get<string>("CHATBOT_API_KEY") ||
-      process.env.CHATBOT_API_KEY ||
-      "";
+    const cfg = this.getOpenAIProviderConfig(provider);
 
-    if (!apiKey) return null;
-
-    const baseUrl = (
-      this.configService.get<string>("CHATBOT_BASE_URL") ||
-      process.env.CHATBOT_BASE_URL ||
-      "https://api.groq.com/openai/v1"
-    ).replace(/\/$/, "");
-
-    const model =
-      this.configService.get<string>("CHATBOT_MODEL") ||
-      process.env.CHATBOT_MODEL ||
-      "llama-3.3-70b-versatile";
+    if (!cfg.apiKey) {
+      console.warn(`[Travela AI] Missing API key for provider=${cfg.name}`);
+      return null;
+    }
 
     try {
-      console.log("[Travela AI] Calling OpenAI-compatible model:", model);
+      console.log(
+        `[Travela AI] Calling provider=${cfg.name}, model=${cfg.model}`,
+      );
 
-      const response = await fetch(`${baseUrl}/chat/completions`, {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${cfg.apiKey}`,
+      };
+
+      // OpenRouter khuyến nghị thêm 2 header này để dễ theo dõi app.
+      if (cfg.name === "openrouter") {
+        headers["HTTP-Referer"] =
+          this.configService.get<string>("FRONTEND_PUBLIC_URL") ||
+          this.configService.get<string>("FRONTEND_URL") ||
+          "http://localhost:3000";
+        headers["X-Title"] = "Travela Chatbot";
+      }
+
+      const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers,
         body: JSON.stringify({
-          model,
+          model: cfg.model,
           messages: [
             { role: "system", content: systemInstruction },
             { role: "user", content: prompt },
@@ -3641,7 +5009,7 @@ YÊU CẦU TRẢ LỜI:
       if (!response.ok) {
         const body = await response.text().catch(() => "");
         console.error(
-          "[OpenAI-compatible chatbot error]",
+          `[OpenAI-compatible chatbot error] provider=${cfg.name}`,
           response.status,
           body,
         );
@@ -3653,7 +5021,7 @@ YÊU CẦU TRẢ LỜI:
       return text || null;
     } catch (error: any) {
       console.error(
-        "[OpenAI-compatible chatbot exception]",
+        `[OpenAI-compatible chatbot exception] provider=${cfg.name}`,
         error?.message || error,
       );
       return null;
@@ -3988,8 +5356,160 @@ YÊU CẦU TRẢ LỜI:
       normalized,
     );
 
+    // So sánh theo số thứ tự phải dùng lastTourOptions vừa hiển thị cho user.
+    // Không được search lại theo text "tour số 1" vì có thể lấy nhầm tour khác.
+    const selectedOptions = this.resolveTourChoicesFromMessage(
+      ctx.userMessage,
+      ctx.memory,
+    ).slice(0, 2);
+
+    if (selectedOptions.length >= 2) {
+      const orderedIds = selectedOptions
+        .map((item) => String(item.tourId || ""))
+        .filter((id) => /^\d+$/.test(id));
+
+      const tours = await this.prisma.tour.findMany({
+        where: {
+          id: { in: orderedIds.map((id) => BigInt(id)) },
+          status: "published" as any,
+        },
+        include: {
+          destination: true,
+          departures: {
+            where: { status: { in: ["open", "full"] as any } },
+            orderBy: { departureDate: "asc" },
+            take: 1,
+          },
+          accommodations: {
+            where: { status: "active" as any },
+            take: 1,
+          },
+          itinerary: {
+            orderBy: [{ dayNumber: "asc" }, { itemOrder: "asc" }],
+            take: 6,
+          },
+          pickupPoints: {
+            where: { status: "active" as any },
+            take: 3,
+          } as any,
+          reviews: {
+            where: { status: "approved" as any },
+            select: { rating: true, comment: true },
+            take: 5,
+          },
+        } as any,
+      });
+
+      const orderedTours = orderedIds
+        .map((id) => tours.find((tour: any) => String(tour.id) === id))
+        .filter(Boolean) as any[];
+
+      if (orderedTours.length >= 2) {
+        const lines = orderedTours.map((tour: any, index: number) => {
+          const departure = tour.departures?.[0] || null;
+          const price = Number(
+            departure?.adultPrice || tour.basePriceAdult || 0,
+          );
+          const accommodation = tour.accommodations?.[0] || null;
+          const pickup = tour.pickupPoints?.[0] || null;
+          const itinerarySummary = (tour.itinerary || [])
+            .slice(0, 3)
+            .map((i: any) => `Ngày ${i.dayNumber}: ${i.title}`)
+            .join("; ");
+
+          return [
+            `**Tour ${index + 1}: ${tour.name}**`,
+            `- Điểm đến: ${tour.destination?.name || "đang cập nhật"}`,
+            `- Giá từ: ${this.formatCurrency(price)}/người`,
+            `- Thời lượng: ${tour.durationDays} ngày ${tour.durationNights} đêm`,
+            `- Chủ đề: ${tour.tourTheme || "đang cập nhật"}`,
+            `- Khách sạn: ${
+              accommodation
+                ? `${accommodation.name}, ${accommodation.starRating || tour.hotelStars || "đang cập nhật"} sao`
+                : tour.hotelStars
+                  ? `${tour.hotelStars} sao`
+                  : "đang cập nhật"
+            }`,
+            `- Điểm đón: ${pickup ? `${pickup.name} - ${pickup.address}` : "đang cập nhật"}`,
+            `- Lịch trình: ${itinerarySummary || "đang cập nhật"}`,
+          ].join("\n");
+        });
+
+        const familyTour = orderedTours.find((tour: any) =>
+          this.stripText(tour.tourTheme || "").includes("family"),
+        );
+        const recommendation = familyTour
+          ? `Nếu đi cùng gia đình/trẻ nhỏ, mình nghiêng về **${familyTour.name}** vì tour có định hướng gia đình rõ hơn.`
+          : "Nếu đi cùng trẻ nhỏ, bạn nên ưu tiên tour có lịch trình ít di chuyển, điểm đón thuận tiện và thời lượng khớp nhu cầu hơn.";
+
+        return [
+          "Mình so sánh nhanh 2 tour bạn vừa chọn như sau:",
+          "",
+          ...lines,
+          "",
+          `**Gợi ý chọn:** ${recommendation}`,
+        ].join("\n\n");
+      }
+    }
+
+    const asksCheapest =
+      /\b(tiet kiem hon|re hon|gia tot hon|gia mem hon|it tien hon|cheap|cheapest)\b/.test(
+        normalized,
+      );
+    if (
+      asksCheapest &&
+      Array.isArray(ctx.memory.lastTourOptions) &&
+      ctx.memory.lastTourOptions.length >= 2
+    ) {
+      const ids = ctx.memory.lastTourOptions
+        .map((item: any) => String(item.tourId || ""))
+        .filter((id) => /^\d+$/.test(id));
+      const tours = await this.prisma.tour.findMany({
+        where: {
+          id: { in: ids.map((id) => BigInt(id)) },
+          status: "published" as any,
+        },
+        include: {
+          destination: true,
+          departures: {
+            where: { status: { in: ["open", "full"] as any } },
+            orderBy: { departureDate: "asc" },
+            take: 1,
+          },
+        } as any,
+      });
+      const rows = ids
+        .map((id, idx) => {
+          const tour: any = tours.find((t: any) => String(t.id) === id);
+          if (!tour) return null;
+          const departure = tour.departures?.[0] || null;
+          const price = Number(
+            departure?.adultPrice || tour.basePriceAdult || 0,
+          );
+          return { index: idx + 1, tour, price };
+        })
+        .filter(Boolean) as Array<{ index: number; tour: any; price: number }>;
+      if (rows.length >= 2) {
+        const sorted = [...rows].sort((a, b) => a.price - b.price);
+        const lines = rows.map(
+          (item) =>
+            `${item.index}. ${item.tour.name}: ${this.formatCurrency(item.price)}/người`,
+        );
+        return [
+          "Trong các tour mình vừa gợi ý, tour tiết kiệm nhất là:",
+          "",
+          `**Tour số ${sorted[0].index}: ${sorted[0].tour.name}** - ${this.formatCurrency(sorted[0].price)}/người.`,
+          "",
+          "So sánh nhanh giá:",
+          ...lines,
+          "",
+          "Nếu ưu tiên tiết kiệm, bạn nên chọn tour này. Nếu đi gia đình/trẻ nhỏ, mình vẫn khuyên xem thêm thời lượng và lịch trình để tránh chọn tour quá gấp.",
+        ].join("");
+      }
+    }
+
     if (destinations.length < 2) {
-      return "Bạn muốn so sánh những tour nào? Ví dụ: “So sánh tour Đà Lạt 3N2Đ và Nha Trang 3N2Đ”.";
+      return "Bạn muốn so sánh những tour nào? Ví dụ: “So sánh tour số 1 và số 2” sau khi mình đã gợi ý danh sách tour, hoặc “So sánh tour Đà Lạt và Nha Trang”.";
     }
 
     const compared = await Promise.all(
@@ -4271,6 +5791,16 @@ YÊU CẦU TRẢ LỜI:
       if (requestedVoucherCode && ctx.vouchers.length) return null;
     }
 
+    // Với câu đang tìm/gợi ý tour mới, không trả lời trực tiếp lịch trình/khách sạn của tour cũ.
+    // Ví dụ: "Tôi muốn đi biển, chụp hình đẹp..." hoặc "Tôi muốn nghỉ dưỡng, khách sạn tốt..."
+    // phải trả danh sách tour phù hợp, không phải lịch trình/khách sạn của memory cũ.
+    if (
+      ["tour_search", "personal_recommendation"].includes(String(intent)) &&
+      this.isFreshTourAdviceMessage(ctx.userMessage)
+    ) {
+      return null;
+    }
+
     const sectionIntent = this.detectTourSectionIntent(normalized, intent);
     if (!sectionIntent) return null;
 
@@ -4384,18 +5914,18 @@ YÊU CẦU TRẢ LỜI:
     )
       return "pickup";
     if (
+      intent === "tour_policy" ||
+      /\b(chinh sach|huy|hoan tien|refund|cancel|doi lich|doi tour|phi huy|truoc ngay khoi hanh|truoc ngay di|bao nhieu ngay|duoc hoan)\b/.test(
+        normalized,
+      )
+    )
+      return "policy";
+    if (
       /\b(lich khoi hanh|khoi hanh nao|ngay khoi hanh|con lich|lich gan nhat|con cho|ngay di)\b/.test(
         normalized,
       )
     )
       return "departure";
-    if (
-      intent === "tour_policy" ||
-      /\b(chinh sach|huy|hoan tien|refund|cancel|doi lich|doi tour|phi huy)\b/.test(
-        normalized,
-      )
-    )
-      return "policy";
     if (
       /\b(khach san|luu tru|resort|o dau|tien nghi|may sao)\b/.test(normalized)
     )
@@ -4813,12 +6343,24 @@ YÊU CẦU TRẢ LỜI:
   }
 
   private buildSuggestedReplies(ctx: PromptContext): string[] {
-    if (ctx.intent === "booking_create")
+    if (ctx.intent === "booking_create") {
+      if (
+        ctx.memory.bookingDraft?.started &&
+        !ctx.memory.bookingDraft?.confirmed
+      ) {
+        return [
+          "Xác nhận đặt",
+          "Đổi thành 2 người lớn",
+          "Không dùng voucher",
+          "Dùng voucher tốt nhất",
+        ];
+      }
       return [
         "Kiểm tra booking của tôi",
         "Tôi muốn đổi số khách",
         "Tôi muốn chọn lịch khác",
       ];
+    }
 
     if (ctx.intent === "voucher_check")
       return [
@@ -4992,6 +6534,9 @@ YÊU CẦU TRẢ LỜI:
       where: { userId, departureId },
       include: {
         payments: { orderBy: { createdAt: "desc" }, take: 1 },
+        tour: true,
+        departure: true,
+        pickupPoint: true,
       },
       orderBy: { createdAt: "desc" },
       take: 10,
@@ -5012,6 +6557,62 @@ YÊU CẦU TRẢ LỜI:
     return activeBookings[0] || null;
   }
 
+  private sanitizeSepayTransferContent(value: string) {
+    const raw = String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/g, "d")
+      .replace(/Đ/g, "D")
+      .toUpperCase();
+
+    return raw.replace(/[^A-Z0-9]/g, "").slice(0, 80);
+  }
+
+  private buildSepayQrCodeUrl(amount: number, transferContent: string) {
+    const accountNo =
+      this.configService.get<string>("SEPAY_ACCOUNT_NO") ||
+      process.env.SEPAY_ACCOUNT_NO ||
+      "";
+    const bankCode =
+      this.configService.get<string>("SEPAY_BANK_CODE") ||
+      process.env.SEPAY_BANK_CODE ||
+      "";
+
+    const safeAccountNo = String(accountNo || "").trim();
+    const safeBankCode = String(bankCode || "").trim();
+    const safeAmount = Math.max(0, Math.round(Number(amount || 0)));
+    const safeContent = this.sanitizeSepayTransferContent(transferContent);
+
+    if (!safeAccountNo || !safeBankCode || !safeContent) return "";
+
+    const params = new URLSearchParams({
+      acc: safeAccountNo,
+      bank: safeBankCode,
+      amount: String(safeAmount),
+      des: safeContent,
+      template: "compact",
+    });
+
+    return `https://qr.sepay.vn/img?${params.toString()}`;
+  }
+
+  private getSepayBankInfo() {
+    return {
+      bankCode:
+        this.configService.get<string>("SEPAY_BANK_CODE") ||
+        process.env.SEPAY_BANK_CODE ||
+        null,
+      accountNo:
+        this.configService.get<string>("SEPAY_ACCOUNT_NO") ||
+        process.env.SEPAY_ACCOUNT_NO ||
+        null,
+      accountName:
+        this.configService.get<string>("SEPAY_ACCOUNT_NAME") ||
+        process.env.SEPAY_ACCOUNT_NAME ||
+        null,
+    };
+  }
+
   private buildCheckoutFromExistingBooking(
     booking: any,
   ): BookingCheckoutCard | null {
@@ -5030,16 +6631,23 @@ YÊU CẦU TRẢ LỜI:
     const rawMobilePaymentUrl =
       paymentUrl || `/mobile-payment/${encodeURIComponent(transactionCode)}`;
     const mobilePaymentUrl = this.buildPublicFrontendUrl(rawMobilePaymentUrl);
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
+    const checkoutAmount = Number(payment.amount || booking.finalAmount || 0);
+    const bankInfo = this.getSepayBankInfo();
+    const sepayQrCodeUrl = this.buildSepayQrCodeUrl(
+      checkoutAmount,
+      transactionCode,
+    );
+    const fallbackQrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
       mobilePaymentUrl,
     )}`;
+    const qrCodeUrl = sepayQrCodeUrl || fallbackQrCodeUrl;
 
     return {
       type: "booking_checkout",
       bookingId: String(booking.id),
       bookingCode: String(booking.bookingCode),
-      amount: Number(payment.amount || booking.finalAmount || 0),
-      finalAmount: Number(payment.amount || booking.finalAmount || 0),
+      amount: checkoutAmount,
+      finalAmount: checkoutAmount,
       holdExpiresAt: booking.holdExpiresAt
         ? new Date(booking.holdExpiresAt).toISOString()
         : null,
@@ -5047,8 +6655,29 @@ YÊU CẦU TRẢ LỜI:
       mobilePaymentUrl,
       qrCodeUrl,
       transactionCode,
-      paymentMethod: String(payment.paymentMethod || "momo"),
+      paymentMethod: String(payment.paymentMethod || "bank_transfer"),
       paymentStatus: paymentStatus || "pending",
+      tourName: booking.tour?.name ? String(booking.tour.name) : null,
+      departureDate: booking.departure?.departureDate
+        ? new Date(booking.departure.departureDate).toISOString()
+        : null,
+      endDate: booking.departure?.endDate
+        ? new Date(booking.departure.endDate).toISOString()
+        : null,
+      pickupName: booking.pickupPoint?.name
+        ? String(booking.pickupPoint.name)
+        : null,
+      pickupAddress: booking.pickupPoint?.address
+        ? String(booking.pickupPoint.address)
+        : null,
+      pickupTime: booking.pickupPoint?.pickupTime
+        ? new Date(booking.pickupPoint.pickupTime).toISOString()
+        : null,
+      bankCode: bankInfo.bankCode,
+      accountNo: bankInfo.accountNo,
+      accountName: bankInfo.accountName,
+      transferContent: this.sanitizeSepayTransferContent(transactionCode),
+      qrProvider: sepayQrCodeUrl ? "sepay" : "internal",
     };
   }
 
@@ -5390,6 +7019,7 @@ YÊU CẦU TRẢ LỜI:
     const normalized = this.stripText(userMessage);
     const hasConcreteTourText =
       /\btour\b/.test(normalized) &&
+      !this.isNumberedTourReference(userMessage) &&
       !/\b(tour nay|tour do|tour dau tien|tour tren)\b/.test(normalized);
 
     if (["pickup_point", "tour_policy"].includes(intent)) return true;

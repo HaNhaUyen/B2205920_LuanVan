@@ -8,7 +8,7 @@ import { apiFetch } from "@/lib/api";
 import { API_URL } from "@/lib/config";
 import { formatDate, formatNumber } from "@/lib/format";
 import { mapImageUrl } from "@/lib/tour";
-import { exportAdminUsers } from "@/lib/exportExcel";
+import { exportAdminSmartReport } from "@/lib/exportExcel";
 
 const emptyPage = {
   items: [],
@@ -214,7 +214,7 @@ export default function AdminUsersPage() {
   const exportExcel = async () => {
     setExporting(true);
     try {
-      await exportAdminUsers(filters);
+      await exportAdminSmartReport("users", filters);
       showToast("Đã xuất file Excel người dùng.", "success");
     } catch (error) {
       showToast(error.message || "Không thể xuất Excel người dùng.", "error");

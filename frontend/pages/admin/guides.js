@@ -5,6 +5,7 @@ import Loading from "@/components/Loading";
 import Pagination from "@/components/Pagination";
 import { useToast } from "@/components/ToastContext";
 import { apiFetch } from "@/lib/api";
+import { exportAdminSmartReport } from "@/lib/exportExcel";
 import { formatDate } from "@/lib/format";
 
 const emptyPage = {
@@ -297,30 +298,16 @@ export default function AdminGuidesPage() {
   const exportExcel = async () => {
     setExporting(true);
     try {
-      const XLSX = await import("xlsx");
-      const exportData = data.items.map((g) => ({
-        "Họ Tên": g.fullName || "",
-        "Số Điện Thoại": g.phone || "",
-        Email: g.email || "",
-        CCCD: g.identityNumber || "",
-        "Ngôn Ngữ": g.languages || "",
-        "Kinh Nghiệm": `${g.experienceYears} năm`,
-        "Trạng Thái":
-          g.status === "active"
-            ? "Đang hoạt động"
-            : g.status === "locked"
-              ? "Đã khóa"
-              : "Tạm ngưng",
-      }));
-
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(exportData);
-      XLSX.utils.book_append_sheet(wb, ws, "Guides");
-      XLSX.writeFile(wb, `DanhSachHDV_${Date.now()}.xlsx`);
-
-      showToast("Đã xuất file Excel thành công.", "success");
+      await exportAdminSmartReport("guides", filters || {});
+      showToast(
+        "Đã xuất báo cáo Excel gồm Summary + Insights + Data.",
+        "success",
+      );
     } catch (error) {
-      showToast("Lỗi xuất Excel. Vui lòng thử lại.", "error");
+      showToast(
+        error.message || "Lỗi xuất Excel. Vui lòng kiểm tra lại hệ thống.",
+        "error",
+      );
     } finally {
       setExporting(false);
     }
@@ -372,11 +359,7 @@ export default function AdminGuidesPage() {
     return <Loading text="Đang tải dữ liệu HDV..." />;
 
   return (
-    <AdminLayout
-      current="/admin/guides"
-      title="Quản lý Hướng dẫn viên"
-      subtitle="Theo dõi thông tin HDV, chỉ định lịch dẫn đoàn và tra cứu lịch cá nhân."
-    >
+    <AdminLayout current="/admin/guides" title="Quản lý Hướng dẫn viên">
       <style
         dangerouslySetInnerHTML={{
           __html: `

@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
@@ -20,6 +30,13 @@ export class VouchersController {
   @Get()
   list(@Query() query: any) {
     return this.service.list(query);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Post("sync-user-vouchers")
+  syncUserVouchers() {
+    return this.service.syncAllActiveTierVouchers();
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

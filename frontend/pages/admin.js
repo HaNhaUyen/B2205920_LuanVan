@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
+import AdminInsightPanel from "@/components/admin/AdminInsightPanel";
+import AdminReportButton from "@/components/admin/AdminReportButton";
 import Loading from "@/components/Loading";
 import Modal from "@/components/Modal";
 import Pagination from "@/components/Pagination";
@@ -19,6 +21,7 @@ import {
   exportAdminContacts,
   exportAdminReviews,
   exportAdminTours,
+  exportAdminSmartReport,
 } from "@/lib/exportExcel";
 
 const adminTabs = [
@@ -1697,6 +1700,28 @@ export default function AdminPage({ initialTab = "overview" }) {
 
           <div
             style={{
+              marginBottom: 18,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <AdminReportButton type="overview" label="Xuất báo cáo Dashboard" />
+            <AdminReportButton type="bookings" label="Xuất báo cáo Booking" />
+            <AdminReportButton type="tours" label="Xuất báo cáo Tour" />
+            <AdminReportButton type="users" label="Xuất báo cáo Người dùng" />
+          </div>
+
+          {overview?.smartInsights && (
+            <div style={{ marginBottom: 24 }}>
+              <AdminInsightPanel insights={overview.smartInsights} />
+            </div>
+          )}
+
+          <div
+            style={{
               marginBottom: 24,
               display: "flex",
               justifyContent: "center",
@@ -2292,7 +2317,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                   className="btn btn-light"
                   onClick={() =>
                     runExport("bookings", () =>
-                      exportAdminBookings(bookingFilters),
+                      exportAdminSmartReport("bookings", bookingFilters),
                     )
                   }
                 >
@@ -2509,7 +2534,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                 type="button"
                 className="btn btn-light"
                 onClick={() =>
-                  runExport("tours", () => exportAdminTours(visibleTours))
+                  runExport("tours", () => exportAdminSmartReport("tours"))
                 }
               >
                 <svg
@@ -2685,6 +2710,11 @@ export default function AdminPage({ initialTab = "overview" }) {
               <StatusBadge>
                 {formatNumber(destinationsData.pagination.total)} điểm đến
               </StatusBadge>
+              <AdminReportButton
+                type="destinations"
+                filters={destinationFilters}
+                label="Xuất Excel"
+              />
               <button
                 type="button"
                 className="btn btn-primary"

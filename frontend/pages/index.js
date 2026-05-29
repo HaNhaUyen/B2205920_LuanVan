@@ -535,34 +535,9 @@ export default function HomePage() {
             }}
           >
             <div>
-              <div
-                style={{
-                  color: "#72b44b",
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "1px",
-                  marginBottom: "8px",
-                  fontSize: "0.9rem",
-                }}
-              >
-                Cá nhân hóa
-              </div>
               <h2 style={{ fontSize: "2.35rem", color: "#0f172a", margin: 0 }}>
                 Gợi ý dành cho bạn
               </h2>
-              <p
-                style={{
-                  margin: "10px 0 0",
-                  maxWidth: "680px",
-                  color: "#64748b",
-                  fontSize: "1.02rem",
-                  lineHeight: 1.6,
-                }}
-              >
-                Dựa trên tour bạn đã xem, yêu thích, đặt tour và tìm kiếm gần
-                đây. Nếu chưa đăng nhập hoặc chưa có đủ dữ liệu, Travela sẽ hiển
-                thị các tour nổi bật.
-              </p>
             </div>
             <Link
               className="btn btn-light"

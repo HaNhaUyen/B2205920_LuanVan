@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from "class-validator";
+import { IsObject, IsOptional, IsString, MaxLength } from "class-validator";
 
 export class ChatMessageDto {
   @IsOptional()
@@ -9,4 +9,8 @@ export class ChatMessageDto {
   @IsString()
   @MaxLength(2000)
   message!: string;
+
+  @IsOptional()
+  @IsObject()
+  memory?: Record<string, any>;
 }

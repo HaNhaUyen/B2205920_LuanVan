@@ -836,3 +836,115 @@ export async function exportAdminUsers(filters = {}) {
     },
   );
 }
+
+function normalizeReportValue(value) {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) return formatDateTime(value);
+  if (typeof value === "object") return JSON.stringify(value);
+  return value;
+}
+
+function reportSummaryRows(summary = {}) {
+  return Object.entries(summary || {}).map(([key, value]) => ({
+    "Chỉ số": key,
+    "Giá trị": normalizeReportValue(value),
+  }));
+}
+
+function reportInsightRows(insights = []) {
+  if (!Array.isArray(insights) || !insights.length) {
+    return [
+      {
+        Loại: "Thông báo",
+        "Mức độ": "info",
+        "Nội dung": "Không có cảnh báo/insight nổi bật.",
+      },
+    ];
+  }
+  return insights.map((item, index) => {
+    if (typeof item === "string") {
+      return { STT: index + 1, "Nội dung": item };
+    }
+    return {
+      STT: index + 1,
+      Loại:
+        item.type || item.segment || item.tourName || item.code || "insight",
+      "Mức độ": item.severity || "info",
+      "Tiêu đề":
+        item.title ||
+        item.smartSuggestion ||
+        item.recommendation ||
+        item.segment ||
+        "",
+      "Nội dung": item.message || item.action || JSON.stringify(item),
+      "Gợi ý xử lý":
+        item.action || item.smartSuggestion || item.recommendation || "",
+    };
+  });
+}
+
+function reportDataRows(rows = []) {
+  if (!Array.isArray(rows) || !rows.length)
+    return [{ "Thông báo": "Không có dữ liệu" }];
+  return rows.map((row) =>
+    Object.fromEntries(
+      Object.entries(row || {}).map(([key, value]) => [
+        key,
+        normalizeReportValue(value),
+      ]),
+    ),
+  );
+}
+
+export async function exportAdminSmartReport(type = "overview", filters = {}) {
+  const query = new URLSearchParams();
+  Object.entries(filters || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      query.set(key, String(value));
+    }
+  });
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const report = await apiFetch(`/admin/dashboard/reports/${type}${suffix}`);
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.utils.book_new();
+  workbook.Props = {
+    Title: report?.title || `Travela ${type} report`,
+    Author: "Travela Admin",
+    Company: "Travela",
+    CreatedDate: new Date(),
+  };
+
+  const summaryRows = [
+    { "Chỉ số": "Tên báo cáo", "Giá trị": report?.title || type },
+    {
+      "Chỉ số": "Thời gian xuất",
+      "Giá trị": formatDateTime(report?.generatedAt || new Date()),
+    },
+    ...reportSummaryRows(report?.summary || {}),
+  ];
+
+  appendJsonSheet(XLSX, workbook, "Summary", summaryRows);
+  appendJsonSheet(
+    XLSX,
+    workbook,
+    "Insights",
+    reportInsightRows(report?.insights || []),
+    {
+      statusColumns: ["Mức độ"],
+    },
+  );
+  appendJsonSheet(XLSX, workbook, "Data", reportDataRows(report?.data || []), {
+    statusColumns: [
+      "status",
+      "bookingStatus",
+      "paymentStatus",
+      "smartRisk",
+      "smartSuggestion",
+    ],
+  });
+
+  XLSX.writeFile(
+    workbook,
+    `travela-${type}-report-${new Date().toISOString().slice(0, 10)}.xlsx`,
+  );
+}
