@@ -667,6 +667,15 @@ function buildQuery(filters) {
   return qs.toString();
 }
 
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/gi, "d")
+    .toLowerCase()
+    .trim();
+}
+
 export default function AdminPage({ initialTab = "overview" }) {
   const { showToast } = useToast();
   const [booting, setBooting] = useState(true);
@@ -805,31 +814,28 @@ export default function AdminPage({ initialTab = "overview" }) {
   ]);
 
   const visibleTours = useMemo(() => {
-    const keyword = (tourFilters.search || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/đ/g, "d")
-      .toLowerCase()
-      .trim();
+    const keyword = normalizeSearchText(tourFilters.search);
+
     return (allTours || []).filter((item) => {
-      const target = [
-        item.code,
-        item.name,
-        item.slug,
-        item.destination?.name,
-        item.destination?.province,
-        item.shortDescription,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/đ/g, "d")
-        .toLowerCase();
+      const target = normalizeSearchText(
+        [
+          item.code,
+          item.name,
+          item.slug,
+          item.destination?.name,
+          item.destination?.province,
+          item.shortDescription,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+
       const matchKeyword = !keyword || target.includes(keyword);
+
       const matchDestination =
         !tourFilters.destinationId ||
         String(item.destinationId) === String(tourFilters.destinationId);
+
       return matchKeyword && matchDestination;
     });
   }, [allTours, tourFilters]);
@@ -1298,8 +1304,14 @@ export default function AdminPage({ initialTab = "overview" }) {
   };
 
   const saveTourStep1 = async () => {
-    if (!tourForm.name || !tourForm.destinationId)
+    if (!tourForm.name || !tourForm.destinationId) {
       return showToast("Cần nhập tên tour và điểm đến.", "error");
+    }
+
+    const firstDeparture = tourDepartures?.[0] || createDepartureItem();
+    const firstAccommodation =
+      tourAccommodations?.[0] || createAccommodationItem();
+
     const payload = {
       code: tourForm.code || undefined,
       slug: tourForm.slug || undefined,
@@ -1309,18 +1321,32 @@ export default function AdminPage({ initialTab = "overview" }) {
       tourTheme: tourForm.tourTheme,
       durationDays: Number(tourForm.durationDays),
       durationNights: Number(tourForm.durationNights),
-      hotelStars: Number(tourForm.hotelStars),
-      basePriceAdult: Number(tourForm.basePriceAdult),
-      basePriceChild: Number(tourForm.basePriceChild),
-      maxCapacityDefault: Number(tourForm.maxCapacityDefault),
+
+      // Lấy mặc định từ bước 3, không hỏi ở bước 1 nữa
+      hotelStars: Number(
+        firstAccommodation.starRating || tourForm.hotelStars || 4,
+      ),
+      basePriceAdult: Number(
+        firstDeparture.adultPrice || tourForm.basePriceAdult || 0,
+      ),
+      basePriceChild: Number(
+        firstDeparture.childPrice || tourForm.basePriceChild || 0,
+      ),
+      maxCapacityDefault: Number(
+        firstDeparture.totalSlots || tourForm.maxCapacityDefault || 20,
+      ),
+
       shortDescription: tourForm.shortDescription,
       fullDescription: tourForm.fullDescription,
       isTrending: Boolean(tourForm.isTrending),
       isBestDeal: Boolean(tourForm.isBestDeal),
     };
+
     setSubmitting(true);
+
     try {
       const isCreating = !tourForm.id;
+
       const saved = tourForm.id
         ? await apiFetch(`/admin/tours/${tourForm.id}/step1`, {
             method: "PATCH",
@@ -1330,14 +1356,24 @@ export default function AdminPage({ initialTab = "overview" }) {
             method: "POST",
             body: JSON.stringify(payload),
           });
+
       if (isCreating) setTourDraftCreated(true);
+
       setTourForm((prev) => ({
         ...prev,
         id: String(saved.id),
         code: saved.code || prev.code,
         slug: saved.slug || prev.slug,
+        hotelStars: payload.hotelStars,
+        basePriceAdult: payload.basePriceAdult,
+        basePriceChild: payload.basePriceChild,
+        maxCapacityDefault: payload.maxCapacityDefault,
       }));
-      showToast("Đã lưu thông tin. Vui lòng tiếp tục các bước sau.", "success");
+
+      showToast(
+        "Đã lưu thông tin cơ bản. Vui lòng tiếp tục bước hình ảnh.",
+        "success",
+      );
       setTourStep(2);
       await loadTours();
     } catch (error) {
@@ -1423,47 +1459,94 @@ export default function AdminPage({ initialTab = "overview" }) {
     if (!tourForm.id) return showToast("Bạn cần lưu bước 1 trước.", "error");
     setSubmitting(true);
     try {
+      const firstDeparture = tourDepartures?.[0] || createDepartureItem();
+      const firstAccommodation =
+        tourAccommodations?.[0] || createAccommodationItem();
+
+      await apiFetch(`/admin/tours/${tourForm.id}/step1`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          code: tourForm.code || undefined,
+          slug: tourForm.slug || undefined,
+          name: tourForm.name,
+          destinationId: Number(tourForm.destinationId),
+          tourType: tourForm.tourType,
+          tourTheme: tourForm.tourTheme,
+          durationDays: Number(tourForm.durationDays),
+          durationNights: Number(tourForm.durationNights),
+          hotelStars: Number(firstAccommodation.starRating || 4),
+          basePriceAdult: Number(firstDeparture.adultPrice || 0),
+          basePriceChild: Number(firstDeparture.childPrice || 0),
+          maxCapacityDefault: Number(firstDeparture.totalSlots || 20),
+          shortDescription: tourForm.shortDescription,
+          fullDescription: tourForm.fullDescription,
+          isTrending: Boolean(tourForm.isTrending),
+          isBestDeal: Boolean(tourForm.isBestDeal),
+        }),
+      });
       await Promise.all([
         apiFetch(`/admin/tours/${tourForm.id}/itinerary`, {
           method: "POST",
           body: JSON.stringify({
             items: tourItinerary.map((item, index) => ({
-              ...item,
+              dayNumber: Number(item.dayNumber),
               itemOrder: index + 1,
+              title: item.title,
+              description: item.description || undefined,
+              locationName: item.locationName || undefined,
             })),
           }),
         }),
+
         apiFetch(`/admin/tours/${tourForm.id}/departures`, {
           method: "POST",
           body: JSON.stringify({
             items: tourDepartures.map((item) => ({
-              ...item,
+              departureDate: item.departureDate,
+              endDate: item.endDate,
               adultPrice: Number(item.adultPrice),
               childPrice: Number(item.childPrice),
               totalSlots: Number(item.totalSlots),
+              status: item.status || "open",
             })),
           }),
         }),
+
         apiFetch(`/admin/tours/${tourForm.id}/accommodations`, {
           method: "POST",
           body: JSON.stringify({
             items: tourAccommodations.map((item) => ({
-              ...item,
+              name: item.name,
+              accommodationType: item.accommodationType,
+              starRating: item.starRating ? Number(item.starRating) : undefined,
+              address: item.address || undefined,
+              description: item.description || undefined,
               pricePerNight: item.pricePerNight
                 ? Number(item.pricePerNight)
-                : null,
+                : undefined,
+              imageUrl: item.imageUrl || undefined,
+              amenities: item.amenities || undefined,
+              status: item.status || "active",
             })),
           }),
         }),
+
         apiFetch(`/admin/tours/${tourForm.id}/transports`, {
           method: "POST",
           body: JSON.stringify({
             items: tourTransports.map((item) => ({
-              ...item,
+              name: item.name,
+              transportType: item.transportType,
+              provider: item.provider || undefined,
+              origin: item.origin || undefined,
+              destinationLabel: item.destinationLabel || undefined,
               durationHours: item.durationHours
                 ? Number(item.durationHours)
-                : null,
-              price: item.price ? Number(item.price) : null,
+                : undefined,
+              price: item.price ? Number(item.price) : undefined,
+              description: item.description || undefined,
+              imageUrl: item.imageUrl || undefined,
+              status: item.status || "active",
             })),
           }),
         }),
@@ -3625,34 +3708,6 @@ export default function AdminPage({ initialTab = "overview" }) {
                   )}
                 </div>
               </div>
-
-              <div className="detail-card">
-                <h4>Timeline vận hành</h4>
-                <div style={{ display: "grid", gap: 10 }}>
-                  {(bookingDetail.operationTimeline || []).map(
-                    (item, index) => (
-                      <div
-                        key={`${item.label}-${index}`}
-                        style={{
-                          borderLeft: "3px solid #3b82f6",
-                          paddingLeft: 12,
-                        }}
-                      >
-                        <strong style={{ color: "#0f172a" }}>
-                          {item.label}
-                        </strong>
-                        <div className="table-muted">
-                          {formatDateTime(item.time)}
-                        </div>
-                        <div className="table-muted">{item.note}</div>
-                      </div>
-                    ),
-                  )}
-                  {!(bookingDetail.operationTimeline || []).length && (
-                    <p className="table-muted">Chưa có timeline.</p>
-                  )}
-                </div>
-              </div>
             </div>
 
             <div className="detail-card">
@@ -3661,6 +3716,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                 <table className="console-table">
                   <thead>
                     <tr>
+                      <th>Mã booking</th>
                       <th>Họ tên</th>
                       <th>Loại khách</th>
                       <th>Ngày sinh</th>
@@ -3668,8 +3724,13 @@ export default function AdminPage({ initialTab = "overview" }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {(bookingDetail.guests || []).map((guest) => (
+                    {(
+                      bookingDetail.departureGuests ||
+                      bookingDetail.guests ||
+                      []
+                    ).map((guest) => (
                       <tr key={guest.id}>
+                        <td>{guest.bookingCode || "-"}</td>
                         <td>{guest.fullName}</td>
                         <td>{guest.guestType}</td>
                         <td>{formatDate(guest.dateOfBirth)}</td>
@@ -3679,7 +3740,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                     {!(bookingDetail.guests || []).length && (
                       <tr>
                         <td
-                          colSpan={4}
+                          colSpan={5}
                           style={{ textAlign: "center", color: "#64748b" }}
                         >
                           Chưa có hành khách.
@@ -4066,58 +4127,6 @@ export default function AdminPage({ initialTab = "overview" }) {
                 />
               </div>
             </div>
-            <div className="field">
-              <label>Tiêu chuẩn KS (Sao)</label>
-              <input
-                type="number"
-                min="1"
-                max="5"
-                value={tourForm.hotelStars}
-                onChange={(e) =>
-                  setTourForm((prev) => ({
-                    ...prev,
-                    hotelStars: e.target.value,
-                  }))
-                }
-              />
-            </div>
-            <div
-              className="field"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 12,
-              }}
-            >
-              <div>
-                <label>Giá Gốc Người Lớn</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={tourForm.basePriceAdult}
-                  onChange={(e) =>
-                    setTourForm((prev) => ({
-                      ...prev,
-                      basePriceAdult: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <label>Giá Gốc Trẻ Em</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={tourForm.basePriceChild}
-                  onChange={(e) =>
-                    setTourForm((prev) => ({
-                      ...prev,
-                      basePriceChild: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </div>
 
             <div className="field span-2">
               <label>Mô tả nổi bật (Ngắn)</label>
@@ -4144,59 +4153,6 @@ export default function AdminPage({ initialTab = "overview" }) {
                 }
                 rows={5}
               />
-            </div>
-            <div
-              className="field span-2"
-              style={{
-                display: "flex",
-                gap: 24,
-                padding: 12,
-                background: "#f8fafc",
-                borderRadius: 8,
-              }}
-            >
-              <label
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  style={{ width: 18, height: 18 }}
-                  checked={tourForm.isTrending}
-                  onChange={(e) =>
-                    setTourForm((prev) => ({
-                      ...prev,
-                      isTrending: e.target.checked,
-                    }))
-                  }
-                />
-                Hiển thị nhãn "Bán chạy"
-              </label>
-              <label
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  style={{ width: 18, height: 18 }}
-                  checked={tourForm.isBestDeal}
-                  onChange={(e) =>
-                    setTourForm((prev) => ({
-                      ...prev,
-                      isBestDeal: e.target.checked,
-                    }))
-                  }
-                />
-                Hiển thị nhãn "Giá tốt"
-              </label>
             </div>
           </div>
         )}

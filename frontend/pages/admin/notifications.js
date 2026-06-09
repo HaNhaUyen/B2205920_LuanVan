@@ -30,6 +30,13 @@ const initialForm = {
   message: "",
   content: "",
   isPublished: true,
+
+  // all_users: tất cả user
+  // specific_user: một user cụ thể
+  // admins: tất cả admin
+  // all: toàn hệ thống
+  targetMode: "all_users",
+  targetUserId: "",
 };
 
 const initialBulkFilters = {
@@ -161,7 +168,7 @@ export default function AdminNotificationsPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [form, setForm] = useState(initialForm);
-
+  const [users, setUsers] = useState([]);
   const [bulkFilters, setBulkFilters] = useState(initialBulkFilters);
   const [bulkData, setBulkData] = useState({
     items: [],
@@ -179,6 +186,22 @@ export default function AdminNotificationsPage() {
     setData(await apiFetch(`/admin/notifications?${buildQuery(nextFilters)}`));
   };
 
+  const loadUsers = async () => {
+    const result = await apiFetch(
+      `/admin/users?${buildQuery({
+        page: 1,
+        pageSize: 1000,
+        status: "active",
+      })}`,
+    );
+
+    setUsers(
+      (result?.items || []).filter(
+        (item) => String(item.role || "").toLowerCase() !== "admin",
+      ),
+    );
+  };
+
   const loadBulkTargets = async (nextFilters = bulkFilters) => {
     setBulkLoading(true);
     try {
@@ -194,7 +217,11 @@ export default function AdminNotificationsPage() {
   };
 
   useEffect(() => {
-    Promise.all([loadData(initialFilters), loadBulkTargets(initialBulkFilters)])
+    Promise.all([
+      loadData(initialFilters),
+      loadBulkTargets(initialBulkFilters),
+      loadUsers(),
+    ])
       .catch((error) => showToast(error.message, "error"))
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -225,13 +252,30 @@ export default function AdminNotificationsPage() {
   };
 
   const openEdit = (item) => {
+    let targetMode = "all_users";
+
+    if (item.targetUserId || item.targetUser?.id) {
+      targetMode = "specific_user";
+    } else if (item.targetRole === "admin") {
+      targetMode = "admins";
+    } else if (item.targetRole === "all") {
+      targetMode = "all";
+    }
+
     setForm({
       id: String(item.id),
       title: item.title || "",
       message: item.message || "",
       content: item.content || "",
       isPublished: Boolean(item.isPublished),
+      targetMode,
+      targetUserId: item.targetUserId
+        ? String(item.targetUserId)
+        : item.targetUser?.id
+          ? String(item.targetUser.id)
+          : "",
     });
+
     setModalOpen(true);
   };
 
@@ -244,6 +288,34 @@ export default function AdminNotificationsPage() {
     }
   };
 
+  function buildNotificationTargetPayload(form) {
+    if (form.targetMode === "specific_user") {
+      return {
+        targetRole: "user",
+        targetUserId: form.targetUserId ? Number(form.targetUserId) : undefined,
+      };
+    }
+
+    if (form.targetMode === "admins") {
+      return {
+        targetRole: "admin",
+        targetUserId: undefined,
+      };
+    }
+
+    if (form.targetMode === "all") {
+      return {
+        targetRole: "all",
+        targetUserId: undefined,
+      };
+    }
+
+    return {
+      targetRole: "user",
+      targetUserId: undefined,
+    };
+  }
+
   const submitForm = async () => {
     if (!form.title.trim() || !form.content.trim()) {
       showToast("Cần nhập tiêu đề và nội dung thông báo.", "error");
@@ -251,12 +323,18 @@ export default function AdminNotificationsPage() {
     }
     setSubmitting(true);
     try {
+      if (form.targetMode === "specific_user" && !form.targetUserId) {
+        showToast("Vui lòng chọn người dùng nhận thông báo.", "error");
+        setSubmitting(false);
+        return;
+      }
+
       const payload = {
-        title: form.title,
-        message: form.message,
-        content: form.content,
+        title: form.title.trim(),
+        message: form.message.trim(),
+        content: form.content.trim(),
         isPublished: form.isPublished,
-        targetRole: "user",
+        ...buildNotificationTargetPayload(form),
       };
 
       if (form.id) {
@@ -706,11 +784,15 @@ export default function AdminNotificationsPage() {
                         <div style={{ color: "#64748b", marginTop: 4 }}>
                           {shorten(item.message || item.content, 110)}
                         </div>
-                        {item.targetUser && (
-                          <div className="pill blue" style={{ marginTop: 8 }}>
-                            Gửi riêng: {item.targetUser.fullName}
-                          </div>
-                        )}
+                        <div className="pill blue" style={{ marginTop: 8 }}>
+                          {item.targetUser
+                            ? `Gửi riêng: ${item.targetUser.fullName}`
+                            : item.targetRole === "admin"
+                              ? "Đối tượng: Tất cả admin"
+                              : item.targetRole === "all"
+                                ? "Đối tượng: Toàn hệ thống"
+                                : "Đối tượng: Tất cả người dùng"}
+                        </div>
                       </td>
                       <td>
                         <span
@@ -1051,6 +1133,46 @@ export default function AdminNotificationsPage() {
         }
       >
         <div className="smart-grid">
+          <label>
+            Đối tượng nhận
+            <select
+              className="smart-input"
+              value={form.targetMode}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  targetMode: e.target.value,
+                  targetUserId:
+                    e.target.value === "specific_user" ? p.targetUserId : "",
+                }))
+              }
+            >
+              <option value="all_users">Tất cả người dùng</option>
+              <option value="specific_user">Một người dùng cụ thể</option>
+              <option value="admins">Tất cả admin</option>
+              <option value="all">Toàn hệ thống</option>
+            </select>
+          </label>
+
+          {form.targetMode === "specific_user" && (
+            <label>
+              Chọn người dùng
+              <select
+                className="smart-input"
+                value={form.targetUserId}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, targetUserId: e.target.value }))
+                }
+              >
+                <option value="">-- Chọn người dùng --</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.fullName} · {user.email}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             Tiêu đề
             <input

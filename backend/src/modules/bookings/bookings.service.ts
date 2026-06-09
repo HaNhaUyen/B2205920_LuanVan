@@ -1025,9 +1025,64 @@ export class BookingsService {
       orderBy: [{ departureId: "desc" }, { id: "asc" }],
     });
 
+    const sameDepartureBookings = await this.prisma.booking.findMany({
+      where: {
+        tourId: booking.tourId,
+        departureId: booking.departureId,
+        bookingStatus: {
+          in: [
+            "pending_payment",
+            "waiting_confirmation",
+            "confirmed",
+            "completed",
+          ],
+        },
+      },
+      include: {
+        guests: true,
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const departureGuests = sameDepartureBookings.flatMap((b: any) => {
+      if (b.guests?.length) {
+        return b.guests.map((g: any) => ({
+          ...g,
+          bookingCode: b.bookingCode,
+          contactName: b.contactName,
+          contactPhone: b.contactPhone,
+          contactEmail: b.contactEmail,
+        }));
+      }
+
+      // Nếu booking chưa có bảng guests thì lấy thông tin người đặt làm hành khách đại diện
+      return [
+        {
+          id: `booking-${b.id}`,
+          bookingCode: b.bookingCode,
+          fullName: b.contactName || b.user?.fullName || "Khách hàng",
+          guestType: "Người đặt",
+          dateOfBirth: null,
+          idNumber: "-",
+          contactPhone: b.contactPhone,
+          contactEmail: b.contactEmail,
+        },
+      ];
+    });
+
     return {
       ...this.enrichBooking(booking),
       pickupOptions,
+      departureGuests,
+      sameDepartureBookings,
       operationTimeline: [
         {
           label: "Tạo booking",

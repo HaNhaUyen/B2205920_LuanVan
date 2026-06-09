@@ -300,25 +300,6 @@ export default function FilterSidebar({
               ))}
             </select>
           </div>
-          <div className="field" style={{ marginBottom: "12px" }}>
-            <select
-              name="province"
-              defaultValue={query.province || ""}
-              style={{
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                borderRadius: "12px",
-                padding: "12px",
-              }}
-            >
-              <option value="">Tất cả tỉnh thành</option>
-              {options.provinces.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </div>
 
           {/* Gợi ý nhanh */}
           <div

@@ -43,21 +43,6 @@ export default function AdminInsightPanel({ insights }) {
           <h3 style={{ margin: 0, color: "#0f172a" }}>
             Trung tâm cảnh báo thông minh
           </h3>
-          <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: 14 }}>
-            Hệ thống tự phát hiện booking sắp hết hạn, doanh thu giảm, refund
-            tồn đọng, tour gần hết chỗ và vấn đề vận hành.
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <span className="badge-soft">
-            Giữ chỗ sắp hết: {counters.expiringHolds || 0}
-          </span>
-          <span className="badge-soft">
-            Refund chờ: {counters.pendingRefunds || 0}
-          </span>
-          <span className="badge-soft">
-            Tour gần hết chỗ: {counters.lowCapacityDepartures || 0}
-          </span>
         </div>
       </div>
 

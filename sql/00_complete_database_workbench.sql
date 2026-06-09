@@ -1727,4 +1727,196 @@ VALUES
   NOW(),
   NOW()
 );
+SET SQL_SAFE_UPDATES = 1;
+UPDATE tour_policies
+SET content = 'Khách có thể gửi yêu cầu hoàn tiền trong vòng 48 giờ sau khi đặt tour. Chỉ hỗ trợ hoàn tiền khi còn ít nhất 3 ngày trước ngày khởi hành. Booking cần ở trạng thái đã thanh toán hoặc đã xác nhận. Yêu cầu hoàn tiền cần admin kiểm tra và duyệt trước khi cập nhật trạng thái.'
+WHERE LOWER(policy_type) LIKE '%cancel%'
+   OR LOWER(policy_type) LIKE '%refund%'
+   OR content LIKE '%hoàn tiền%'
+   OR content LIKE '%hủy%';
+   
+   
 
+SET @user_id := 343;
+
+SET @departure_id := (
+  SELECT td.id
+  FROM tour_departures td
+  WHERE td.status = 'open'
+    AND td.booked_slots + td.held_slots < td.total_slots
+  ORDER BY td.id DESC
+  LIMIT 1
+);
+
+SET @tour_id := (
+  SELECT tour_id
+  FROM tour_departures
+  WHERE id = @departure_id
+);
+
+SET @pickup_id := (
+  SELECT id
+  FROM tour_pickup_points
+  WHERE departure_id = @departure_id
+    AND status = 'active'
+  ORDER BY id ASC
+  LIMIT 1
+);
+
+SET @booking_code := CONCAT('BKTEST', UNIX_TIMESTAMP());
+SET @payment_code := CONCAT('DH', UNIX_TIMESTAMP());
+
+INSERT INTO bookings (
+  booking_code,
+  user_id,
+  tour_id,
+  departure_id,
+  pickup_point_id,
+  pickup_name,
+  pickup_address,
+  pickup_time,
+  pickup_note,
+  adult_count,
+  child_count,
+  original_amount,
+  discount_amount,
+  final_amount,
+  booking_status,
+  hold_expires_at,
+  contact_name,
+  contact_email,
+  contact_phone,
+  note
+)
+SELECT
+  @booking_code,
+  @user_id,
+  @tour_id,
+  @departure_id,
+  pp.id,
+  pp.name,
+  pp.address,
+  pp.pickup_time,
+  pp.note,
+  1,
+  0,
+  1000,
+  0,
+  1000,
+  'pending_payment',
+  DATE_ADD(NOW(), INTERVAL 15 MINUTE),
+  u.full_name,
+  u.email,
+  COALESCE(u.phone, '0900000000'),
+  'Booking test SePay 1000 dong'
+FROM users u
+LEFT JOIN tour_pickup_points pp ON pp.id = @pickup_id
+WHERE u.id = @user_id;
+
+SET @booking_id := LAST_INSERT_ID();
+
+INSERT INTO payments (
+  booking_id,
+  payment_method,
+  payment_status,
+  amount,
+  internal_transaction_code,
+  paid_at
+)
+VALUES (
+  @booking_id,
+  'bank_transfer',
+  'pending',
+  1000,
+  @payment_code,
+  NULL
+);
+
+UPDATE tour_departures
+SET held_slots = held_slots + 1
+WHERE id = @departure_id;
+
+INSERT INTO booking_status_logs (
+  booking_id,
+  payment_id,
+  action_type,
+  old_status,
+  new_status,
+  changed_by_user_id,
+  source,
+  reason,
+  note
+)
+VALUES (
+  @booking_id,
+  LAST_INSERT_ID(),
+  'test_payment',
+  NULL,
+  'pending_payment',
+  @user_id,
+  'system',
+  'Create SePay test booking 1000 VND',
+  CONCAT('Payment code: ', @payment_code)
+);
+
+SELECT
+  b.id AS booking_id,
+  b.booking_code,
+  b.user_id,
+  b.final_amount,
+  b.booking_status,
+  p.internal_transaction_code,
+  p.amount,
+  p.payment_status
+FROM bookings b
+JOIN payments p ON p.booking_id = b.id
+WHERE b.id = @booking_id;
+
+USE travela_full_mvc;
+
+SET @user_id := 343;
+
+SET @booking_id := (
+  SELECT b.id
+  FROM bookings b
+  WHERE b.user_id = @user_id
+    AND b.note LIKE '%Booking test SePay%'
+    AND b.booking_status = 'pending_payment'
+  ORDER BY b.id DESC
+  LIMIT 1
+);
+
+UPDATE bookings
+SET original_amount = 2000,
+    discount_amount = 0,
+    final_amount = 2000,
+    note = 'Booking test SePay 2000 dong'
+WHERE id = @booking_id;
+
+UPDATE payments
+SET amount = 2000
+WHERE booking_id = @booking_id
+  AND payment_status = 'pending';
+
+SELECT
+  b.id AS booking_id,
+  b.booking_code,
+  b.final_amount,
+  b.booking_status,
+  p.internal_transaction_code,
+  p.amount,
+  p.payment_status
+FROM bookings b
+JOIN payments p ON p.booking_id = b.id
+WHERE b.id = @booking_id;
+
+
+INSERT IGNORE INTO user_vouchers(user_id, voucher_id)
+SELECT u.id, v.id
+FROM users u
+JOIN vouchers v ON v.member_tier = u.member_tier
+WHERE u.role = 'user'
+  AND u.status = 'active'
+  AND v.status = 'active'
+  AND v.start_date <= CURDATE()
+  AND v.end_date >= CURDATE();

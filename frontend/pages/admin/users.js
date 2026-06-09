@@ -26,6 +26,14 @@ const initialForm = {
   newPassword: "",
 };
 
+const DEFAULT_AVATAR_URL = "/images/default-avatar.png";
+
+function resolveAvatarUrl(url) {
+  if (!url) return DEFAULT_AVATAR_URL;
+  if (String(url).startsWith("/images/")) return url;
+  return mapImageUrl(url, API_URL);
+}
+
 // Component hiển thị nhãn trạng thái người dùng
 function UserStatusBadge({ status }) {
   let bg = "#f1f5f9",
@@ -154,7 +162,7 @@ export default function AdminUsersPage() {
             email: form.email,
             phone: form.phone || null,
             status: "active",
-            avatarUrl: form.avatarUrl || null,
+            avatarUrl: form.avatarUrl?.trim() || DEFAULT_AVATAR_URL,
             password: form.password,
           }),
         });
@@ -168,7 +176,7 @@ export default function AdminUsersPage() {
             email: form.email,
             phone: form.phone || null,
             status: form.status,
-            avatarUrl: form.avatarUrl || null,
+            avatarUrl: form.avatarUrl?.trim() || DEFAULT_AVATAR_URL,
             newPassword: form.newPassword || undefined,
           }),
         });
@@ -196,7 +204,7 @@ export default function AdminUsersPage() {
           email: item.email,
           phone: item.phone || null,
           status: nextStatus,
-          avatarUrl: item.avatarUrl || null,
+          avatarUrl: item.avatarUrl || DEFAULT_AVATAR_URL,
         }),
       });
       showToast(
@@ -545,9 +553,7 @@ export default function AdminUsersPage() {
                         String(item.role || "").toLowerCase() !== "admin",
                     )
                     .map((item) => {
-                      const avatarUrl = item.avatarUrl
-                        ? mapImageUrl(item.avatarUrl, API_URL)
-                        : "";
+                      const avatarUrl = resolveAvatarUrl(item.avatarUrl);
                       return (
                         <tr
                           key={item.id}
@@ -562,10 +568,23 @@ export default function AdminUsersPage() {
                                 gap: 16,
                               }}
                             >
-                              {avatarUrl ? (
+                              <div
+                                style={{
+                                  position: "relative",
+                                  width: 46,
+                                  height: 46,
+                                }}
+                              >
                                 <img
                                   src={avatarUrl}
                                   alt={item.fullName}
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                    const fallback =
+                                      e.currentTarget.nextElementSibling;
+                                    if (fallback)
+                                      fallback.style.display = "flex";
+                                  }}
                                   style={{
                                     width: 46,
                                     height: 46,
@@ -574,26 +593,28 @@ export default function AdminUsersPage() {
                                     border: "2px solid #e2e8f0",
                                   }}
                                 />
-                              ) : (
+
                                 <div
                                   style={{
+                                    display: "none",
                                     width: 46,
                                     height: 46,
                                     borderRadius: "50%",
                                     background:
                                       "linear-gradient(135deg, #e2e8f0, #cbd5e1)",
                                     color: "#475569",
-                                    display: "flex",
                                     alignItems: "center",
                                     justifyContent: "center",
                                     fontWeight: "bold",
                                     fontSize: "1.2rem",
+                                    position: "absolute",
+                                    inset: 0,
                                   }}
                                 >
                                   {item.fullName?.charAt(0)?.toUpperCase() ||
                                     "U"}
                                 </div>
-                              )}
+                              </div>
                               <div>
                                 <strong
                                   style={{

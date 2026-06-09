@@ -510,7 +510,6 @@ export default function AdminVouchersPage() {
             <input
               value={form.code || ""}
               onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
-              placeholder="Để trống để tự sinh theo tên"
             />
           </div>
 
