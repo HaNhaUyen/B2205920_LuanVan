@@ -22,36 +22,50 @@ const initialForm = {
   phone: "",
   status: "active",
   avatarUrl: "",
+  avatarFile: null,
   password: "",
   newPassword: "",
 };
 
-const DEFAULT_AVATAR_URL = "/images/default-avatar.png";
-
 function resolveAvatarUrl(url) {
-  if (!url) return DEFAULT_AVATAR_URL;
+  if (!url) return "";
   if (String(url).startsWith("/images/")) return url;
   return mapImageUrl(url, API_URL);
 }
 
-// Component hiển thị nhãn trạng thái người dùng
+function firstLetter(name = "") {
+  return (
+    String(name || "U")
+      .trim()
+      .charAt(0)
+      .toUpperCase() || "U"
+  );
+}
+
+function buildUserFormData(form, isCreate = false) {
+  const fd = new FormData();
+  fd.append("fullName", form.fullName || "");
+  fd.append("email", form.email || "");
+  fd.append("phone", form.phone || "");
+  fd.append("status", isCreate ? "active" : form.status || "active");
+  fd.append("avatarUrl", form.avatarUrl || "");
+  if (form.avatarFile) fd.append("avatarFile", form.avatarFile);
+  if (isCreate) fd.append("password", form.password || "");
+  else if (form.newPassword) fd.append("newPassword", form.newPassword);
+  return fd;
+}
+
 function UserStatusBadge({ status }) {
-  let bg = "#f1f5f9",
-    color = "#475569",
-    label = status;
-  if (status === "active") {
-    bg = "#dcfce7";
-    color = "#166534";
-    label = "Đang hoạt động";
-  } else if (status === "inactive") {
-    bg = "#fef3c7";
-    color = "#92400e";
-    label = "Tạm ngưng";
-  } else if (status === "blocked") {
-    bg = "#fee2e2";
-    color = "#991b1b";
-    label = "Bị khóa";
-  }
+  const map = {
+    active: { bg: "#dcfce7", color: "#166534", label: "Đang hoạt động" },
+    inactive: { bg: "#fef3c7", color: "#92400e", label: "Tạm ngưng" },
+    blocked: { bg: "#fee2e2", color: "#991b1b", label: "Bị khóa" },
+  };
+  const current = map[status] || {
+    bg: "#f1f5f9",
+    color: "#475569",
+    label: status || "Không rõ",
+  };
 
   return (
     <span
@@ -60,15 +74,97 @@ function UserStatusBadge({ status }) {
         alignItems: "center",
         padding: "6px 12px",
         borderRadius: "999px",
-        background: bg,
-        color: color,
+        background: current.bg,
+        color: current.color,
         fontSize: "0.85rem",
-        fontWeight: 600,
+        fontWeight: 700,
         whiteSpace: "nowrap",
       }}
     >
-      {label}
+      {current.label}
     </span>
+  );
+}
+
+function UserAvatar({ user, size = 46, previewUrl = "" }) {
+  const url = previewUrl || resolveAvatarUrl(user?.avatarUrl);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => setFailed(false), [url]);
+
+  if (url && !failed) {
+    return (
+      <img
+        src={url}
+        alt={user?.fullName || "Avatar"}
+        onError={() => setFailed(true)}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          objectFit: "cover",
+          border: "2px solid rgba(148, 163, 184, .35)",
+          background: "#e2e8f0",
+          flexShrink: 0,
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        background: "linear-gradient(135deg, #d7f1ff, #bfe7ff)",
+        color: "#0077b6",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 900,
+        fontSize: size >= 56 ? "1.45rem" : "1.15rem",
+        border: "1px solid rgba(2,132,199,.12)",
+        flexShrink: 0,
+      }}
+    >
+      {firstLetter(user?.fullName)}
+    </div>
+  );
+}
+
+function SortSelects({ filters, setFilters }) {
+  return (
+    <>
+      <select
+        className="modern-input"
+        style={{ width: "auto", minWidth: 150, cursor: "pointer" }}
+        value={filters.sortBy}
+        onChange={(e) =>
+          setFilters((prev) => ({ ...prev, sortBy: e.target.value, page: 1 }))
+        }
+      >
+        <option value="createdAt">Ngày thêm</option>
+        <option value="fullName">Tên người dùng</option>
+        <option value="email">Email</option>
+        <option value="phone">Số điện thoại</option>
+      </select>
+      <select
+        className="modern-input"
+        style={{ width: "auto", minWidth: 130, cursor: "pointer" }}
+        value={filters.sortOrder}
+        onChange={(e) =>
+          setFilters((prev) => ({
+            ...prev,
+            sortOrder: e.target.value,
+            page: 1,
+          }))
+        }
+      >
+        <option value="desc">Giảm dần</option>
+        <option value="asc">Tăng dần</option>
+      </select>
+    </>
   );
 }
 
@@ -81,40 +177,28 @@ export default function AdminUsersPage() {
     pageSize: 10,
     search: "",
     status: "",
+    sortBy: "createdAt",
+    sortOrder: "desc",
   });
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [form, setForm] = useState(initialForm);
+  const [avatarPreview, setAvatarPreview] = useState("");
 
   const qs = useMemo(() => {
     const query = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
-      if (value) query.set(key, value);
+      if (value !== undefined && value !== null && value !== "") {
+        query.set(key, value);
+      }
     });
     return query.toString();
   }, [filters]);
 
   const load = async () => {
     const result = await apiFetch(`/admin/users?${qs}`);
-
-    const rawItems = result?.items || [];
-    const userOnlyItems = rawItems.filter(
-      (item) => String(item.role || "").toLowerCase() !== "admin",
-    );
-
-    setData({
-      ...(result || emptyPage),
-      items: userOnlyItems,
-      pagination: {
-        ...(result?.pagination || emptyPage.pagination),
-        total: Math.max(
-          0,
-          Number(result?.pagination?.total || userOnlyItems.length) -
-            (rawItems.length - userOnlyItems.length),
-        ),
-      },
-    });
+    setData(result || emptyPage);
   };
 
   useEffect(() => {
@@ -123,7 +207,19 @@ export default function AdminUsersPage() {
       .finally(() => setLoading(false));
   }, [qs, showToast]);
 
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
+
+  const resetAvatarPreview = () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarPreview("");
+  };
+
   const openCreate = () => {
+    resetAvatarPreview();
     setForm(initialForm);
     setModalOpen(true);
   };
@@ -131,6 +227,7 @@ export default function AdminUsersPage() {
   const openEdit = async (id) => {
     try {
       const detail = await apiFetch(`/admin/users/${id}`);
+      resetAvatarPreview();
       setForm({
         id: String(detail.id),
         fullName: detail.fullName || "",
@@ -138,6 +235,7 @@ export default function AdminUsersPage() {
         phone: detail.phone || "",
         status: detail.status || "active",
         avatarUrl: detail.avatarUrl || "",
+        avatarFile: null,
         password: "",
         newPassword: "",
       });
@@ -147,45 +245,43 @@ export default function AdminUsersPage() {
     }
   };
 
+  const changeAvatarFile = (file) => {
+    resetAvatarPreview();
+    if (!file) {
+      setForm((prev) => ({ ...prev, avatarFile: null }));
+      return;
+    }
+    setForm((prev) => ({ ...prev, avatarFile: file }));
+    setAvatarPreview(URL.createObjectURL(file));
+  };
+
   const save = async () => {
     setSubmitting(true);
     try {
-      if (!form.fullName || !form.email) {
+      if (!form.fullName.trim() || !form.email.trim()) {
         throw new Error("Cần nhập họ tên và email.");
+      }
+      if (!form.id && !form.password.trim()) {
+        throw new Error("Cần nhập mật khẩu khởi tạo.");
       }
 
       if (!form.id) {
         await apiFetch("/admin/users", {
           method: "POST",
-          body: JSON.stringify({
-            fullName: form.fullName,
-            email: form.email,
-            phone: form.phone || null,
-            status: "active",
-            avatarUrl: form.avatarUrl?.trim() || DEFAULT_AVATAR_URL,
-            password: form.password,
-          }),
+          body: buildUserFormData(form, true),
         });
-
         showToast("Đã thêm người dùng mới.", "success");
       } else {
         await apiFetch(`/admin/users/${form.id}`, {
           method: "PATCH",
-          body: JSON.stringify({
-            fullName: form.fullName,
-            email: form.email,
-            phone: form.phone || null,
-            status: form.status,
-            avatarUrl: form.avatarUrl?.trim() || DEFAULT_AVATAR_URL,
-            newPassword: form.newPassword || undefined,
-          }),
+          body: buildUserFormData(form, false),
         });
-
         showToast("Đã cập nhật tài khoản.", "success");
       }
 
       setModalOpen(false);
       setForm(initialForm);
+      resetAvatarPreview();
       await load();
     } catch (error) {
       showToast(error.message, "error");
@@ -202,9 +298,9 @@ export default function AdminUsersPage() {
         body: JSON.stringify({
           fullName: item.fullName,
           email: item.email,
-          phone: item.phone || null,
+          phone: item.phone || "",
           status: nextStatus,
-          avatarUrl: item.avatarUrl || DEFAULT_AVATAR_URL,
+          avatarUrl: item.avatarUrl || "",
         }),
       });
       showToast(
@@ -235,108 +331,98 @@ export default function AdminUsersPage() {
 
   return (
     <AdminLayout current="/admin/users" title="Quản lý người dùng">
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-          .modern-input {
+      <style jsx global>{`
+        .modern-input {
+          width: 100%;
+          padding: 12px 16px;
+          border-radius: 12px;
+          border: 1px solid #e2e8f0;
+          background: #fff;
+          color: #1f2937;
+          font-size: 0.95rem;
+          transition: all 0.2s ease;
+          outline: none;
+        }
+        .modern-input:focus {
+          border-color: #72b44b;
+          box-shadow: 0 0 0 3px rgba(114, 180, 75, 0.15);
+        }
+        .table-responsive-container {
+          width: 100%;
+          overflow-x: auto;
+          border-radius: 20px;
+        }
+        .console-table {
+          width: 100%;
+          min-width: 980px;
+          border-collapse: collapse;
+        }
+        .console-table th {
+          padding: 16px 24px;
+          text-align: left;
+          color: #64748b;
+          font-weight: 700;
+          font-size: 0.8rem;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          background: #f8fafc;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .console-table td {
+          padding: 16px 24px;
+          vertical-align: middle;
+          border-bottom: 1px solid #f1f5f9;
+        }
+        .admin-table-row {
+          transition: background-color 0.2s ease;
+        }
+        .admin-table-row:hover {
+          background: #f8fafc;
+        }
+        .stat-pill {
+          display: inline-flex;
+          align-items: center;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          padding: 4px 8px;
+          border-radius: 6px;
+          font-size: 0.8rem;
+          color: #475569;
+          margin-right: 6px;
+          margin-bottom: 6px;
+          white-space: nowrap;
+        }
+        .avatar-upload-card {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 14px;
+          border: 1px dashed #cbd5e1;
+          border-radius: 16px;
+          background: #f8fafc;
+        }
+        @media (max-width: 768px) {
+          .modal-responsive-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .search-filter-row {
+            flex-direction: column;
+            align-items: stretch !important;
+          }
+          .toolbar-actions {
             width: 100%;
-            padding: 12px 16px;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
-            background: #f8fafc;
-            color: #1f2937;
-            font-size: 0.95rem;
-            transition: all 0.2s ease;
-            outline: none;
+            display: flex;
+            gap: 12px;
           }
-          .modern-input:focus {
-            background: #fff;
-            border-color: #72b44b;
-            box-shadow: 0 0 0 3px rgba(114, 180, 75, 0.15);
+          .toolbar-actions button {
+            flex: 1;
+            justify-content: center;
           }
-          .admin-table-row {
-            transition: background-color 0.2s;
-          }
-          .admin-table-row:hover {
-            background-color: #f8fafc;
-          }
-          .stat-pill {
-            display: inline-flex;
-            align-items: center;
-            background: #f1f5f9;
-            border: 1px solid #e2e8f0;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-            color: #475569;
-            margin-right: 6px;
-            margin-bottom: 6px;
-            white-space: nowrap;
-          }
+        }
+      `}</style>
 
-          /* --- RESPONSIVE TABLE & SCROLLBAR --- */
-          .table-responsive-container {
-            width: 100%;
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            border-radius: 20px; /* Giữ bo góc cho mobile */
-          }
-          /* Custom thanh cuộn ngang cho mượt và đẹp */
-          .table-responsive-container::-webkit-scrollbar {
-            height: 8px;
-          }
-          .table-responsive-container::-webkit-scrollbar-track {
-            background: #f8fafc; 
-            border-radius: 0 0 20px 20px;
-          }
-          .table-responsive-container::-webkit-scrollbar-thumb {
-            background: #cbd5e1; 
-            border-radius: 8px;
-          }
-          .table-responsive-container::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8; 
-          }
-          
-          .console-table {
-            width: 100%;
-            min-width: 900px; /* Bắt buộc bảng rộng tối thiểu để kích hoạt scroll ngang */
-            border-collapse: collapse;
-          }
-
-          /* --- RESPONSIVE MODAL & TOOLBAR --- */
-          @media (max-width: 768px) {
-            .modal-responsive-grid {
-              grid-template-columns: 1fr !important;
-            }
-            .toolbar-actions {
-              width: 100%;
-              display: flex;
-              gap: 12px;
-            }
-            .toolbar-actions button {
-              flex: 1;
-              justify-content: center;
-            }
-            .search-filter-row {
-              flex-direction: column;
-            }
-          }
-        `,
-        }}
-      />
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-        {/* THANH CÔNG CỤ (TOOLBAR) */}
-        <div
-          className="admin-card"
-          style={{
-            background: "#fff",
-            padding: "20px",
-            borderRadius: "20px",
-            boxShadow: "0 10px 30px rgba(15,23,42,0.03)",
-            border: "1px solid #f1f5f9",
-          }}
-        >
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        <div className="admin-card" style={{ padding: 20, borderRadius: 20 }}>
           <div
             className="search-filter-row"
             style={{
@@ -344,54 +430,35 @@ export default function AdminUsersPage() {
               justifyContent: "space-between",
               alignItems: "center",
               flexWrap: "wrap",
-              gap: "16px",
+              gap: 16,
             }}
           >
             <div
               className="search-filter-row"
               style={{
                 display: "flex",
-                gap: "12px",
+                gap: 12,
                 flex: 1,
-                minWidth: "300px",
+                minWidth: 300,
+                flexWrap: "wrap",
               }}
             >
-              <div style={{ position: "relative", flex: 1 }}>
-                <svg
-                  width="18"
-                  height="18"
-                  fill="none"
-                  stroke="#64748b"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{
-                    position: "absolute",
-                    left: "14px",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                  }}
-                >
-                  <circle cx="11" cy="11" r="8"></circle>
-                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                </svg>
-                <input
-                  className="modern-input"
-                  style={{ paddingLeft: "42px", background: "#fff" }}
-                  value={filters.search}
-                  onChange={(e) =>
-                    setFilters((prev) => ({
-                      ...prev,
-                      search: e.target.value,
-                      page: 1,
-                    }))
-                  }
-                  placeholder="Tìm theo tên, email hoặc SĐT..."
-                />
-              </div>
+              <input
+                className="modern-input"
+                style={{ flex: 1, minWidth: 240 }}
+                value={filters.search}
+                onChange={(e) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    search: e.target.value,
+                    page: 1,
+                  }))
+                }
+                placeholder="Tìm theo tên, email hoặc SĐT..."
+              />
               <select
                 className="modern-input"
-                style={{ width: "auto", background: "#fff", cursor: "pointer" }}
+                style={{ width: "auto", minWidth: 170, cursor: "pointer" }}
                 value={filters.status}
                 onChange={(e) =>
                   setFilters((prev) => ({
@@ -406,21 +473,16 @@ export default function AdminUsersPage() {
                 <option value="inactive">Tạm ngưng</option>
                 <option value="blocked">Bị khóa</option>
               </select>
+              <SortSelects filters={filters} setFilters={setFilters} />
             </div>
 
             <div
               className="toolbar-actions"
-              style={{ display: "flex", gap: "12px" }}
+              style={{ display: "flex", gap: 12 }}
             >
               <button
                 type="button"
                 className="btn btn-light"
-                style={{
-                  background: "#fff",
-                  border: "1px solid #e2e8f0",
-                  fontWeight: 600,
-                  color: "#1f2937",
-                }}
                 onClick={exportExcel}
                 disabled={exporting}
               >
@@ -429,13 +491,6 @@ export default function AdminUsersPage() {
               <button
                 type="button"
                 className="btn btn-primary"
-                style={{
-                  background: "linear-gradient(135deg, #72b44b, #5a9d34)",
-                  border: "none",
-                  color: "#fff",
-                  fontWeight: 600,
-                  boxShadow: "0 4px 12px rgba(114, 180, 75, 0.2)",
-                }}
                 onClick={openCreate}
               >
                 + Thêm người dùng
@@ -444,78 +499,16 @@ export default function AdminUsersPage() {
           </div>
         </div>
 
-        {/* BẢNG DỮ LIỆU ĐƯỢC BỌC TRONG DIV CÓ THANH CUỘN NGANG */}
-        <div
-          className="admin-card"
-          style={{
-            background: "#fff",
-            borderRadius: "20px",
-            boxShadow: "0 10px 30px rgba(15,23,42,0.03)",
-            border: "1px solid #f1f5f9",
-          }}
-        >
+        <div className="admin-card" style={{ borderRadius: 20 }}>
           <div className="table-responsive-container">
             <table className="console-table">
               <thead>
-                <tr
-                  style={{
-                    background: "#f8fafc",
-                    borderBottom: "1px solid #e2e8f0",
-                  }}
-                >
-                  <th
-                    style={{
-                      padding: "16px 24px",
-                      textAlign: "left",
-                      color: "#64748b",
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Người dùng
-                  </th>
-                  <th
-                    style={{
-                      padding: "16px 24px",
-                      textAlign: "left",
-                      color: "#64748b",
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Trạng thái
-                  </th>
-                  <th
-                    style={{
-                      padding: "16px 24px",
-                      textAlign: "left",
-                      color: "#64748b",
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Hoạt động
-                  </th>
-                  <th
-                    style={{
-                      padding: "16px 24px",
-                      textAlign: "left",
-                      color: "#64748b",
-                      fontWeight: 600,
-                      fontSize: "0.85rem",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    Ngày tạo
-                  </th>
-                  <th style={{ padding: "16px 24px", textAlign: "right" }}></th>
+                <tr>
+                  <th>Người dùng</th>
+                  <th>Trạng thái</th>
+                  <th>Hoạt động</th>
+                  <th>Ngày tạo</th>
+                  <th style={{ textAlign: "right" }}>Thao tác</th>
                 </tr>
               </thead>
               <tbody>
@@ -525,298 +518,116 @@ export default function AdminUsersPage() {
                       colSpan="5"
                       style={{
                         textAlign: "center",
-                        padding: "60px 20px",
+                        padding: 60,
                         color: "#64748b",
                       }}
                     >
-                      <svg
-                        width="48"
-                        height="48"
-                        fill="none"
-                        stroke="#cbd5e1"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        style={{ margin: "0 auto 12px", display: "block" }}
-                      >
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="12" y1="8" x2="12" y2="12"></line>
-                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                      </svg>
                       Không tìm thấy người dùng nào phù hợp.
                     </td>
                   </tr>
                 ) : (
-                  data.items
-                    .filter(
-                      (item) =>
-                        String(item.role || "").toLowerCase() !== "admin",
-                    )
-                    .map((item) => {
-                      const avatarUrl = resolveAvatarUrl(item.avatarUrl);
-                      return (
-                        <tr
-                          key={item.id}
-                          className="admin-table-row"
-                          style={{ borderBottom: "1px solid #f1f5f9" }}
+                  data.items.map((item) => (
+                    <tr key={item.id} className="admin-table-row">
+                      <td>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 16,
+                          }}
                         >
-                          <td style={{ padding: "16px 24px" }}>
-                            <div
+                          <UserAvatar user={item} />
+                          <div>
+                            <strong
                               style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 16,
+                                display: "block",
+                                color: "#0f172a",
+                                fontSize: "1.05rem",
                               }}
                             >
-                              <div
-                                style={{
-                                  position: "relative",
-                                  width: 46,
-                                  height: 46,
-                                }}
-                              >
-                                <img
-                                  src={avatarUrl}
-                                  alt={item.fullName}
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = "none";
-                                    const fallback =
-                                      e.currentTarget.nextElementSibling;
-                                    if (fallback)
-                                      fallback.style.display = "flex";
-                                  }}
-                                  style={{
-                                    width: 46,
-                                    height: 46,
-                                    borderRadius: "50%",
-                                    objectFit: "cover",
-                                    border: "2px solid #e2e8f0",
-                                  }}
-                                />
-
-                                <div
-                                  style={{
-                                    display: "none",
-                                    width: 46,
-                                    height: 46,
-                                    borderRadius: "50%",
-                                    background:
-                                      "linear-gradient(135deg, #e2e8f0, #cbd5e1)",
-                                    color: "#475569",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontWeight: "bold",
-                                    fontSize: "1.2rem",
-                                    position: "absolute",
-                                    inset: 0,
-                                  }}
-                                >
-                                  {item.fullName?.charAt(0)?.toUpperCase() ||
-                                    "U"}
-                                </div>
-                              </div>
-                              <div>
-                                <strong
-                                  style={{
-                                    display: "block",
-                                    color: "#0f172a",
-                                    fontSize: "1.05rem",
-                                    marginBottom: "2px",
-                                  }}
-                                >
-                                  {item.fullName}
-                                </strong>
-                                <div
-                                  style={{
-                                    color: "#64748b",
-                                    fontSize: "0.9rem",
-                                  }}
-                                >
-                                  {item.email}
-                                </div>
-                                <div
-                                  style={{
-                                    color: "#94a3b8",
-                                    fontSize: "0.85rem",
-                                  }}
-                                >
-                                  {item.phone || "—"}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td
-                            style={{
-                              padding: "16px 24px",
-                              verticalAlign: "middle",
-                            }}
-                          >
-                            <UserStatusBadge status={item.status} />
-                          </td>
-                          <td
-                            style={{
-                              padding: "16px 24px",
-                              verticalAlign: "middle",
-                              maxWidth: "240px",
-                            }}
-                          >
-                            <div style={{ display: "flex", flexWrap: "wrap" }}>
-                              <span className="stat-pill">
-                                <strong style={{ color: "#0f172a" }}>
-                                  {formatNumber(item._count?.bookings || 0)}
-                                </strong>
-                                &nbsp;đơn đặt
-                              </span>
-                              <span className="stat-pill">
-                                <strong style={{ color: "#0f172a" }}>
-                                  {formatNumber(item._count?.reviews || 0)}
-                                </strong>
-                                &nbsp;đánh giá
-                              </span>
-                              <span className="stat-pill">
-                                <strong style={{ color: "#0f172a" }}>
-                                  {formatNumber(
-                                    item._count?.favoriteTours || 0,
-                                  )}
-                                </strong>
-                                &nbsp;yêu thích
-                              </span>
-                            </div>
-                          </td>
-                          <td
-                            style={{
-                              padding: "16px 24px",
-                              verticalAlign: "middle",
-                              color: "#475569",
-                              fontSize: "0.95rem",
-                            }}
-                          >
-                            {formatDate(item.createdAt)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "16px 24px",
-                              verticalAlign: "middle",
-                              textAlign: "right",
-                            }}
-                          >
+                              {item.fullName}
+                            </strong>
                             <div
-                              style={{
-                                display: "flex",
-                                gap: 8,
-                                justifyContent: "flex-end",
-                                flexWrap: "wrap",
-                              }}
+                              style={{ color: "#64748b", fontSize: ".9rem" }}
                             >
-                              <button
-                                type="button"
-                                className="btn btn-light btn-sm"
-                                onClick={() => openEdit(item.id)}
-                                title="Chỉnh sửa"
-                              >
-                                <svg
-                                  width="18"
-                                  height="18"
-                                  fill="none"
-                                  stroke="#3b82f6"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-
-                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                                </svg>
-                              </button>
-
-                              {/* Nút Khóa/Mở khóa - Đổi màu theo trạng thái */}
-                              <button
-                                type="button"
-                                className="btn btn-sm"
-                                style={{
-                                  padding: "8px",
-                                  background:
-                                    item.status === "blocked"
-                                      ? "#f0fdf4"
-                                      : "#fef2f2",
-                                  border: "1px solid",
-                                  borderColor:
-                                    item.status === "blocked"
-                                      ? "#dcfce7"
-                                      : "#fecdd3",
-                                  color:
-                                    item.status === "blocked"
-                                      ? "#16a34a"
-                                      : "#e11d48",
-                                }}
-                                onClick={() => toggleLockUser(item)}
-                                title={
-                                  item.status === "blocked"
-                                    ? "Mở khóa tài khoản"
-                                    : "Khóa tài khoản"
-                                }
-                              >
-                                {item.status === "blocked" ? (
-                                  /* Icon Mở Khóa */
-                                  <svg
-                                    width="18"
-                                    height="18"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  >
-                                    <rect
-                                      x="3"
-                                      y="11"
-                                      width="18"
-                                      height="11"
-                                      rx="2"
-                                      ry="2"
-                                    ></rect>
-                                    <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
-                                  </svg>
-                                ) : (
-                                  /* Icon Khóa */
-                                  <svg
-                                    width="18"
-                                    height="18"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  >
-                                    <rect
-                                      x="3"
-                                      y="11"
-                                      width="18"
-                                      height="11"
-                                      rx="2"
-                                      ry="2"
-                                    ></rect>
-                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                                  </svg>
-                                )}
-                              </button>
+                              {item.email}
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })
+                            <div
+                              style={{ color: "#94a3b8", fontSize: ".85rem" }}
+                            >
+                              {item.phone || "—"}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <UserStatusBadge status={item.status} />
+                      </td>
+                      <td style={{ maxWidth: 260 }}>
+                        <span className="stat-pill">
+                          <strong>
+                            {formatNumber(item._count?.bookings || 0)}
+                          </strong>
+                          &nbsp;đơn đặt
+                        </span>
+                        <span className="stat-pill">
+                          <strong>
+                            {formatNumber(item._count?.reviews || 0)}
+                          </strong>
+                          &nbsp;đánh giá
+                        </span>
+                        <span className="stat-pill">
+                          <strong>
+                            {formatNumber(item._count?.favoriteTours || 0)}
+                          </strong>
+                          &nbsp;yêu thích
+                        </span>
+                      </td>
+                      <td style={{ color: "#475569" }}>
+                        {formatDate(item.createdAt)}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 8,
+                            justifyContent: "flex-end",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="btn btn-light btn-sm"
+                            onClick={() => openEdit(item.id)}
+                          >
+                            Sửa
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              item.status === "blocked"
+                                ? "btn btn-light btn-sm"
+                                : "btn btn-danger btn-sm"
+                            }
+                            onClick={() => toggleLockUser(item)}
+                          >
+                            {item.status === "blocked" ? "Mở khóa" : "Khóa"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* PHÂN TRANG */}
         <div
           style={{
             display: "flex",
             justifyContent: "center",
-            paddingBottom: "20px",
+            paddingBottom: 20,
           }}
         >
           <Pagination
@@ -827,7 +638,6 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {/* MODAL FORM THÊM / SỬA USER */}
       <Modal
         open={modalOpen}
         onClose={() => !submitting && setModalOpen(false)}
@@ -839,12 +649,6 @@ export default function AdminUsersPage() {
               type="button"
               className="btn btn-light"
               onClick={() => setModalOpen(false)}
-              style={{
-                padding: "12px 24px",
-                borderRadius: "12px",
-                border: "1px solid #e2e8f0",
-                fontWeight: 600,
-              }}
             >
               Hủy bỏ
             </button>
@@ -853,14 +657,6 @@ export default function AdminUsersPage() {
               className="btn btn-primary"
               onClick={save}
               disabled={submitting}
-              style={{
-                padding: "12px 24px",
-                borderRadius: "12px",
-                background: "linear-gradient(135deg, #72b44b, #5a9d34)",
-                border: "none",
-                color: "#fff",
-                fontWeight: 600,
-              }}
             >
               {submitting ? "Đang lưu..." : "Lưu thay đổi"}
             </button>
@@ -869,20 +665,38 @@ export default function AdminUsersPage() {
       >
         <div
           className="modal-responsive-grid"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "24px",
-          }}
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22 }}
         >
           <div style={{ gridColumn: "1 / -1" }}>
             <label
-              style={{
-                display: "block",
-                marginBottom: "8px",
-                fontWeight: 600,
-                color: "#334155",
-              }}
+              style={{ display: "block", marginBottom: 8, fontWeight: 700 }}
+            >
+              Ảnh đại diện
+            </label>
+            <div className="avatar-upload-card">
+              <UserAvatar user={form} size={60} previewUrl={avatarPreview} />
+              <div style={{ flex: 1 }}>
+                <input
+                  className="modern-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) =>
+                    changeAvatarFile(e.target.files?.[0] || null)
+                  }
+                />
+                <div
+                  style={{ color: "#64748b", fontSize: ".85rem", marginTop: 6 }}
+                >
+                  Không chọn ảnh thì hệ thống sẽ hiện chữ cái đầu như avatar mặc
+                  định.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label
+              style={{ display: "block", marginBottom: 8, fontWeight: 700 }}
             >
               Họ và tên <span style={{ color: "#ef4444" }}>*</span>
             </label>
@@ -898,12 +712,7 @@ export default function AdminUsersPage() {
 
           <div>
             <label
-              style={{
-                display: "block",
-                marginBottom: "8px",
-                fontWeight: 600,
-                color: "#334155",
-              }}
+              style={{ display: "block", marginBottom: 8, fontWeight: 700 }}
             >
               Email <span style={{ color: "#ef4444" }}>*</span>
             </label>
@@ -920,12 +729,7 @@ export default function AdminUsersPage() {
 
           <div>
             <label
-              style={{
-                display: "block",
-                marginBottom: "8px",
-                fontWeight: 600,
-                color: "#334155",
-              }}
+              style={{ display: "block", marginBottom: 8, fontWeight: 700 }}
             >
               Số điện thoại
             </label>
@@ -939,42 +743,15 @@ export default function AdminUsersPage() {
             />
           </div>
 
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label
-              style={{
-                display: "block",
-                marginBottom: "8px",
-                fontWeight: 600,
-                color: "#334155",
-              }}
-            >
-              Avatar URL
-            </label>
-            <input
-              className="modern-input"
-              value={form.avatarUrl}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, avatarUrl: e.target.value }))
-              }
-              placeholder="https://..."
-            />
-          </div>
-
           {form.id && (
             <div>
               <label
-                style={{
-                  display: "block",
-                  marginBottom: "8px",
-                  fontWeight: 600,
-                  color: "#334155",
-                }}
+                style={{ display: "block", marginBottom: 8, fontWeight: 700 }}
               >
                 Trạng thái tài khoản
               </label>
               <select
                 className="modern-input"
-                style={{ cursor: "pointer" }}
                 value={form.status}
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, status: e.target.value }))
@@ -989,12 +766,7 @@ export default function AdminUsersPage() {
 
           <div>
             <label
-              style={{
-                display: "block",
-                marginBottom: "8px",
-                fontWeight: 600,
-                color: "#334155",
-              }}
+              style={{ display: "block", marginBottom: 8, fontWeight: 700 }}
             >
               {form.id ? "Đặt lại mật khẩu" : "Mật khẩu khởi tạo"}
             </label>

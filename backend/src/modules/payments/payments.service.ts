@@ -240,13 +240,25 @@ export class PaymentsService {
   }
 
   private findTransactionCodeFromSepay(dto: SepayWebhookDto) {
-    const prefix = this.getSepayBankConfig().paymentPrefix;
-    const raw = [dto.code, dto.content, dto.description]
+    const prefix = this.getSepayBankConfig().paymentPrefix || "DH";
+
+    // SePay/MBBank đôi khi trả dto.code bị rút ngắn, ví dụ:
+    // code: DH1781254255
+    // content: ... DH17812545251471348 ...
+    // Vì vậy không được lấy match đầu tiên từ code. Ta quét tất cả field,
+    // lấy mã DH dài nhất để khớp với internal_transaction_code trong DB.
+    const raw = [dto.content, dto.description, dto.code, dto.referenceCode]
       .filter(Boolean)
       .join(" ");
-    const regex = new RegExp(`${prefix}\\d+`, "i");
-    const match = raw.match(regex);
-    return match?.[0]?.toUpperCase() || null;
+
+    const regex = new RegExp(`${prefix}\\d{8,}`, "gi");
+    const matches = raw.match(regex) || [];
+
+    if (!matches.length) return null;
+
+    return matches
+      .map((item) => item.toUpperCase())
+      .sort((a, b) => b.length - a.length)[0];
   }
 
   private ensureBookingOwnership(booking: any, user?: CurrentUserLike) {

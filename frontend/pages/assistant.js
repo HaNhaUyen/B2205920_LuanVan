@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { API_URL } from "@/lib/config";
 import { useToast } from "@/components/ToastContext";
 import { trackBehavior } from "@/lib/behavior";
+import { mapImageUrl } from "@/lib/tour";
 
 const STORAGE_KEY = "tourai_conversation_id";
 const MESSAGE_STORAGE_KEY = "tourai_current_messages";
@@ -70,11 +71,11 @@ function formatMessageTime() {
 
 function assetUrl(value) {
   if (!value) return "";
-  if (/^https?:\/\//i.test(value)) return value;
-  const base = String(API_URL || "").replace(/\/$/, "");
-  const path = String(value).startsWith("/") ? value : `/${value}`;
-  return `${base}${path}`;
+  return mapImageUrl(value, API_URL);
 }
+
+const TOUR_PLACEHOLDER_IMAGE =
+  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=900&q=90";
 
 function appPath(value) {
   if (!value) return "/mytour";
@@ -108,13 +109,24 @@ function TourCard({ card, onAskMore, compact }) {
             minHeight: compact ? 82 : 96,
           }}
         >
-          {card.imageUrl ? (
-            <img
-              src={assetUrl(card.imageUrl)}
-              alt={card.name}
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
-          ) : null}
+          <img
+            src={
+              card.imageUrl ? assetUrl(card.imageUrl) : TOUR_PLACEHOLDER_IMAGE
+            }
+            alt={card.name || "Tour"}
+            loading="lazy"
+            decoding="async"
+            onError={(event) => {
+              event.currentTarget.src = TOUR_PLACEHOLDER_IMAGE;
+            }}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: "center",
+              display: "block",
+            }}
+          />
         </div>
 
         <div style={{ minWidth: 0 }}>

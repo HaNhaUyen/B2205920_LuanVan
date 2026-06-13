@@ -60,6 +60,8 @@ export default function AdminRefundsPage() {
     pageSize: 8,
     search: "",
     status: "all",
+    sortBy: "createdAt",
+    sortOrder: "desc",
   });
 
   const [modal, setModal] = useState(null);
@@ -73,6 +75,8 @@ export default function AdminRefundsPage() {
     if (filters.search) query.set("search", filters.search);
     if (filters.status && filters.status !== "all")
       query.set("status", filters.status);
+    if (filters.sortBy) query.set("sortBy", filters.sortBy);
+    if (filters.sortOrder) query.set("sortOrder", filters.sortOrder);
     return query.toString();
   }, [filters]);
 
@@ -100,6 +104,24 @@ export default function AdminRefundsPage() {
               r.booking?.contactEmail?.toLowerCase().includes(kw),
           );
         }
+
+        const dir = filters.sortOrder === "asc" ? 1 : -1;
+        const getValue = (item) => {
+          if (filters.sortBy === "customer")
+            return item.user?.fullName || item.booking?.contactName || "";
+          if (filters.sortBy === "amount")
+            return Number(item.refundAmount || item.booking?.finalAmount || 0);
+          if (filters.sortBy === "status") return item.status || "";
+          return new Date(item.createdAt || 0).getTime();
+        };
+        filtered = [...filtered].sort((a, b) => {
+          const va = getValue(a);
+          const vb = getValue(b);
+          if (typeof va === "string" || typeof vb === "string") {
+            return String(va).localeCompare(String(vb), "vi") * dir;
+          }
+          return (Number(va) - Number(vb)) * dir;
+        });
 
         const total = filtered.length;
         const totalPages = Math.ceil(total / filters.pageSize) || 1;
@@ -369,6 +391,35 @@ export default function AdminRefundsPage() {
                 }
               />
             </div>
+
+            <select
+              className="modern-input"
+              style={{ width: "auto", minWidth: 150 }}
+              value={filters.sortBy}
+              onChange={(e) =>
+                setFilters((p) => ({ ...p, sortBy: e.target.value, page: 1 }))
+              }
+            >
+              <option value="createdAt">Ngày gửi</option>
+              <option value="customer">Tên khách</option>
+              <option value="amount">Số tiền hoàn</option>
+              <option value="status">Trạng thái</option>
+            </select>
+            <select
+              className="modern-input"
+              style={{ width: "auto", minWidth: 130 }}
+              value={filters.sortOrder}
+              onChange={(e) =>
+                setFilters((p) => ({
+                  ...p,
+                  sortOrder: e.target.value,
+                  page: 1,
+                }))
+              }
+            >
+              <option value="desc">Giảm dần</option>
+              <option value="asc">Tăng dần</option>
+            </select>
 
             <div
               className="toolbar-actions"

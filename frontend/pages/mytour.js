@@ -28,24 +28,54 @@ function getStatusColor(status) {
   return { bg: "#f1f5f9", color: "#475569" };
 }
 
-function assetUrl(value) {
-  if (!value) return "";
-  if (/^https?:\/\//i.test(value)) return value;
+const FALLBACK_TOUR_IMAGE = "/images/default-tour.jpg";
+
+function resolveImageUrl(value) {
+  if (!value) return FALLBACK_TOUR_IMAGE;
+
+  const raw = String(value).trim();
+  if (!raw) return FALLBACK_TOUR_IMAGE;
+
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  if (raw.startsWith("/img/") || raw.startsWith("/images/")) {
+    return raw;
+  }
 
   const base = String(API_URL || "").replace(/\/$/, "");
-  const path = String(value).startsWith("/") ? value : `/${value}`;
 
-  return `${base}${path}`;
+  if (raw.startsWith("/uploads/")) {
+    return `${base}${raw}`;
+  }
+
+  if (raw.startsWith("uploads/")) {
+    return `${base}/${raw}`;
+  }
+
+  return raw.startsWith("/") ? `${base}${raw}` : `${base}/${raw}`;
 }
 
 function getTourImage(tour) {
-  return (
+  const image =
+    tour?.media?.find?.((item) => item?.isCover)?.fileUrl ||
     tour?.media?.[0]?.fileUrl ||
+    tour?.media?.[0]?.imageUrl ||
+    tour?.media?.[0]?.url ||
+    tour?.images?.[0]?.fileUrl ||
+    tour?.images?.[0]?.imageUrl ||
+    tour?.images?.[0]?.url ||
+    tour?.imageUrls?.[0] ||
+    tour?.tourImages?.[0]?.fileUrl ||
+    tour?.tourImages?.[0]?.imageUrl ||
+    tour?.coverUrl ||
     tour?.coverImage ||
+    tour?.thumbnailUrl ||
     tour?.imageUrl ||
     tour?.destination?.coverImage ||
-    "/img/default-tour.jpg"
-  );
+    tour?.destination?.imageUrl ||
+    "";
+
+  return resolveImageUrl(image);
 }
 
 function getFavoriteTour(item) {
@@ -154,11 +184,10 @@ function BookingCard({ booking, onPay, onCancel, cancellingId }) {
   const paid = isBookingPaid(booking);
   const canCancel = canCancelBooking(booking);
 
-  const cover =
-    tour?.media?.[0]?.fileUrl ||
-    destination?.coverImage ||
-    tour?.coverImage ||
-    "/img/default-tour.jpg";
+  const cover = getTourImage({
+    ...tour,
+    destination,
+  });
 
   const guideAssignment = booking?.guideAssignments?.[0] || null;
   const guide = guideAssignment?.guide || null;
@@ -169,7 +198,14 @@ function BookingCard({ booking, onPay, onCancel, cancellingId }) {
     <article className="booking-card-modern">
       <div className="booking-cover">
         {cover ? (
-          <img src={assetUrl(mapImageUrl(cover))} alt={tour?.name || "Tour"} />
+          <img
+            src={cover}
+            alt={tour?.name || "Tour"}
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = FALLBACK_TOUR_IMAGE;
+            }}
+          />
         ) : null}
       </div>
 
@@ -308,7 +344,14 @@ function FavoriteCard({ item }) {
   return (
     <article className="fav-card">
       <div className="fav-img">
-        {image ? <img src={assetUrl(mapImageUrl(image))} alt={name} /> : null}
+        <img
+          src={image}
+          alt={name}
+          onError={(e) => {
+            e.currentTarget.onerror = null;
+            e.currentTarget.src = FALLBACK_TOUR_IMAGE;
+          }}
+        />
       </div>
 
       <div className="fav-content">

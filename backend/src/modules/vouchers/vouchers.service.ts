@@ -186,6 +186,20 @@ export class VouchersService {
     const search = String(query.search || "").trim();
     const status = String(query.status || "").trim();
     const memberTier = String(query.memberTier || "").trim();
+    const allowedSort: Record<string, string> = {
+      createdAt: "createdAt",
+      code: "code",
+      name: "name",
+      discountValue: "discountValue",
+      minOrderAmount: "minOrderAmount",
+      quota: "quota",
+      usedCount: "usedCount",
+      startDate: "startDate",
+      endDate: "endDate",
+      status: "status",
+    };
+    const sortBy = allowedSort[String(query.sortBy || "")] || "createdAt";
+    const sortOrder = query.sortOrder === "asc" ? "asc" : "desc";
     const where: any = {};
     if (status) where.status = status;
     if (memberTier) where.memberTier = memberTier;
@@ -200,7 +214,7 @@ export class VouchersService {
       this.prisma.voucher.findMany({
         where,
         include: { _count: { select: { userVouchers: true } } },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ [sortBy]: sortOrder }, { id: "desc" }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

@@ -9,23 +9,41 @@ import { AdminUpdateUserDto } from "./dto/admin-update-user.dto";
 import { AdminCreateUserDto } from "./dto/admin-create-user.dto";
 import * as bcrypt from "bcrypt";
 
+function cleanNullable(value?: string | null) {
+  const text = String(value ?? "").trim();
+  return text ? text : null;
+}
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private buildOrderBy(query: any) {
+    const allowed: Record<string, string> = {
+      createdAt: "createdAt",
+      fullName: "fullName",
+      email: "email",
+      phone: "phone",
+      status: "status",
+    };
+    const sortBy = allowed[String(query.sortBy || "")] || "createdAt";
+    const sortOrder = query.sortOrder === "asc" ? "asc" : "desc";
+    return [{ [sortBy]: sortOrder }, { id: "desc" }];
+  }
 
   async adminList(query: {
     page?: string;
     pageSize?: string;
     search?: string;
     status?: string;
+    sortBy?: string;
+    sortOrder?: string;
   }) {
     const page = Math.max(Number(query.page || 1), 1);
     const pageSize = Math.min(Math.max(Number(query.pageSize || 10), 1), 100);
     const skip = (page - 1) * pageSize;
 
-    const where: any = {
-      role: "user",
-    };
+    const where: any = { role: "user" };
 
     if (query.search) {
       where.OR = [
@@ -35,16 +53,14 @@ export class UsersService {
       ];
     }
 
-    if (query.status) {
-      where.status = query.status;
-    }
+    if (query.status) where.status = query.status;
 
     const [items, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
         skip,
         take: pageSize,
-        orderBy: { createdAt: "desc" },
+        orderBy: this.buildOrderBy(query),
         select: {
           id: true,
           fullName: true,
@@ -81,24 +97,19 @@ export class UsersService {
 
   async adminCreate(dto: AdminCreateUserDto) {
     const email = dto.email.trim().toLowerCase();
-    const phone = dto.phone?.trim() || null;
+    const phone = cleanNullable(dto.phone);
 
     const existingEmail = await this.prisma.user.findUnique({
       where: { email },
     });
-
-    if (existingEmail) {
-      throw new BadRequestException("Email đã tồn tại.");
-    }
+    if (existingEmail) throw new BadRequestException("Email đã tồn tại.");
 
     if (phone) {
       const existingPhone = await this.prisma.user.findUnique({
         where: { phone },
       });
-
-      if (existingPhone) {
+      if (existingPhone)
         throw new BadRequestException("Số điện thoại đã được sử dụng.");
-      }
     }
 
     if (!dto.password?.trim()) {
@@ -115,7 +126,7 @@ export class UsersService {
         passwordHash,
         status: dto.status || "active",
         role: "user",
-        avatarUrl: dto.avatarUrl || null,
+        avatarUrl: cleanNullable(dto.avatarUrl),
         authProvider: "local",
       },
       select: {
@@ -157,16 +168,12 @@ export class UsersService {
       },
     });
 
-    if (!item) {
-      throw new NotFoundException("User not found");
-    }
-
+    if (!item) throw new NotFoundException("User not found");
     if (item.role === "admin") {
       throw new BadRequestException(
         "Tài khoản quản trị không hiển thị trong trang quản lý người dùng.",
       );
     }
-
     return item;
   }
 
@@ -174,11 +181,7 @@ export class UsersService {
     const existing = await this.prisma.user.findUnique({
       where: { id: BigInt(id) },
     });
-
-    if (!existing) {
-      throw new NotFoundException("User not found");
-    }
-
+    if (!existing) throw new NotFoundException("User not found");
     if (existing.role === "admin") {
       throw new BadRequestException(
         "Không được chỉnh sửa tài khoản admin trong trang quản lý người dùng.",
@@ -186,24 +189,20 @@ export class UsersService {
     }
 
     const nextEmail = dto.email?.trim().toLowerCase();
-
     if (nextEmail && nextEmail !== existing.email) {
       const duplicated = await this.prisma.user.findUnique({
         where: { email: nextEmail },
       });
-
       if (duplicated && String(duplicated.id) !== String(existing.id)) {
         throw new BadRequestException("Email đã tồn tại.");
       }
     }
 
-    const nextPhone = dto.phone?.trim() ? dto.phone.trim() : null;
-
+    const nextPhone = cleanNullable(dto.phone);
     if (nextPhone && nextPhone !== existing.phone) {
       const duplicated = await this.prisma.user.findUnique({
         where: { phone: nextPhone },
       });
-
       if (duplicated && String(duplicated.id) !== String(existing.id)) {
         throw new BadRequestException("Số điện thoại đã được sử dụng.");
       }
@@ -211,15 +210,22 @@ export class UsersService {
 
     const data: any = {
       fullName: dto.fullName?.trim() || undefined,
-      email: nextEmail,
+      email: nextEmail || undefined,
       phone: nextPhone,
       status: dto.status,
-      avatarUrl: dto.avatarUrl,
     };
+
+    if (dto.avatarUrl !== undefined) {
+      data.avatarUrl = cleanNullable(dto.avatarUrl);
+    }
 
     if (dto.newPassword?.trim()) {
       data.passwordHash = await bcrypt.hash(dto.newPassword.trim(), 10);
     }
+
+    Object.keys(data).forEach(
+      (key) => data[key] === undefined && delete data[key],
+    );
 
     return this.prisma.user.update({
       where: { id: BigInt(id) },
@@ -253,10 +259,7 @@ export class UsersService {
       },
     });
 
-    if (!existing) {
-      throw new NotFoundException("User not found");
-    }
-
+    if (!existing) throw new NotFoundException("User not found");
     if (existing.role === "admin") {
       throw new BadRequestException(
         "Không được xóa trực tiếp tài khoản quản trị.",
@@ -265,14 +268,8 @@ export class UsersService {
 
     const paymentCount = await this.prisma.payment.count({
       where: {
-        booking: {
-          is: {
-            userId: existing.id,
-          },
-        },
-        paymentStatus: {
-          in: ["paid", "waiting_confirmation", "refunded"],
-        },
+        booking: { is: { userId: existing.id } },
+        paymentStatus: { in: ["paid", "waiting_confirmation", "refunded"] },
       },
     });
 
@@ -288,10 +285,7 @@ export class UsersService {
       );
     }
 
-    await this.prisma.user.delete({
-      where: { id: existing.id },
-    });
-
+    await this.prisma.user.delete({ where: { id: existing.id } });
     return { success: true };
   }
 }

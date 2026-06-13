@@ -244,7 +244,7 @@ export default function HomePage() {
             position: "absolute",
             inset: 0,
             background:
-              "linear-gradient(to bottom, rgba(15, 23, 42, 0.4) 0%, rgba(15, 23, 42, 0.7) 100%)",
+              "linear-gradient(to bottom, rgba(7, 13, 24, 0.28) 0%, rgba(7, 13, 24, 0.54) 100%)",
             zIndex: 1,
           }}
         />

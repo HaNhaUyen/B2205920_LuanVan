@@ -20,6 +20,7 @@ import { SaveItineraryDto } from "./dto/save-itinerary.dto";
 import { SaveDeparturesDto } from "./dto/save-departures.dto";
 import { SaveAccommodationsDto } from "./dto/save-accommodations.dto";
 import { SaveTransportsDto } from "./dto/save-transports.dto";
+import { SavePickupPointsDto } from "./dto/save-pickup-points.dto";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
@@ -61,8 +62,8 @@ export class ToursController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("admin")
   @Get("admin/tours")
-  adminList() {
-    return this.toursService.adminList();
+  adminList(@Query() query: any) {
+    return this.toursService.adminList(query);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -125,6 +126,16 @@ export class ToursController {
     @Body() dto: SaveDeparturesDto,
   ) {
     return this.toursService.saveDepartures(Number(tourId), dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Post("admin/tours/:tourId/pickup-points")
+  savePickupPoints(
+    @Param("tourId") tourId: string,
+    @Body() dto: SavePickupPointsDto,
+  ) {
+    return this.toursService.savePickupPoints(Number(tourId), dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

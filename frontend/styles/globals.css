@@ -4897,3 +4897,164 @@ html.dark-mode .mock-pay-box div {
   color: #166534;
   font-weight: 800;
 }
+
+/* =========================================================
+   USER DARK MODE + TOUR IMAGE FIX V2
+   Mục tiêu:
+   - Dark mode trang người dùng dịu hơn, không bị đen đặc.
+   - Hero vẫn nổi chữ nhưng ảnh không bị overlay quá nặng.
+   - Card tour và card gợi ý hiển thị ảnh rõ, đúng tỉ lệ.
+   ========================================================= */
+
+html.dark-mode body,
+html.dark-mode .site-shell {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(34, 197, 94, 0.1), transparent 30%),
+    radial-gradient(
+      circle at 90% 12%,
+      rgba(59, 130, 246, 0.1),
+      transparent 32%
+    ),
+    linear-gradient(180deg, #08111f 0%, #0d1728 48%, #101827 100%) !important;
+  color: #e5eefb !important;
+}
+
+html.dark-mode .site-header,
+html.dark-mode .travel-header,
+html.dark-mode header {
+  background: rgba(8, 17, 31, 0.88) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2) !important;
+  backdrop-filter: blur(18px) !important;
+}
+
+html.dark-mode .main-nav-pill {
+  background: rgba(15, 23, 42, 0.52) !important;
+  border: 1px solid rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark-mode .main-nav-pill a {
+  color: #b9c7db !important;
+}
+
+html.dark-mode .main-nav-pill a.active,
+html.dark-mode .main-nav-pill a:hover {
+  background: linear-gradient(135deg, #38d98f, #6ee7b7) !important;
+  color: #062014 !important;
+  box-shadow: 0 12px 28px rgba(45, 212, 142, 0.22) !important;
+}
+
+html.dark-mode .nav-icon-btn,
+html.dark-mode .nav-avatar-btn,
+html.dark-mode .nav-user-badge,
+html.dark-mode .theme-toggle-btn {
+  background: rgba(226, 232, 240, 0.1) !important;
+  color: #f8fafc !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18) !important;
+}
+
+html.dark-mode .hero-travel-home {
+  background: #0b1220 !important;
+}
+
+html.dark-mode .hero-slider-bg {
+  filter: saturate(0.95) brightness(0.88) contrast(1.04) !important;
+}
+
+html.dark-mode .hero-travel-home h1 {
+  color: #f8fafc !important;
+  text-shadow: 0 12px 32px rgba(0, 0, 0, 0.34) !important;
+}
+
+html.dark-mode .hero-travel-home p {
+  color: rgba(226, 232, 240, 0.9) !important;
+}
+
+html.dark-mode .hero-travel-home form,
+html.dark-mode .hero-search-box {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.28) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28) !important;
+}
+
+html.dark-mode .hero-travel-home form input {
+  background: #111827 !important;
+  color: #f8fafc !important;
+  border-color: transparent !important;
+}
+
+html.dark-mode .hero-travel-home form input::placeholder {
+  color: #94a3b8 !important;
+}
+
+html.dark-mode .quick-grid .section-card,
+html.dark-mode .floating-card,
+html.dark-mode .feature-card,
+html.dark-mode .section-card,
+html.dark-mode .travel-tour-card {
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(34, 197, 94, 0.08),
+      transparent 36%
+    ),
+    rgba(15, 23, 42, 0.9) !important;
+  border: 1px solid rgba(148, 163, 184, 0.16) !important;
+  color: #e5eefb !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2) !important;
+}
+
+html.dark-mode .quick-grid .section-card h3,
+html.dark-mode .floating-card h3,
+html.dark-mode .section-card h3,
+html.dark-mode .travel-tour-card h3,
+html.dark-mode .travel-tour-card strong {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .quick-grid .section-card p,
+html.dark-mode .floating-card p,
+html.dark-mode .section-card p,
+html.dark-mode .travel-tour-card p,
+html.dark-mode .travel-tour-card .muted,
+html.dark-mode .travel-tour-card .tour-meta-inline {
+  color: #a9b8d0 !important;
+}
+
+html.dark-mode .travel-tour-card .badge,
+html.dark-mode .travel-tour-card .stat-pill,
+html.dark-mode .chips .badge {
+  background: rgba(226, 232, 240, 0.1) !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+  color: #dbeafe !important;
+}
+
+html.dark-mode .btn-light,
+html.dark-mode .btn-ghost {
+  background: rgba(226, 232, 240, 0.1) !important;
+  color: #e5eefb !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+.tour-card-image-fixed .media img,
+.chat-tour-image,
+.assistant-tour-card img {
+  image-rendering: auto;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.tour-card-image-fixed:hover .media img {
+  transform: scale(1.045);
+}
+
+@media (max-width: 768px) {
+  .tour-card-image-fixed .media {
+    height: 210px !important;
+  }
+
+  html.dark-mode .hero-travel-home {
+    min-height: 76vh !important;
+  }
+}

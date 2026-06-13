@@ -6450,8 +6450,19 @@ YÊU CẦU TRẢ LỜI:
     const priceAdult = departure
       ? Number(departure.adultPrice)
       : Number(tour.basePriceAdult || 0);
+    const coverMedia =
+      tour.media?.find?.((item: any) => item?.isCover || item?.is_cover) ||
+      tour.media?.[0] ||
+      null;
     const imageUrl =
-      tour.media?.[0]?.fileUrl || tour.destination?.coverImage || null;
+      coverMedia?.fileUrl ||
+      coverMedia?.file_url ||
+      coverMedia?.url ||
+      tour.imageUrl ||
+      tour.thumbnailUrl ||
+      tour.destination?.coverImage ||
+      tour.destination?.cover_image ||
+      null;
     const tags = [
       tour.destination?.name,
       `${tour.durationDays}N${tour.durationNights}Đ`,

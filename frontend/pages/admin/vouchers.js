@@ -96,6 +96,8 @@ export default function AdminVouchersPage() {
     pageSize: 10,
     search: "",
     status: "",
+    sortBy: "createdAt",
+    sortOrder: "desc",
   });
   const [modalOpen, setModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -236,6 +238,26 @@ export default function AdminVouchersPage() {
   return (
     <AdminLayout current="/admin/vouchers" title="Quản lý Voucher">
       <style jsx global>{`
+        /* Bổ sung CSS Grid cho bộ lọc */
+        .filter-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          flex: 1;
+          width: 100%;
+        }
+        .filter-grid > input,
+        .filter-grid > select {
+          width: 100%;
+          box-sizing: border-box;
+        }
+        @media (max-width: 640px) {
+          .filter-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        /* Các style có sẵn */
         .row-actions,
         .admin-inline-actions {
           display: flex;
@@ -303,9 +325,11 @@ export default function AdminVouchersPage() {
             justifyContent: "space-between",
             gap: 12,
             flexWrap: "wrap",
+            alignItems: "flex-start",
           }}
         >
-          <div className="table-search-row" style={{ margin: 0, flex: 1 }}>
+          {/* Đã thêm class filter-grid vào thẻ div này */}
+          <div className="table-search-row filter-grid" style={{ margin: 0 }}>
             <input
               placeholder="Tìm mã voucher, tên chương trình..."
               value={filters.search}
@@ -333,9 +357,45 @@ export default function AdminVouchersPage() {
               <option value="inactive">Tạm ngưng</option>
               <option value="expired">Hết hạn</option>
             </select>
+
+            <select
+              value={filters.sortBy}
+              onChange={(e) =>
+                setFilters((p) => ({ ...p, sortBy: e.target.value, page: 1 }))
+              }
+            >
+              <option value="createdAt">Ngày thêm</option>
+              <option value="code">Mã voucher</option>
+              <option value="name">Tên chương trình</option>
+              <option value="discountValue">Giá trị giảm</option>
+              <option value="quota">Quota</option>
+              <option value="usedCount">Số lần dùng</option>
+              <option value="endDate">Ngày hết hạn</option>
+            </select>
+
+            <select
+              value={filters.sortOrder}
+              onChange={(e) =>
+                setFilters((p) => ({
+                  ...p,
+                  sortOrder: e.target.value,
+                  page: 1,
+                }))
+              }
+            >
+              <option value="desc">Giảm dần</option>
+              <option value="asc">Tăng dần</option>
+            </select>
           </div>
 
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              marginTop: "4px",
+            }}
+          >
             <button
               className="btn btn-light"
               type="button"

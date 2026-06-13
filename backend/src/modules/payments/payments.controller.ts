@@ -89,8 +89,8 @@ export class PaymentsController {
     @Body() dto: SepayWebhookDto,
     @Headers("authorization") authorization?: string,
   ) {
-    await this.paymentsService.handleSepayWebhook(dto, authorization);
-    return { success: true };
+    // Trả lại kết quả thật để dễ kiểm tra trong ngrok / SePay log.
+    return this.paymentsService.handleSepayWebhook(dto, authorization);
   }
 
   @Post("callback")

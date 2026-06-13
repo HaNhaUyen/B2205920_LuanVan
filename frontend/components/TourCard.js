@@ -4,7 +4,7 @@ import { API_URL } from "@/lib/config";
 import { apiFetch } from "@/lib/api";
 import { formatCurrency, formatDate, renderStars } from "@/lib/format";
 import { mapLabel } from "@/lib/labels";
-import { mapImageUrl } from "@/lib/tour";
+import { mapImageUrl, pickTourImage } from "@/lib/tour";
 import { getUser } from "@/lib/storage";
 
 export default function TourCard({
@@ -12,7 +12,11 @@ export default function TourCard({
   initialFavorite = false,
   onFavoriteChange,
 }) {
-  const cover = mapImageUrl(tour.coverUrl, API_URL);
+  const [imageError, setImageError] = useState(false);
+  const rawCover = pickTourImage(tour);
+  const cover = imageError
+    ? "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=90"
+    : mapImageUrl(rawCover, API_URL);
   const firstDeparture = tour.departures?.[0];
   const [favorite, setFavorite] = useState(Boolean(initialFavorite));
   const currentUser = useMemo(() => getUser(), []);
@@ -40,7 +44,7 @@ export default function TourCard({
 
   return (
     <article
-      className="card tour-card premium-tour-card travel-tour-card"
+      className="card tour-card premium-tour-card travel-tour-card tour-card-image-fixed"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -57,19 +61,26 @@ export default function TourCard({
         className="media"
         style={{
           position: "relative",
-          aspectRatio: "1.25",
+          height: "240px",
           overflow: "hidden",
+          background: "#e2e8f0",
         }}
       >
         <img
           src={cover}
           alt={tour.name}
           loading="lazy"
+          decoding="async"
+          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+          onError={() => setImageError(true)}
           style={{
             width: "100%",
             height: "100%",
             objectFit: "cover",
+            objectPosition: "center",
+            display: "block",
             transition: "transform 0.5s ease",
+            imageRendering: "auto",
           }}
         />
         <div

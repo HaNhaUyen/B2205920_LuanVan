@@ -102,6 +102,7 @@ export default function AdminGuidesPage() {
   const [calendarModal, setCalendarModal] = useState(null); // { guide, month }
 
   const [form, setForm] = useState({
+    id: "",
     fullName: "",
     phone: "",
     email: "",
@@ -121,6 +122,7 @@ export default function AdminGuidesPage() {
   // HÀM MỞ FORM THÊM MỚI HDV
   const openCreate = () => {
     setForm({
+      id: "",
       fullName: "",
       phone: "",
       email: "",
@@ -129,6 +131,21 @@ export default function AdminGuidesPage() {
       experienceYears: 1,
       status: "active",
       note: "",
+    });
+    setFormOpen(true);
+  };
+
+  const openEdit = (guide) => {
+    setForm({
+      id: String(guide.id || ""),
+      fullName: guide.fullName || "",
+      phone: guide.phone || "",
+      email: guide.email || "",
+      identityNumber: guide.identityNumber || "",
+      languages: guide.languages || "Tiếng Việt",
+      experienceYears: Number(guide.experienceYears || 0),
+      status: guide.status || "active",
+      note: guide.note || "",
     });
     setFormOpen(true);
   };
@@ -208,9 +225,34 @@ export default function AdminGuidesPage() {
     event.preventDefault();
     setSubmitting(true);
     try {
-      await apiFetch("/guides", { method: "POST", body: JSON.stringify(form) });
+      const payload = {
+        fullName: form.fullName,
+        phone: form.phone,
+        email: form.email || null,
+        identityNumber: form.identityNumber || null,
+        languages: form.languages || null,
+        experienceYears: Number(form.experienceYears || 0),
+        status: form.status || "active",
+        note: form.note || null,
+      };
+
+      if (form.id) {
+        await apiFetch(`/guides/${form.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        showToast("Đã cập nhật hướng dẫn viên.", "success");
+      } else {
+        await apiFetch("/guides", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        showToast("Đã thêm hướng dẫn viên thành công.", "success");
+      }
+
       setFormOpen(false);
       setForm({
+        id: "",
         fullName: "",
         phone: "",
         email: "",
@@ -221,7 +263,6 @@ export default function AdminGuidesPage() {
         note: "",
       });
       await load();
-      showToast("Đã thêm hướng dẫn viên thành công.", "success");
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -755,28 +796,56 @@ export default function AdminGuidesPage() {
                       </button>
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <button
-                        type="button"
-                        onClick={() => toggleGuideLock(g)}
-                        disabled={submitting}
+                      <div
                         style={{
-                          padding: "8px 14px",
-                          background:
-                            g.status === "locked" ? "#eff6ff" : "#fef2f2",
-                          color: g.status === "locked" ? "#2563eb" : "#b91c1c",
-                          border:
-                            g.status === "locked"
-                              ? "1px solid #bfdbfe"
-                              : "1px solid #fecaca",
-                          borderRadius: "8px",
-                          fontWeight: 700,
-                          cursor: submitting ? "not-allowed" : "pointer",
-                          opacity: submitting ? 0.7 : 1,
-                          whiteSpace: "nowrap",
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "flex-end",
+                          flexWrap: "wrap",
                         }}
                       >
-                        {g.status === "locked" ? "Mở khóa" : "Khóa"}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => openEdit(g)}
+                          disabled={submitting}
+                          style={{
+                            padding: "8px 14px",
+                            background: "#eff6ff",
+                            color: "#2563eb",
+                            border: "1px solid #bfdbfe",
+                            borderRadius: "8px",
+                            fontWeight: 700,
+                            cursor: submitting ? "not-allowed" : "pointer",
+                            opacity: submitting ? 0.7 : 1,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Sửa
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleGuideLock(g)}
+                          disabled={submitting}
+                          style={{
+                            padding: "8px 14px",
+                            background:
+                              g.status === "locked" ? "#eff6ff" : "#fef2f2",
+                            color:
+                              g.status === "locked" ? "#2563eb" : "#b91c1c",
+                            border:
+                              g.status === "locked"
+                                ? "1px solid #bfdbfe"
+                                : "1px solid #fecaca",
+                            borderRadius: "8px",
+                            fontWeight: 700,
+                            cursor: submitting ? "not-allowed" : "pointer",
+                            opacity: submitting ? 0.7 : 1,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {g.status === "locked" ? "Mở khóa" : "Khóa"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -987,7 +1056,9 @@ export default function AdminGuidesPage() {
       <Modal
         open={formOpen}
         onClose={() => !submitting && setFormOpen(false)}
-        title="Thêm hồ sơ Hướng dẫn viên"
+        title={
+          form.id ? "Sửa hồ sơ Hướng dẫn viên" : "Thêm hồ sơ Hướng dẫn viên"
+        }
         size="lg"
       >
         <form
@@ -1219,7 +1290,11 @@ export default function AdminGuidesPage() {
                 opacity: submitting ? 0.7 : 1,
               }}
             >
-              {submitting ? "Đang lưu..." : "Lưu HDV"}
+              {submitting
+                ? "Đang lưu..."
+                : form.id
+                  ? "Cập nhật HDV"
+                  : "Lưu HDV"}
             </button>
           </div>
         </form>

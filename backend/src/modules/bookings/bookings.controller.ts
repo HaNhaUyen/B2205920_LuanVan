@@ -65,6 +65,8 @@ export class BookingsController {
     @Query("departureTo") departureTo?: string,
     @Query("guideStatus") guideStatus?: string,
     @Query("urgency") urgency?: string,
+    @Query("sortBy") sortBy?: string,
+    @Query("sortOrder") sortOrder?: string,
   ) {
     return this.bookingsService.adminList({
       page,
@@ -78,6 +80,8 @@ export class BookingsController {
       departureTo,
       guideStatus,
       urgency,
+      sortBy,
+      sortOrder,
     });
   }
 

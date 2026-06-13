@@ -2,12 +2,56 @@ import { formatCurrency, toNumber } from "./format";
 
 export function mapImageUrl(url, apiBase) {
   if (!url) return "";
-  const root = (apiBase || "").replace("/api", "");
-  return url.startsWith("/uploads") ? `${root}${url}` : url;
+
+  const value = String(url).trim();
+  if (!value) return "";
+
+  if (/^data:image\//i.test(value)) return value;
+  if (/^https?:\/\//i.test(value)) return value;
+
+  const cleanBase = String(apiBase || "")
+    .replace(/\/api\/?$/, "")
+    .replace(/\/$/, "");
+
+  const path = value.startsWith("/") ? value : `/${value}`;
+
+  if (path.startsWith("/uploads")) {
+    return cleanBase ? `${cleanBase}${path}` : path;
+  }
+
+  if (path.startsWith("/images")) return path;
+
+  return cleanBase ? `${cleanBase}${path}` : path;
+}
+
+export function pickTourImage(tour = {}) {
+  const media = Array.isArray(tour.media) ? tour.media : [];
+  const imageUrls = Array.isArray(tour.imageUrls) ? tour.imageUrls : [];
+  const images = Array.isArray(tour.images) ? tour.images : [];
+
+  const coverMedia =
+    media.find((item) => item?.isCover || item?.is_cover) || media[0] || null;
+
+  return (
+    tour.coverUrl ||
+    tour.thumbnailUrl ||
+    tour.imageUrl ||
+    coverMedia?.fileUrl ||
+    coverMedia?.file_url ||
+    coverMedia?.url ||
+    imageUrls[0] ||
+    images[0]?.fileUrl ||
+    images[0]?.file_url ||
+    images[0]?.imageUrl ||
+    images[0]?.image_url ||
+    images[0]?.url ||
+    tour.destination?.coverImage ||
+    tour.destination?.cover_image ||
+    "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=90"
+  );
 }
 
 export function normalizeTour(tour = {}) {
-  const cover = tour.media?.find((item) => item.isCover) || tour.media?.[0];
   const reviews = tour.reviews || [];
 
   const rating = reviews.length
@@ -15,19 +59,36 @@ export function normalizeTour(tour = {}) {
       reviews.length
     : 4.8;
 
-  const firstDeparture = tour.departures?.[0];
+  const departures = Array.isArray(tour.departures) ? tour.departures : [];
+
+  const departurePrices = departures
+    .map((item) => toNumber(item.adultPrice || 0))
+    .filter((price) => price > 0);
+
+  const basePrice = toNumber(
+    tour.basePriceAdult ??
+      tour.base_price_adult ??
+      tour.priceAdult ??
+      tour.price_adult ??
+      tour.adultPrice ??
+      tour.price ??
+      0,
+  );
+
+  const minPrice = departurePrices.length
+    ? Math.min(...departurePrices)
+    : basePrice;
 
   return {
     ...tour,
-    coverUrl:
-      cover?.fileUrl ||
-      tour.destination?.coverImage ||
-      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80",
+    coverUrl: pickTourImage(tour),
     rating,
     reviewCount: reviews.length,
-    minPrice: firstDeparture
-      ? toNumber(firstDeparture.adultPrice)
-      : toNumber(tour.basePriceAdult || 0),
+    basePriceAdult: basePrice,
+    priceAdult: basePrice,
+    adultPrice: basePrice,
+    price: minPrice,
+    minPrice,
   };
 }
 
