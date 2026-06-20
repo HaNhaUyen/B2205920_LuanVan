@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/config";
+import { apiFetch } from "@/lib/api";
 import { clearSession, getUser } from "@/lib/storage";
 import { mapImageUrl } from "@/lib/tour";
 import { useToast } from "./ToastContext";
@@ -56,6 +57,19 @@ export default function AppShell({ children }) {
 
     sync();
 
+    // Mỗi lần tải lại trang, lấy lại /auth/me để tên/avatar sau khi cập nhật hồ sơ không bị quay về dữ liệu cũ trong localStorage.
+    if (getUser()) {
+      apiFetch("/auth/me")
+        .then((payload) => {
+          const freshUser = payload?.user || payload;
+          if (freshUser && typeof window !== "undefined") {
+            localStorage.setItem("tourai_user", JSON.stringify(freshUser));
+            setUser(freshUser);
+          }
+        })
+        .catch(() => null);
+    }
+
     if (typeof window !== "undefined") {
       window.addEventListener("tourai-session-changed", sync);
     }
@@ -85,7 +99,6 @@ export default function AppShell({ children }) {
     ...(user
       ? [
           { href: "/mytour", label: "Tour Của Tôi" },
-          { href: "/profile", label: "Hồ Sơ" },
           ...(user.role === "admin"
             ? [{ href: "/admin", label: "Quản Trị" }]
             : []),
@@ -107,11 +120,10 @@ export default function AppShell({ children }) {
         display: "flex",
         flexDirection: "column",
         minHeight: "100vh",
-        background: "#f8fafc",
       }}
     >
       <header
-        className="site-header travel-header"
+        className="site-header travel-header app-header"
         style={{
           background: "rgba(255, 255, 255, 0.95)",
           backdropFilter: "blur(12px)",
@@ -131,7 +143,7 @@ export default function AppShell({ children }) {
           }}
         >
           <Link
-            className="brand brand-travel"
+            className="brand brand-travel app-brand"
             href="/"
             style={{
               display: "flex",
@@ -178,7 +190,7 @@ export default function AppShell({ children }) {
           </Link>
 
           <nav
-            className="main-nav"
+            className="main-nav app-main-nav"
             style={{
               display: "flex",
               gap: "4px",
@@ -195,19 +207,25 @@ export default function AppShell({ children }) {
                 <Link
                   key={item.href}
                   href={item.href}
+                  className={`app-nav-link${active ? " active" : ""}`}
                   style={{
-                    padding: "8px 14px",
+                    padding: "10px 16px",
                     borderRadius: "999px",
-                    color: active ? "#16a34a" : "#475569",
-                    background: active ? "#f0fdf4" : "transparent",
-                    fontWeight: active ? 800 : 500,
+                    color: active ? "#064e3b" : "#475569",
+                    background: active
+                      ? "linear-gradient(135deg, #ecfdf5, #dcfce7)"
+                      : "transparent",
+                    fontWeight: active ? 900 : 700,
                     textDecoration: "none",
-                    fontSize: "0.92rem",
+                    fontSize: "0.96rem",
                     whiteSpace: "nowrap",
                     transition: "all 0.2s ease",
                     border: active
-                      ? "1px solid #dcfce3"
+                      ? "1px solid rgba(134, 239, 172, 0.9)"
                       : "1px solid transparent",
+                    boxShadow: active
+                      ? "0 10px 24px rgba(34, 197, 94, 0.14)"
+                      : "none",
                   }}
                 >
                   {item.label}
@@ -342,7 +360,7 @@ export default function AppShell({ children }) {
       <main style={{ flex: 1 }}>{children}</main>
 
       <footer
-        className="site-footer site-footer-travel"
+        className="site-footer site-footer-travel app-footer"
         style={{
           background: "#fff",
           borderTop: "1px solid #f1f5f9",

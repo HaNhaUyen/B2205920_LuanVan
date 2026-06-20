@@ -197,6 +197,7 @@ export function filterTours(tours = [], query = {}) {
     normalizeSearchText(item),
   );
   const province = query.province || "";
+  const departureProvince = query.departureProvince || "";
   const theme = query.theme || "";
   const type = query.type || "";
   const month = toNumber(query.month || 0);
@@ -234,6 +235,20 @@ export function filterTours(tours = [], query = {}) {
       : !destination || tourDestinationName === destination;
     const matchesProvince =
       !province || tour.destination?.province === province;
+    const normalizedDepartureProvince = normalizeSearchText(departureProvince);
+    const pickupPoints = [
+      ...(Array.isArray(tour.pickupPoints) ? tour.pickupPoints : []),
+      ...(Array.isArray(tour.departures)
+        ? tour.departures.flatMap((dep) => dep.pickupPoints || [])
+        : []),
+    ];
+    const matchesDepartureProvince =
+      !departureProvince ||
+      pickupPoints.some((point) =>
+        normalizeSearchText(point?.province || "").includes(
+          normalizedDepartureProvince,
+        ),
+      );
     const matchesTheme = !theme || tour.tourTheme === theme;
     const matchesType = !type || tour.tourType === type;
     const matchesMonth =
@@ -253,6 +268,7 @@ export function filterTours(tours = [], query = {}) {
       matchesKeyword,
       matchesDestination,
       matchesProvince,
+      matchesDepartureProvince,
       matchesTheme,
       matchesType,
       matchesMonth,

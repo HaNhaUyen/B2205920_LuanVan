@@ -261,29 +261,59 @@ export default function AISmartSearchBar({
         setDragging(false);
         imageSearch(e.dataTransfer.files?.[0]);
       }}
-      style={{ display: "grid", gap: 10 }}
+      style={{ display: "grid", gap: 10, width: "100%" }}
     >
       <div
+        className="smart-search-shell smart-search-hero-pill"
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr auto auto",
-          gap: 8,
+          gridTemplateColumns: "minmax(0, 1fr) 88px 100px",
+          gap: "10px",
           alignItems: "center",
-          padding: 8,
-          border: dragging ? "2px dashed #22c55e" : "1px solid #e2e8f0",
-          borderRadius: 22,
-          background: dragging ? "#ecfdf5" : "#fff",
+          width: "100%",
+          maxWidth: "100%",
+          padding: "10px",
+          border: dragging
+            ? "2px dashed rgba(251, 146, 60, 0.9)"
+            : "1px solid rgba(255, 255, 255, 0.65)",
+          borderRadius: "999px",
+          background: "rgba(255, 255, 255, 0.95)",
+          boxShadow: "0 24px 50px rgba(0,0,0,0.20)",
+          backdropFilter: "blur(14px)",
+          overflow: "hidden",
+          boxSizing: "border-box",
         }}
       >
         <div
+          className="smart-search-input-zone"
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 10,
+            gap: 12,
             minWidth: 0,
-            paddingLeft: 8,
+            width: "100%",
+            minHeight: "56px",
+            padding: "0 18px",
+            borderRadius: "999px",
+            background: "transparent",
+            color: "#64748b",
+            overflow: "hidden",
+            boxSizing: "border-box",
           }}
         >
+          <svg
+            width="24"
+            height="24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ flexShrink: 0 }}
+          >
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
           {imagePreview && (
             <div
               style={{
@@ -345,6 +375,7 @@ export default function AISmartSearchBar({
           )}
 
           <input
+            className="smart-search-input"
             value={keyword}
             onChange={(e) => {
               setKeyword(e.target.value);
@@ -369,9 +400,10 @@ export default function AISmartSearchBar({
               minWidth: 0,
               border: 0,
               outline: 0,
-              padding: "16px 6px",
-              fontSize: 15,
+              padding: "16px 0",
+              fontSize: 16,
               background: "transparent",
+              color: "#1f2937",
             }}
           />
         </div>
@@ -384,17 +416,39 @@ export default function AISmartSearchBar({
         />
         <button
           type="button"
-          className="btn btn-light"
+          className="btn btn-light smart-search-upload"
           onClick={() => fileRef.current?.click()}
           disabled={busy}
+          style={{
+            width: "88px",
+            minWidth: "88px",
+            minHeight: "56px",
+            borderRadius: "999px",
+            background: "#f8fafc",
+            color: "#334155",
+            border: "1px solid #e2e8f0",
+            boxShadow: "none",
+            fontWeight: 700,
+          }}
         >
           {imagePreview ? "Đổi ảnh" : "Ảnh"}
         </button>
         <button
           type="button"
-          className="btn btn-primary"
+          className="btn btn-primary smart-search-submit"
           onClick={searchText}
           disabled={busy}
+          style={{
+            width: "100px",
+            minWidth: "100px",
+            minHeight: "56px",
+            borderRadius: "999px",
+            background: "linear-gradient(135deg, #ff9f1a, #fb923c)",
+            border: "none",
+            color: "#111827",
+            boxShadow: "0 12px 28px rgba(251, 146, 60, 0.32)",
+            fontWeight: 800,
+          }}
         >
           {busy ? "Đang xử lý..." : "Tìm"}
         </button>

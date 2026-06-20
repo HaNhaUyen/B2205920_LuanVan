@@ -16,6 +16,7 @@ const resetKeys = [
   "destination",
   "imageDestinations",
   "province",
+  "departureProvince",
   "theme",
   "type",
   "minPrice",
@@ -28,7 +29,7 @@ const resetKeys = [
   "bestDeal",
   "page",
 ];
-const PAGE_SIZE = 9;
+const PAGE_SIZE = 5;
 
 // Danh sách ảnh tự động chuyển cho Slide Hero
 const heroImages = [
@@ -124,6 +125,7 @@ export default function ToursPage() {
       // Khi người dùng lọc thủ công thì bỏ chế độ lọc nhiều điểm đến bằng ảnh.
       imageDestinations: null,
       province: formData.get("province"),
+      departureProvince: formData.get("departureProvince"),
       theme: formData.get("theme"),
       type: formData.get("type"),
       minPrice: formData.get("minPrice"),
@@ -206,21 +208,41 @@ export default function ToursPage() {
       />
 
       <section
-        className="page-hero page-hero-travel-list"
+        className="page-hero page-hero-travel-list tour-page-hero-like-home"
         style={{
-          padding: "40px 0",
-          background: "#f8fafc",
-          borderBottom: "1px solid #e2e8f0",
+          position: "relative",
+          minHeight: isDestinationView ? "58vh" : "70vh",
+          display: "flex",
+          alignItems: "center",
+          padding: isDestinationView ? "90px 0 80px" : "100px 0 110px",
+          backgroundImage: `url(${heroImages[currentBg]})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          overflow: "hidden",
+          borderBottom: "none",
         }}
       >
-        <div className="container">
+        <div
+          className="tour-page-hero-overlay"
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(to bottom, rgba(7, 13, 24, 0.28) 0%, rgba(7, 13, 24, 0.54) 100%)",
+            zIndex: 0,
+          }}
+        />
+        <div
+          className="container"
+          style={{ position: "relative", zIndex: 1, width: "100%" }}
+        >
           {isDestinationView ? (
             /* HERO 1: Giao diện khi đã chọn Điểm đến */
             <div
-              className="panel"
+              className="panel tour-page-hero-panel"
               style={{
                 position: "relative",
-                background: `url(${heroImages[currentBg]}) center/cover no-repeat`,
+                background: "transparent",
                 transition: "background-image 1s ease-in-out",
                 border: "none",
                 boxShadow: "0 20px 40px rgba(0,0,0,0.1)",
@@ -301,16 +323,16 @@ export default function ToursPage() {
           ) : (
             /* HERO 2: Giao diện có AI Search (Slide background) */
             <div
-              className="travel-list-banner panel"
+              className="travel-list-banner panel tour-page-hero-panel"
               style={{
                 position: "relative",
-                background: `url(${heroImages[currentBg]}) center/cover no-repeat`,
+                background: "transparent",
                 transition: "background-image 1s ease-in-out",
                 border: "none",
-                boxShadow: "0 20px 40px rgba(0,0,0,0.1)",
-                borderRadius: "28px",
-                padding: "60px 40px",
-                overflow: "hidden",
+                boxShadow: "none",
+                borderRadius: 0,
+                padding: 0,
+                overflow: "visible",
               }}
             >
               {/* Lớp phủ mờ (Dark Overlay) */}
@@ -326,14 +348,15 @@ export default function ToursPage() {
                 style={{
                   position: "relative",
                   zIndex: 1,
-                  maxWidth: "860px",
+                  maxWidth: "820px",
                   margin: "0 auto",
+                  textAlign: "center",
                 }}
               >
                 <h2
                   style={{
                     color: "#fff",
-                    fontSize: "2.4rem",
+                    fontSize: "clamp(2.6rem, 5vw, 4.2rem)",
                     margin: "0 0 24px",
                     textAlign: "center",
                     textShadow: "0 2px 10px rgba(0,0,0,0.3)",
@@ -343,12 +366,15 @@ export default function ToursPage() {
                 </h2>
 
                 <div
+                  className="tour-ai-search-frame"
                   style={{
-                    background: "rgba(255, 255, 255, 0.95)",
-                    backdropFilter: "blur(12px)",
-                    padding: "8px",
-                    borderRadius: "24px",
-                    boxShadow: "0 12px 30px rgba(0,0,0,0.15)",
+                    background: "transparent",
+                    backdropFilter: "none",
+                    padding: 0,
+                    borderRadius: "999px",
+                    boxShadow: "none",
+                    maxWidth: "760px",
+                    margin: "0 auto",
                   }}
                 >
                   <AISmartSearchBar

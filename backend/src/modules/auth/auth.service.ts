@@ -87,10 +87,22 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const email = dto.email.trim().toLowerCase();
-    const user = await this.authRepository.findUserByEmail(email);
+    const rawIdentifier = String(dto.identifier || dto.email || "").trim();
+    if (!rawIdentifier) {
+      throw new UnauthorizedException(
+        "Vui lòng nhập email hoặc tên tài khoản.",
+      );
+    }
+
+    const isEmail = rawIdentifier.includes("@");
+    const user = isEmail
+      ? await this.authRepository.findUserByEmail(rawIdentifier.toLowerCase())
+      : await this.authRepository.findUserByEmailOrName(rawIdentifier);
+
     if (!user) {
-      throw new UnauthorizedException("Email hoặc mật khẩu không đúng.");
+      throw new UnauthorizedException(
+        "Email/tên tài khoản hoặc mật khẩu không đúng.",
+      );
     }
 
     if (!user.passwordHash) {
@@ -146,11 +158,11 @@ export class AuthService {
       }
 
       const nextProvider = user.authProvider === "local" ? "hybrid" : "google";
+      // Không ghi đè fullName/avatarUrl mỗi lần đăng nhập Google, vì user có thể đã tự đổi tên/avatar trong hồ sơ.
       user = await this.authRepository.updateUser(user.id, {
-        fullName,
         googleId: payload.sub,
         authProvider: nextProvider,
-        avatarUrl: payload.picture ?? user.avatarUrl,
+        avatarUrl: user.avatarUrl || payload.picture || null,
       });
     }
 

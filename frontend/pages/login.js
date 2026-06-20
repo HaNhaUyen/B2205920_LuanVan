@@ -408,11 +408,11 @@ export default function LoginPage() {
             {mode === "login" ? (
               <form onSubmit={handleLogin}>
                 <div style={{ marginBottom: "20px" }}>
-                  <label className="auth-label">Địa chỉ Email</label>
+                  <label className="auth-label">Email hoặc tên tài khoản</label>
                   <input
-                    name="email"
-                    type="email"
-                    placeholder="VD: ban@example.com"
+                    name="identifier"
+                    type="text"
+                    placeholder="VD: ban@example.com hoặc Nguyễn Văn A"
                     required
                     className="auth-input"
                   />

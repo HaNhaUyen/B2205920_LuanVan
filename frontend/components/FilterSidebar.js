@@ -27,7 +27,8 @@ export default function FilterSidebar({
   const chips = [
     ["search", "Từ khóa", query.search],
     ["destination", "Điểm đến", query.destination],
-    ["province", "Khu vực", query.province],
+    ["province", "Khu vực điểm đến", query.province],
+    ["departureProvince", "Nơi khởi hành", query.departureProvince],
     ["theme", "Chủ đề", query.theme ? mapLabel("theme", query.theme) : ""],
     ["type", "Loại tour", query.type ? mapLabel("type", query.type) : ""],
     ["month", "Khởi hành", query.month ? `Tháng ${query.month}` : ""],
@@ -109,7 +110,7 @@ export default function FilterSidebar({
           </p>
         </div>
         <button
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm filter-reset-btn"
           type="button"
           onClick={onReset}
           style={{
@@ -154,7 +155,7 @@ export default function FilterSidebar({
               <button
                 key={key}
                 type="button"
-                className="badge removable-badge"
+                className="badge removable-badge filter-active-chip"
                 onClick={() => onRemoveChip(key)}
                 style={{
                   background: "#fff",
@@ -238,6 +239,7 @@ export default function FilterSidebar({
           </div>
           <div className="field">
             <input
+              className="filter-control"
               name="search"
               defaultValue={query.search || ""}
               placeholder="Ví dụ: cáp treo, lặn san hô..."
@@ -281,8 +283,33 @@ export default function FilterSidebar({
             </svg>
             Khu vực & Điểm đến
           </div>
+
           <div className="field" style={{ marginBottom: "12px" }}>
             <select
+              className="filter-control"
+              name="departureProvince"
+              defaultValue={query.departureProvince || ""}
+              style={{
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: "12px",
+                padding: "12px",
+              }}
+            >
+              <option value="">Tất cả nơi khởi hành</option>
+              {["Cần Thơ", "TP HCM", "Hà Nội", "Đà Nẵng", "Lâm Đồng"].map(
+                (item) => (
+                  <option key={item} value={item}>
+                    Xuất phát từ {item}
+                  </option>
+                ),
+              )}
+            </select>
+          </div>
+
+          <div className="field" style={{ marginBottom: "12px" }}>
+            <select
+              className="filter-control"
               name="destination"
               defaultValue={query.destination || ""}
               style={{
@@ -315,7 +342,7 @@ export default function FilterSidebar({
               <button
                 key={item.id}
                 type="button"
-                className="badge badge-soft-action"
+                className="badge badge-soft-action filter-quick-chip"
                 onClick={() => onQuickDestination(item.name)}
                 style={{
                   fontSize: "0.8rem",
@@ -365,6 +392,7 @@ export default function FilterSidebar({
           </div>
           <div className="field" style={{ marginBottom: "12px" }}>
             <select
+              className="filter-control"
               name="theme"
               defaultValue={query.theme || ""}
               style={{
@@ -384,6 +412,7 @@ export default function FilterSidebar({
           </div>
           <div className="field">
             <select
+              className="filter-control"
               name="type"
               defaultValue={query.type || ""}
               style={{
@@ -552,6 +581,7 @@ export default function FilterSidebar({
           </div>
           <div className="field" style={{ marginBottom: "16px" }}>
             <select
+              className="filter-control"
               name="minRating"
               defaultValue={query.minRating || ""}
               style={{

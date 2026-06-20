@@ -168,19 +168,20 @@ export default function DestinationsPage() {
 
           {/* Input Search: Glassmorphism */}
           <div
-            className="search-input-glass"
+            className="search-input-glass hero-destination-search"
             style={{
-              maxWidth: "680px",
+              maxWidth: "760px",
               margin: "0 auto",
               display: "flex",
               alignItems: "center",
+              gap: "12px",
               background: "rgba(255, 255, 255, 0.95)",
-              backdropFilter: "blur(12px)",
+              backdropFilter: "blur(14px)",
               borderRadius: "999px",
-              padding: "8px 12px 8px 24px",
-              border: "1px solid rgba(255,255,255,0.5)",
+              padding: "10px",
+              border: "1px solid rgba(255,255,255,0.65)",
               transition: "all 0.3s ease",
-              boxShadow: "0 20px 40px rgba(0,0,0,0.1)",
+              boxShadow: "0 24px 50px rgba(0,0,0,0.20)",
             }}
           >
             <svg
@@ -197,6 +198,7 @@ export default function DestinationsPage() {
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
             <input
+              className="hero-destination-search-input"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               type="text"
@@ -206,9 +208,10 @@ export default function DestinationsPage() {
                 border: "none",
                 background: "transparent",
                 outline: "none",
-                padding: "14px 16px",
-                fontSize: "1.1rem",
-                color: "#0f172a",
+                padding: "16px 20px",
+                fontSize: "1.08rem",
+                color: "#1f2937",
+                borderRadius: "999px",
               }}
             />
             {keyword ? (
@@ -216,10 +219,10 @@ export default function DestinationsPage() {
                 onClick={() => setKeyword("")}
                 style={{
                   background: "#f1f5f9",
-                  border: "none",
+                  border: "1px solid #e2e8f0",
                   color: "#64748b",
                   cursor: "pointer",
-                  padding: "10px",
+                  padding: "13px",
                   borderRadius: "50%",
                   display: "flex",
                   alignItems: "center",
@@ -248,13 +251,15 @@ export default function DestinationsPage() {
               </button>
             ) : (
               <div
+                className="hero-destination-search-btn"
                 style={{
-                  padding: "10px 16px",
-                  background: "linear-gradient(135deg, #72b44b, #5a9d34)",
-                  color: "#fff",
+                  padding: "16px 28px",
+                  background: "linear-gradient(135deg, #ff9f1a, #fb923c)",
+                  color: "#111827",
                   borderRadius: "999px",
-                  fontWeight: 600,
-                  fontSize: "0.95rem",
+                  fontWeight: 800,
+                  fontSize: "1rem",
+                  boxShadow: "0 12px 28px rgba(251, 146, 60, 0.28)",
                 }}
               >
                 Tìm kiếm

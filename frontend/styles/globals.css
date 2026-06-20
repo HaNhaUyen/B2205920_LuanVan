@@ -5058,3 +5058,1159 @@ html.dark-mode .btn-ghost {
     min-height: 76vh !important;
   }
 }
+
+/* ===== Travela user dark mode polish ===== */
+html.dark-mode body {
+  color: #e5edf8;
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(34, 197, 94, 0.1),
+      transparent 28%
+    ),
+    linear-gradient(180deg, #0b1220 0%, #111827 48%, #0f172a 100%);
+}
+html.dark-mode .site-shell {
+  background: #0f172a !important;
+}
+html.dark-mode .app-header {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+}
+html.dark-mode .app-brand strong {
+  color: #f8fafc !important;
+}
+html.dark-mode .app-main-nav a {
+  color: #cbd5e1 !important;
+}
+html.dark-mode .app-main-nav a[style*="rgb(22, 163, 74)"],
+html.dark-mode .app-main-nav a:hover {
+  color: #86efac !important;
+}
+html.dark-mode .theme-toggle-btn,
+html.dark-mode .nav-auth button,
+html.dark-mode .nav-auth a[href="/profile"] {
+  background: rgba(30, 41, 59, 0.92) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  color: #e2e8f0 !important;
+}
+html.dark-mode .section-light,
+html.dark-mode .page-hero-travel-list,
+html.dark-mode main {
+  background: #0f172a !important;
+}
+html.dark-mode .travel-filter-panel,
+html.dark-mode .travel-results-toolbar,
+html.dark-mode .section-card,
+html.dark-mode .card,
+html.dark-mode .panel {
+  background: #111827 !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+  color: #e5edf8 !important;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.32) !important;
+}
+html.dark-mode .travel-filter-panel h3,
+html.dark-mode .travel-results-toolbar h2,
+html.dark-mode .filter-section-title,
+html.dark-mode .mobile-filter-toggle strong {
+  color: #f8fafc !important;
+}
+html.dark-mode input,
+html.dark-mode select,
+html.dark-mode textarea {
+  background: #0b1220 !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e5edf8 !important;
+}
+html.dark-mode input::placeholder,
+html.dark-mode textarea::placeholder {
+  color: #94a3b8 !important;
+}
+html.dark-mode .muted,
+html.dark-mode p,
+html.dark-mode span {
+  color: inherit;
+}
+html.dark-mode .app-footer {
+  background: #0b1220 !important;
+  border-top: 1px solid rgba(148, 163, 184, 0.16) !important;
+}
+html.dark-mode .app-footer strong,
+html.dark-mode .app-footer h4 {
+  color: #f8fafc !important;
+}
+html.dark-mode .app-footer p,
+html.dark-mode .app-footer li {
+  color: #cbd5e1 !important;
+}
+html.dark-mode .tour-card,
+html.dark-mode .tour-card * {
+  color: #e5edf8;
+}
+
+/* ===== Fix dark mode hero search + tour page readable ===== */
+html.dark-mode .hero-travel-home form,
+html.dark-mode .hero-inline-search,
+html.dark-mode .travel-list-banner .panel,
+html.dark-mode .travel-list-banner > div,
+html.dark-mode .travel-list-banner [style*="rgba(255, 255, 255, 0.95)"] {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.38) !important;
+}
+
+html.dark-mode .hero-travel-home form {
+  padding: 9px !important;
+  backdrop-filter: blur(16px) saturate(140%) !important;
+}
+
+html.dark-mode .hero-travel-home form > div:first-child {
+  color: #93c5fd !important;
+}
+
+html.dark-mode .hero-travel-home form input,
+html.dark-mode .hero-inline-search input {
+  background: #0b1220 !important;
+  color: #f8fafc !important;
+  border-radius: 999px !important;
+  padding-left: 14px !important;
+}
+
+html.dark-mode .hero-travel-home form input::placeholder,
+html.dark-mode .hero-inline-search input::placeholder {
+  color: #94a3b8 !important;
+}
+
+html.dark-mode .hero-travel-home form .btn-primary,
+html.dark-mode .hero-inline-search .btn-primary,
+html.dark-mode .smart-search-submit,
+html.dark-mode button.btn-primary {
+  background: linear-gradient(135deg, #f59e0b, #fb923c) !important;
+  color: #111827 !important;
+  box-shadow: 0 12px 28px rgba(251, 146, 60, 0.28) !important;
+}
+
+html.dark-mode .travel-list-banner [style*="rgba(255, 255, 255, 0.95)"] {
+  border-radius: 24px !important;
+}
+
+html.dark-mode .travel-list-banner input,
+html.dark-mode .travel-list-banner .smart-search-input,
+html.dark-mode .travel-list-banner .smart-search-input-wrap {
+  background: #0b1220 !important;
+  color: #f8fafc !important;
+}
+
+html.dark-mode .travel-results-toolbar select {
+  background: #0b1220 !important;
+  color: #f8fafc !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+}
+
+html.dark-mode .mobile-filter-toggle {
+  background: #111827 !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28) !important;
+}
+
+/* ===== Travela nav active + search polish ===== */
+.app-main-nav .app-nav-link:hover {
+  color: #0f172a !important;
+  background: rgba(241, 245, 249, 0.95);
+}
+html.dark-mode .app-main-nav .app-nav-link {
+  color: #dbe7f5 !important;
+}
+html.dark-mode .app-main-nav .app-nav-link.active {
+  color: #072113 !important;
+  background: linear-gradient(135deg, #f8fafc, #dcfce7) !important;
+  border-color: rgba(134, 239, 172, 0.85) !important;
+  box-shadow: 0 14px 32px rgba(34, 197, 94, 0.18) !important;
+}
+html.dark-mode .app-main-nav .app-nav-link:hover {
+  color: #f8fafc !important;
+  background: rgba(30, 41, 59, 0.95) !important;
+}
+
+.hero-destination-search,
+.smart-search-shell {
+  transition: all 0.25s ease;
+}
+html.dark-mode .hero-destination-search,
+html.dark-mode .smart-search-shell {
+  background: rgba(15, 23, 42, 0.94) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.38) !important;
+}
+html.dark-mode .hero-destination-search-input,
+html.dark-mode .smart-search-input {
+  background: #07101f !important;
+  color: #f8fafc !important;
+}
+html.dark-mode .hero-destination-search-input::placeholder,
+html.dark-mode .smart-search-input::placeholder {
+  color: #94a3b8 !important;
+}
+html.dark-mode .hero-destination-search svg,
+html.dark-mode .smart-search-shell svg {
+  stroke: #93c5fd !important;
+}
+html.dark-mode .hero-destination-search-btn,
+html.dark-mode .smart-search-upload,
+html.dark-mode .smart-search-submit {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+}
+html.dark-mode .smart-search-upload {
+  background: rgba(30, 41, 59, 0.92) !important;
+  color: #e2e8f0 !important;
+}
+html.dark-mode .hero-destination-search-btn,
+html.dark-mode .smart-search-submit {
+  background: linear-gradient(135deg, #f59e0b, #fb923c) !important;
+  color: #111827 !important;
+}
+
+/* ===== Pagination dark mode readable ===== */
+html.dark-mode .app-pagination .page-nav-btn,
+html.dark-mode .app-pagination .page-number-btn {
+  background: rgba(15, 23, 42, 0.95) !important;
+  color: #dbeafe !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26) !important;
+}
+html.dark-mode .app-pagination .page-number-btn.active {
+  background: linear-gradient(135deg, #22c55e, #84cc16) !important;
+  color: #052e16 !important;
+  box-shadow: 0 14px 28px rgba(34, 197, 94, 0.22) !important;
+}
+html.dark-mode .app-pagination .page-dots {
+  color: #94a3b8 !important;
+}
+html.dark-mode .app-pagination .page-nav-btn:disabled {
+  color: #64748b !important;
+  opacity: 0.55 !important;
+}
+
+/* ===== Final dark polish for Tour / Destinations / Filter sidebar ===== */
+html.dark-mode .app-header {
+  background: rgba(9, 16, 31, 0.96) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16) !important;
+}
+html.dark-mode .app-main-nav .app-nav-link,
+html.dark-mode .app-main-nav a {
+  color: #cbd5e1 !important;
+  text-shadow: none !important;
+}
+html.dark-mode .app-main-nav .app-nav-link.active,
+html.dark-mode .app-main-nav a.active {
+  color: #f8fafc !important;
+  background: linear-gradient(
+    135deg,
+    rgba(34, 197, 94, 0.24),
+    rgba(20, 184, 166, 0.16)
+  ) !important;
+  border: 1px solid rgba(134, 239, 172, 0.42) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 12px 28px rgba(0, 0, 0, 0.18) !important;
+}
+html.dark-mode .app-main-nav .app-nav-link:hover,
+html.dark-mode .app-main-nav a:hover {
+  color: #f8fafc !important;
+  background: rgba(30, 41, 59, 0.86) !important;
+}
+
+html.dark-mode .page-hero-travel-list {
+  background:
+    radial-gradient(
+      circle at 82% 18%,
+      rgba(14, 165, 233, 0.1),
+      transparent 34%
+    ),
+    linear-gradient(180deg, #0b1220 0%, #0f172a 100%) !important;
+}
+html.dark-mode .travel-list-banner,
+html.dark-mode .page-hero-travel-list .travel-list-banner.panel {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.78), rgba(12, 26, 45, 0.9)),
+    var(--tour-hero-bg, none) !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.36) !important;
+}
+html.dark-mode .tour-ai-search-frame,
+html.dark-mode .travel-list-banner .tour-ai-search-frame,
+html.dark-mode .hero-destination-search,
+html.dark-mode .search-input-glass.hero-destination-search {
+  background: rgba(8, 16, 31, 0.92) !important;
+  border: 1px solid rgba(148, 163, 184, 0.3) !important;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.44) !important;
+  backdrop-filter: blur(18px) saturate(135%) !important;
+}
+html.dark-mode .smart-search-shell,
+html.dark-mode .tour-ai-search-frame .smart-search-shell {
+  background: rgba(11, 18, 32, 0.98) !important;
+  border: 1px solid rgba(148, 163, 184, 0.26) !important;
+  box-shadow: none !important;
+}
+html.dark-mode .smart-search-input,
+html.dark-mode .hero-destination-search-input {
+  background: #081120 !important;
+  color: #eaf2ff !important;
+  border: none !important;
+}
+html.dark-mode .smart-search-input::placeholder,
+html.dark-mode .hero-destination-search-input::placeholder {
+  color: #8fa6c4 !important;
+}
+html.dark-mode .smart-search-upload,
+html.dark-mode .smart-search-shell .btn-light {
+  background: rgba(15, 23, 42, 0.95) !important;
+  color: #cbd5e1 !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  box-shadow: none !important;
+}
+html.dark-mode .smart-search-upload:disabled,
+html.dark-mode .smart-search-submit:disabled {
+  opacity: 0.55 !important;
+  color: #94a3b8 !important;
+}
+html.dark-mode .smart-search-submit,
+html.dark-mode .hero-destination-search-btn,
+html.dark-mode .tour-ai-search-frame .btn-primary {
+  background: linear-gradient(135deg, #f59e0b, #fb923c) !important;
+  color: #111827 !important;
+  border: none !important;
+  font-weight: 800 !important;
+}
+html.dark-mode .travel-list-kpis .badge {
+  background: rgba(30, 41, 59, 0.82) !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  box-shadow: none !important;
+}
+html.dark-mode .travel-list-kpis .badge:first-child {
+  background: rgba(34, 197, 94, 0.2) !important;
+  color: #bbf7d0 !important;
+  border-color: rgba(134, 239, 172, 0.26) !important;
+}
+
+html.dark-mode .travel-filter-panel,
+html.dark-mode .filter-panel.travel-filter-panel {
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.98),
+    rgba(11, 18, 32, 0.98)
+  ) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.36) !important;
+}
+html.dark-mode .travel-filter-panel .filter-panel-head {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14) !important;
+}
+html.dark-mode .travel-filter-panel h3,
+html.dark-mode .travel-filter-panel .filter-section-title {
+  color: #f8fafc !important;
+}
+html.dark-mode .travel-filter-panel .muted {
+  color: #9fb1c9 !important;
+}
+html.dark-mode .travel-filter-panel svg {
+  stroke: #93c5fd !important;
+}
+html.dark-mode .travel-filter-panel .filter-section {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+html.dark-mode .travel-filter-panel .filter-control,
+html.dark-mode .travel-filter-panel input,
+html.dark-mode .travel-filter-panel select {
+  background: #081120 !important;
+  color: #e5edf8 !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  border-radius: 12px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+}
+html.dark-mode .travel-filter-panel .filter-control:focus,
+html.dark-mode .travel-filter-panel input:focus,
+html.dark-mode .travel-filter-panel select:focus {
+  border-color: rgba(56, 189, 248, 0.58) !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12) !important;
+}
+html.dark-mode .travel-filter-panel option {
+  background: #0b1220 !important;
+  color: #e5edf8 !important;
+}
+html.dark-mode .travel-filter-panel .filter-quick-chip,
+html.dark-mode .travel-filter-panel .badge-soft-action {
+  background: rgba(30, 41, 59, 0.88) !important;
+  color: #dbeafe !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+}
+html.dark-mode .travel-filter-panel .filter-quick-chip:hover,
+html.dark-mode .travel-filter-panel .badge-soft-action:hover {
+  background: rgba(37, 99, 235, 0.2) !important;
+  color: #bfdbfe !important;
+  border-color: rgba(96, 165, 250, 0.32) !important;
+}
+html.dark-mode .travel-filter-panel .filter-reset-btn {
+  background: rgba(127, 29, 29, 0.2) !important;
+  color: #fecaca !important;
+  border: 1px solid rgba(248, 113, 113, 0.22) !important;
+}
+html.dark-mode .travel-filter-panel .filter-active-chip,
+html.dark-mode .travel-filter-panel .removable-badge {
+  background: rgba(30, 41, 59, 0.92) !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+}
+
+/* ===== FINAL FIX: dark mode search bars on Tour + Destination pages ===== */
+html.dark-mode .page-hero-travel-list .travel-list-banner.panel {
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(14, 165, 233, 0.16),
+      transparent 34%
+    ),
+    linear-gradient(135deg, rgba(12, 20, 37, 0.96), rgba(8, 16, 31, 0.98)) !important;
+}
+
+html.dark-mode .tour-ai-search-frame {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+html.dark-mode .tour-ai-search-frame .smart-search-shell {
+  background: rgba(7, 16, 31, 0.96) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 24px !important;
+  padding: 10px !important;
+  box-shadow:
+    0 18px 45px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+html.dark-mode .tour-ai-search-frame .smart-search-shell > div:first-child {
+  background: rgba(2, 6, 23, 0.82) !important;
+  border: 1px solid rgba(148, 163, 184, 0.16) !important;
+  border-radius: 18px !important;
+  min-height: 56px !important;
+  padding: 0 12px !important;
+}
+
+html.dark-mode .tour-ai-search-frame .smart-search-input {
+  background: transparent !important;
+  color: #f8fafc !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+html.dark-mode .tour-ai-search-frame .smart-search-input::placeholder {
+  color: #9fb2cf !important;
+}
+
+html.dark-mode .tour-ai-search-frame .smart-search-upload {
+  background: rgba(15, 23, 42, 0.92) !important;
+  color: #dbeafe !important;
+  border: 1px solid rgba(148, 163, 184, 0.26) !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
+
+html.dark-mode .tour-ai-search-frame .smart-search-upload:disabled {
+  opacity: 0.72 !important;
+  color: #b6c7df !important;
+}
+
+html.dark-mode .tour-ai-search-frame .smart-search-submit {
+  background: linear-gradient(135deg, #fb923c, #f59e0b) !important;
+  color: #111827 !important;
+  border: 0 !important;
+  font-weight: 800 !important;
+  box-shadow: 0 12px 28px rgba(251, 146, 60, 0.28) !important;
+}
+
+html.dark-mode .search-input-glass.hero-destination-search {
+  background: rgba(7, 16, 31, 0.94) !important;
+  border: 1px solid rgba(148, 163, 184, 0.3) !important;
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  padding: 10px 12px 10px 20px !important;
+}
+
+html.dark-mode
+  .search-input-glass.hero-destination-search
+  .hero-destination-search-input {
+  background: rgba(2, 6, 23, 0.82) !important;
+  color: #f8fafc !important;
+  border-radius: 999px !important;
+  padding: 15px 18px !important;
+  margin-left: 10px !important;
+}
+
+html.dark-mode
+  .search-input-glass.hero-destination-search
+  .hero-destination-search-input::placeholder {
+  color: #9fb2cf !important;
+}
+
+html.dark-mode .search-input-glass.hero-destination-search svg {
+  stroke: #93c5fd !important;
+}
+
+html.dark-mode .hero-destination-search-btn {
+  background: linear-gradient(135deg, #22c55e, #84cc16) !important;
+  color: #ffffff !important;
+  border: 0 !important;
+  box-shadow: 0 12px 28px rgba(34, 197, 94, 0.24) !important;
+}
+
+/* Sidebar/filter contrast in dark mode */
+html.dark-mode .travel-filter-panel,
+html.dark-mode aside .travel-filter-panel,
+html.dark-mode .filter-sidebar {
+  background: rgba(12, 20, 37, 0.96) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28) !important;
+}
+
+html.dark-mode .travel-filter-panel button,
+html.dark-mode .travel-filter-panel .badge {
+  background: rgba(15, 23, 42, 0.92) !important;
+  color: #dbeafe !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark-mode .travel-filter-panel input,
+html.dark-mode .travel-filter-panel select {
+  background: rgba(2, 6, 23, 0.72) !important;
+  color: #f8fafc !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+}
+
+/* ===== FINAL UI LOCK: make Tour/Destination search match homepage dark pill ===== */
+.smart-search-hero-pill,
+html.dark-mode .smart-search-hero-pill,
+html.dark-mode .tour-ai-search-frame .smart-search-hero-pill {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+  background: rgba(15, 23, 42, 0.86) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 999px !important;
+  padding: 10px !important;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.2) !important;
+  backdrop-filter: blur(14px) !important;
+}
+.smart-search-input-zone,
+html.dark-mode .smart-search-input-zone,
+html.dark-mode .tour-ai-search-frame .smart-search-input-zone {
+  flex: 1 !important;
+  min-height: 56px !important;
+  padding: 0 18px !important;
+  border-radius: 999px !important;
+  background: #07101f !important;
+  color: #93c5fd !important;
+  border: 0 !important;
+}
+.smart-search-input-zone svg {
+  stroke: currentColor !important;
+}
+.smart-search-hero-pill .smart-search-input,
+html.dark-mode .smart-search-hero-pill .smart-search-input {
+  background: transparent !important;
+  color: #dbeafe !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.smart-search-hero-pill .smart-search-input::placeholder,
+html.dark-mode .smart-search-hero-pill .smart-search-input::placeholder {
+  color: #9fb2cf !important;
+}
+.smart-search-hero-pill .smart-search-upload,
+html.dark-mode .smart-search-hero-pill .smart-search-upload {
+  min-width: 82px !important;
+  min-height: 56px !important;
+  border-radius: 999px !important;
+  background: rgba(15, 23, 42, 0.92) !important;
+  color: #dbeafe !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  box-shadow: none !important;
+  font-weight: 700 !important;
+  opacity: 1 !important;
+}
+.smart-search-hero-pill .smart-search-submit,
+html.dark-mode .smart-search-hero-pill .smart-search-submit {
+  min-width: 92px !important;
+  min-height: 56px !important;
+  border-radius: 999px !important;
+  background: linear-gradient(135deg, #ff9f1a, #fb923c) !important;
+  border: 0 !important;
+  color: #111827 !important;
+  box-shadow: 0 12px 28px rgba(251, 146, 60, 0.32) !important;
+  font-weight: 800 !important;
+}
+.search-input-glass.hero-destination-search,
+html.dark-mode .search-input-glass.hero-destination-search {
+  max-width: 760px !important;
+  gap: 12px !important;
+  background: rgba(15, 23, 42, 0.86) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  border-radius: 999px !important;
+  padding: 10px !important;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.2) !important;
+  backdrop-filter: blur(14px) !important;
+}
+.search-input-glass.hero-destination-search .hero-destination-search-input,
+html.dark-mode
+  .search-input-glass.hero-destination-search
+  .hero-destination-search-input {
+  background: #07101f !important;
+  color: #dbeafe !important;
+  border-radius: 999px !important;
+  padding: 16px 20px !important;
+  margin-left: 0 !important;
+}
+.search-input-glass.hero-destination-search
+  .hero-destination-search-input::placeholder,
+html.dark-mode
+  .search-input-glass.hero-destination-search
+  .hero-destination-search-input::placeholder {
+  color: #9fb2cf !important;
+}
+.search-input-glass.hero-destination-search svg,
+html.dark-mode .search-input-glass.hero-destination-search svg {
+  stroke: #93c5fd !important;
+}
+.hero-destination-search-btn,
+html.dark-mode .hero-destination-search-btn {
+  background: linear-gradient(135deg, #ff9f1a, #fb923c) !important;
+  color: #111827 !important;
+  font-weight: 800 !important;
+  border: 0 !important;
+}
+html.dark-mode .app-main-nav .app-nav-link.active,
+html.dark-mode .app-main-nav a.app-nav-link.active,
+.app-main-nav .app-nav-link.active {
+  color: #064e3b !important;
+  font-weight: 900 !important;
+  text-shadow: none !important;
+  background: linear-gradient(135deg, #ecfdf5, #bbf7d0) !important;
+  border-color: rgba(134, 239, 172, 0.95) !important;
+}
+html.dark-mode .app-main-nav .app-nav-link:not(.active) {
+  color: #e2e8f0 !important;
+  font-weight: 700 !important;
+}
+
+/* ===== ULTIMATE FIX: prevent Tour AI search overlap ===== */
+.tour-ai-search-frame,
+.tour-ai-search-frame * {
+  box-sizing: border-box !important;
+}
+.tour-ai-search-frame .smart-search-hero-pill {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 88px 100px !important;
+  align-items: center !important;
+  gap: 10px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+.tour-ai-search-frame .smart-search-input-zone {
+  min-width: 0 !important;
+  width: 100% !important;
+  overflow: hidden !important;
+  flex: unset !important;
+}
+.tour-ai-search-frame .smart-search-input {
+  min-width: 0 !important;
+  width: 100% !important;
+  text-overflow: ellipsis !important;
+}
+.tour-ai-search-frame .smart-search-upload,
+.tour-ai-search-frame .smart-search-submit {
+  position: relative !important;
+  z-index: 2 !important;
+  flex: none !important;
+  white-space: nowrap !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+.tour-ai-search-frame .smart-search-upload {
+  width: 88px !important;
+  min-width: 88px !important;
+}
+.tour-ai-search-frame .smart-search-submit {
+  width: 100px !important;
+  min-width: 100px !important;
+}
+html.dark-mode .tour-ai-search-frame .smart-search-hero-pill {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+}
+html.dark-mode .tour-ai-search-frame .smart-search-input-zone {
+  background: #07101f !important;
+  border: 0 !important;
+}
+@media (max-width: 640px) {
+  .tour-ai-search-frame .smart-search-hero-pill {
+    grid-template-columns: minmax(0, 1fr) !important;
+    border-radius: 24px !important;
+  }
+  .tour-ai-search-frame .smart-search-upload,
+  .tour-ai-search-frame .smart-search-submit {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}
+
+/* ===== HOME-LIKE TOUR / DESTINATION HERO & SEARCH ===== */
+.tour-page-hero-like-home {
+  isolation: isolate;
+}
+.tour-page-hero-like-home .container {
+  max-width: 1180px;
+}
+.tour-page-hero-like-home .tour-page-hero-panel {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+.tour-page-hero-like-home .tour-page-hero-panel > div:first-child {
+  display: none !important;
+}
+.tour-page-hero-like-home .tour-ai-search-frame {
+  max-width: 760px !important;
+  margin: 0 auto !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.tour-page-hero-like-home .smart-search-hero-pill,
+.search-input-glass.hero-destination-search {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.68) !important;
+  border-radius: 999px !important;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.2) !important;
+  backdrop-filter: blur(14px) !important;
+}
+.tour-page-hero-like-home .smart-search-input-zone,
+.search-input-glass.hero-destination-search .hero-destination-search-input {
+  background: transparent !important;
+  color: #1f2937 !important;
+  box-shadow: none !important;
+}
+.tour-page-hero-like-home .smart-search-input,
+.search-input-glass.hero-destination-search input {
+  color: #1f2937 !important;
+  background: transparent !important;
+}
+.tour-page-hero-like-home .smart-search-input::placeholder,
+.search-input-glass.hero-destination-search input::placeholder {
+  color: #6b7280 !important;
+}
+.tour-page-hero-like-home .smart-search-input-zone svg,
+.search-input-glass.hero-destination-search > svg {
+  color: #64748b !important;
+  stroke: #64748b !important;
+}
+.tour-page-hero-like-home .smart-search-upload {
+  background: #f8fafc !important;
+  color: #334155 !important;
+  border-color: #e2e8f0 !important;
+}
+.tour-page-hero-like-home .smart-search-submit,
+.search-input-glass.hero-destination-search .hero-destination-search-btn {
+  background: linear-gradient(135deg, #ff9f1a, #fb923c) !important;
+  color: #111827 !important;
+  border: 0 !important;
+  box-shadow: 0 12px 28px rgba(251, 146, 60, 0.32) !important;
+  font-weight: 900 !important;
+}
+html.dark-mode .tour-page-hero-like-home .tour-page-hero-overlay,
+html.dark-mode .page-hero .tour-page-hero-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(7, 13, 24, 0.36) 0%,
+    rgba(7, 13, 24, 0.64) 100%
+  ) !important;
+}
+html.dark-mode .tour-page-hero-like-home .smart-search-hero-pill,
+html.dark-mode .search-input-glass.hero-destination-search {
+  background: rgba(15, 23, 42, 0.86) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.22) !important;
+}
+html.dark-mode .tour-page-hero-like-home .smart-search-input-zone,
+html.dark-mode
+  .search-input-glass.hero-destination-search
+  .hero-destination-search-input {
+  background: #07101f !important;
+  color: #dbeafe !important;
+}
+html.dark-mode .tour-page-hero-like-home .smart-search-input,
+html.dark-mode .search-input-glass.hero-destination-search input {
+  color: #dbeafe !important;
+}
+html.dark-mode .tour-page-hero-like-home .smart-search-input::placeholder,
+html.dark-mode .search-input-glass.hero-destination-search input::placeholder {
+  color: #9fb2cf !important;
+}
+html.dark-mode .tour-page-hero-like-home .smart-search-input-zone svg,
+html.dark-mode .search-input-glass.hero-destination-search > svg {
+  color: #93c5fd !important;
+  stroke: #93c5fd !important;
+}
+html.dark-mode .tour-page-hero-like-home .smart-search-upload {
+  background: rgba(15, 23, 42, 0.92) !important;
+  color: #dbeafe !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+}
+@media (max-width: 760px) {
+  .tour-page-hero-like-home .smart-search-hero-pill {
+    grid-template-columns: 1fr !important;
+    border-radius: 28px !important;
+  }
+  .tour-page-hero-like-home .smart-search-upload,
+  .tour-page-hero-like-home .smart-search-submit {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .search-input-glass.hero-destination-search {
+    flex-direction: column;
+    align-items: stretch !important;
+    border-radius: 28px !important;
+  }
+}
+
+/* ===== FINAL RESET: remove old dark boxed panel on Tour hero ===== */
+.tour-page-hero-like-home .travel-list-banner,
+.tour-page-hero-like-home .travel-list-banner.panel,
+.tour-page-hero-like-home .travel-list-banner > div,
+.tour-page-hero-like-home .travel-list-banner > div[style],
+.tour-page-hero-like-home .travel-list-banner [style*="maxWidth"],
+.tour-page-hero-like-home .travel-list-banner [style*="max-width"] {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+html.dark-mode .tour-page-hero-like-home .travel-list-banner,
+html.dark-mode .tour-page-hero-like-home .travel-list-banner.panel,
+html.dark-mode .tour-page-hero-like-home .travel-list-banner > div,
+html.dark-mode .tour-page-hero-like-home .travel-list-banner > div[style],
+html.dark-mode
+  .tour-page-hero-like-home
+  .travel-list-banner
+  [style*="maxWidth"],
+html.dark-mode
+  .tour-page-hero-like-home
+  .travel-list-banner
+  [style*="max-width"] {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+.tour-page-hero-like-home .travel-list-banner {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+}
+
+.tour-page-hero-like-home .travel-list-banner > div:last-child {
+  max-width: 920px !important;
+  margin: 0 auto !important;
+  text-align: center !important;
+  padding: 0 16px !important;
+}
+
+.tour-page-hero-like-home .travel-list-banner h2 {
+  max-width: 980px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  border: 0 !important;
+  outline: 0 !important;
+}
+
+.tour-page-hero-like-home .tour-ai-search-frame {
+  max-width: 820px !important;
+  margin: 28px auto 0 !important;
+}
+
+.tour-page-hero-like-home .smart-search-hero-pill {
+  max-width: 820px !important;
+  margin: 0 auto !important;
+}
+
+/* giữ phần KPI gọn như trang chủ, không nằm trong khung */
+.tour-page-hero-like-home .travel-list-kpis {
+  margin-top: 28px !important;
+}
+
+/* ===== FINAL FIX: Tour/Destination search readability + About dark text ===== */
+/* Gỡ lỗi selector cũ làm mất nền search ở trang Tour */
+.tour-page-hero-like-home .travel-list-banner .tour-ai-search-frame,
+.tour-page-hero-like-home .travel-list-banner .smart-search-hero-pill,
+.tour-page-hero-like-home .travel-list-banner .smart-search-input-zone,
+.tour-page-hero-like-home .travel-list-banner .smart-search-input,
+.tour-page-hero-like-home .travel-list-banner .smart-search-upload,
+.tour-page-hero-like-home .travel-list-banner .smart-search-submit {
+  outline: none !important;
+}
+
+/* Light mode: giống trang chủ, không bị chìm trên nền ảnh xám */
+html:not(.dark-mode)
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-hero-pill {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid rgba(255, 255, 255, 0.78) !important;
+  box-shadow: 0 24px 52px rgba(15, 23, 42, 0.24) !important;
+  backdrop-filter: blur(14px) saturate(130%) !important;
+}
+html:not(.dark-mode)
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-input-zone {
+  background: transparent !important;
+  color: #475569 !important;
+}
+html:not(.dark-mode)
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-input {
+  color: #0f172a !important;
+  font-weight: 600 !important;
+  opacity: 1 !important;
+}
+html:not(.dark-mode)
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-input::placeholder {
+  color: #475569 !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+}
+html:not(.dark-mode)
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-input-zone
+  svg {
+  color: #3b82f6 !important;
+  stroke: #3b82f6 !important;
+  opacity: 0.95 !important;
+}
+html:not(.dark-mode)
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-upload {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+  font-weight: 800 !important;
+  opacity: 1 !important;
+}
+html:not(.dark-mode)
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-submit {
+  background: linear-gradient(135deg, #ff9f1a, #fb923c) !important;
+  color: #111827 !important;
+  font-weight: 900 !important;
+  opacity: 1 !important;
+}
+
+/* Destination light mode: placeholder đậm hơn */
+html:not(.dark-mode) .search-input-glass.hero-destination-search {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid rgba(255, 255, 255, 0.78) !important;
+  box-shadow: 0 24px 52px rgba(15, 23, 42, 0.24) !important;
+}
+html:not(.dark-mode) .search-input-glass.hero-destination-search input,
+html:not(.dark-mode)
+  .search-input-glass.hero-destination-search
+  .hero-destination-search-input {
+  color: #0f172a !important;
+  font-weight: 600 !important;
+  opacity: 1 !important;
+}
+html:not(.dark-mode)
+  .search-input-glass.hero-destination-search
+  input::placeholder,
+html:not(.dark-mode)
+  .search-input-glass.hero-destination-search
+  .hero-destination-search-input::placeholder {
+  color: #475569 !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+}
+html:not(.dark-mode) .search-input-glass.hero-destination-search svg {
+  stroke: #3b82f6 !important;
+  color: #3b82f6 !important;
+  opacity: 0.95 !important;
+}
+
+/* Dark mode: không mất chữ trong search */
+html.dark-mode
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-hero-pill,
+html.dark-mode .search-input-glass.hero-destination-search {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border: 1px solid rgba(148, 163, 184, 0.3) !important;
+  box-shadow: 0 24px 52px rgba(0, 0, 0, 0.34) !important;
+}
+html.dark-mode
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-input-zone,
+html.dark-mode
+  .search-input-glass.hero-destination-search
+  .hero-destination-search-input {
+  background: #07101f !important;
+  color: #dbeafe !important;
+}
+html.dark-mode
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-input,
+html.dark-mode .search-input-glass.hero-destination-search input {
+  color: #f8fafc !important;
+  font-weight: 600 !important;
+  opacity: 1 !important;
+}
+html.dark-mode
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-input::placeholder,
+html.dark-mode .search-input-glass.hero-destination-search input::placeholder {
+  color: #b8c7df !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+}
+html.dark-mode
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-input-zone
+  svg,
+html.dark-mode .search-input-glass.hero-destination-search svg {
+  color: #93c5fd !important;
+  stroke: #93c5fd !important;
+  opacity: 1 !important;
+}
+html.dark-mode
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-upload {
+  background: rgba(15, 23, 42, 0.94) !important;
+  color: #f8fafc !important;
+  border: 1px solid rgba(148, 163, 184, 0.32) !important;
+  opacity: 1 !important;
+}
+html.dark-mode
+  .tour-page-hero-like-home
+  .travel-list-banner
+  .smart-search-submit,
+html.dark-mode
+  .search-input-glass.hero-destination-search
+  .hero-destination-search-btn {
+  background: linear-gradient(135deg, #ff9f1a, #fb923c) !important;
+  color: #111827 !important;
+  font-weight: 900 !important;
+}
+
+/* About page dark mode: không để chữ trắng nằm trên card trắng */
+html.dark-mode .about-flow-card,
+html.dark-mode .about-ecosystem-card {
+  background: rgba(15, 23, 42, 0.92) !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  box-shadow: 0 24px 58px rgba(0, 0, 0, 0.32) !important;
+}
+html.dark-mode .about-flow-card h2,
+html.dark-mode .about-ecosystem-card h3,
+html.dark-mode .about-ecosystem-card strong {
+  color: #f8fafc !important;
+}
+html.dark-mode .about-flow-card p,
+html.dark-mode .about-ecosystem-card span {
+  color: #cbd5e1 !important;
+}
+html.dark-mode .about-ecosystem-card .eco-row:hover {
+  background: rgba(30, 41, 59, 0.72) !important;
+}
+html.dark-mode .timeline-step:not(:last-child)::after {
+  background: rgba(148, 163, 184, 0.38) !important;
+}
+
+/* ===== Contact page dark-mode readability fix ===== */
+html.dark-mode .contact-main-section {
+  background: #0f172a !important;
+}
+html.dark-mode .contact-form-card {
+  background: rgba(15, 23, 42, 0.94) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34) !important;
+}
+html.dark-mode .contact-form-card h2,
+html.dark-mode .contact-form-card label {
+  color: #f8fafc !important;
+}
+html.dark-mode .contact-form-card p {
+  color: #cbd5e1 !important;
+}
+html.dark-mode .contact-input {
+  background: #07101f !important;
+  border-color: rgba(148, 163, 184, 0.26) !important;
+  color: #f8fafc !important;
+}
+html.dark-mode .contact-input::placeholder {
+  color: #93a8c5 !important;
+}
+html.dark-mode .contact-input:focus {
+  background: #0b1220 !important;
+  border-color: #42f2b8 !important;
+  box-shadow: 0 0 0 4px rgba(66, 242, 184, 0.12) !important;
+}
+html.dark-mode .contact-process-card {
+  background: rgba(15, 23, 42, 0.94) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34) !important;
+}
+html.dark-mode .contact-process-title {
+  color: #f8fafc !important;
+}
+html.dark-mode .contact-process-row-title {
+  color: #f8fafc !important;
+}
+html.dark-mode .contact-process-row-desc {
+  color: #cbd5e1 !important;
+}
+html.dark-mode .contact-process-row > div:first-child {
+  color: #ffffff !important;
+  box-shadow: 0 10px 24px rgba(66, 242, 184, 0.18) !important;
+}
+html.dark-mode .contact-direct-card {
+  background: linear-gradient(135deg, #111827, #1e293b) !important;
+  border: 1px solid rgba(148, 163, 184, 0.16) !important;
+}
+html.dark-mode .contact-direct-card h3,
+html.dark-mode .contact-direct-card strong {
+  color: #f8fafc !important;
+}
+html.dark-mode .contact-direct-card span {
+  color: #cbd5e1 !important;
+}

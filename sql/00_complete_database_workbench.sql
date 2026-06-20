@@ -1920,3 +1920,6 @@ WHERE u.role = 'user'
   AND v.status = 'active'
   AND v.start_date <= CURDATE()
   AND v.end_date >= CURDATE();
+  
+
+

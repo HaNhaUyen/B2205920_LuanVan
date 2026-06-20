@@ -357,7 +357,7 @@ export default function AboutPage() {
         >
           {/* Cột trái: Luồng sử dụng (Timeline Design) */}
           <article
-            className="section-card"
+            className="section-card about-flow-card"
             style={{
               padding: "48px 40px",
               background: "#fff",
@@ -446,7 +446,7 @@ export default function AboutPage() {
             }}
           >
             <div
-              className="booking-preview-card"
+              className="booking-preview-card about-ecosystem-card"
               style={{
                 padding: "36px 32px",
                 background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)",

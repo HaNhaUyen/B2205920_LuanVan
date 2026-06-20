@@ -192,7 +192,7 @@ export default function ContactPage() {
 
       {/* Main Content Area */}
       <section
-        className="section section-light"
+        className="section section-light contact-main-section"
         style={{ background: "#f8fafc", padding: "80px 0 100px" }}
       >
         <div
@@ -206,7 +206,7 @@ export default function ContactPage() {
         >
           {/* Cột trái: Form liên hệ cao cấp */}
           <article
-            className="section-card"
+            className="section-card contact-form-card"
             style={{
               padding: "48px 40px",
               background: "#fff",
@@ -398,6 +398,7 @@ export default function ContactPage() {
 
           {/* Cột phải: Thông tin liên hệ & Quy trình */}
           <aside
+            className="contact-side-stack"
             style={{
               display: "flex",
               flexDirection: "column",
@@ -408,6 +409,7 @@ export default function ContactPage() {
           >
             {/* Card 1: Thông tin trực tiếp */}
             <div
+              className="contact-direct-card"
               style={{
                 padding: "36px 32px",
                 background: "linear-gradient(135deg, #0f172a, #1e293b)",
@@ -509,6 +511,7 @@ export default function ContactPage() {
 
             {/* Card 2: Quy trình phản hồi */}
             <div
+              className="contact-process-card"
               style={{
                 padding: "36px 32px",
                 background: "#fff",
@@ -517,7 +520,10 @@ export default function ContactPage() {
                 border: "1px solid #f1f5f9",
               }}
             >
-              <h3 style={{ fontSize: "1.35rem", marginBottom: "24px" }}>
+              <h3
+                className="contact-process-title"
+                style={{ fontSize: "1.35rem", marginBottom: "24px" }}
+              >
                 Quy trình hỗ trợ của Travela
               </h3>
               <div style={{ display: "grid", gap: "22px" }}>
@@ -538,7 +544,11 @@ export default function ContactPage() {
                     desc: "Travela gửi giải pháp tour, báo giá hoặc hướng dẫn xử lý booking nhanh chóng.",
                   },
                 ].map((item) => (
-                  <div key={item.step} style={{ display: "flex", gap: "16px" }}>
+                  <div
+                    key={item.step}
+                    className="contact-process-row"
+                    style={{ display: "flex", gap: "16px" }}
+                  >
                     <div
                       style={{
                         width: "42px",
@@ -556,10 +566,16 @@ export default function ContactPage() {
                       {item.step}
                     </div>
                     <div>
-                      <strong style={{ display: "block", marginBottom: "4px" }}>
+                      <strong
+                        className="contact-process-row-title"
+                        style={{ display: "block", marginBottom: "4px" }}
+                      >
                         {item.title}
                       </strong>
-                      <span style={{ color: "#64748b", lineHeight: 1.6 }}>
+                      <span
+                        className="contact-process-row-desc"
+                        style={{ color: "#64748b", lineHeight: 1.6 }}
+                      >
                         {item.desc}
                       </span>
                     </div>

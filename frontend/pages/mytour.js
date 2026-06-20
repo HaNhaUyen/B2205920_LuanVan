@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Loading from "@/components/Loading";
 import PaymentModal from "@/components/PaymentModal";
+import Pagination from "@/components/Pagination";
 import { apiFetch } from "@/lib/api";
 import { API_URL } from "@/lib/config";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -29,6 +30,66 @@ function getStatusColor(status) {
 }
 
 const FALLBACK_TOUR_IMAGE = "/images/default-tour.jpg";
+const BOOKING_PAGE_SIZE = 3;
+const FAVORITE_PAGE_SIZE = 3;
+
+const TIER_META = {
+  bronze: { label: "Bronze", min: 0, next: "silver" },
+  silver: { label: "Silver", min: 500, next: "gold" },
+  gold: { label: "Gold", min: 1500, next: "diamond" },
+  diamond: { label: "Diamond", min: 3000, next: null },
+};
+
+function getTierProgress(user = {}) {
+  const tier = String(user?.memberTier || "bronze").toLowerCase();
+  const points = Number(user?.memberPoints || 0);
+  const currentMeta = TIER_META[tier] || TIER_META.bronze;
+  const nextTier = currentMeta.next;
+
+  if (!nextTier) {
+    return {
+      tier,
+      points,
+      currentLabel: currentMeta.label,
+      nextTier: null,
+      nextLabel: "",
+      remaining: 0,
+      percent: 100,
+      message: "Bạn đang ở hạng cao nhất của Travela.",
+    };
+  }
+
+  const nextMeta = TIER_META[nextTier];
+  const range = Math.max(nextMeta.min - currentMeta.min, 1);
+  const gained = Math.max(points - currentMeta.min, 0);
+  const remaining = Math.max(nextMeta.min - points, 0);
+
+  return {
+    tier,
+    points,
+    currentLabel: currentMeta.label,
+    nextTier,
+    nextLabel: nextMeta.label,
+    remaining,
+    percent: Math.min(Math.round((gained / range) * 100), 100),
+    message: `Bạn còn ${remaining.toLocaleString("vi-VN")} điểm để lên hạng ${nextMeta.label}.`,
+  };
+}
+
+function normalizeVoucherRow(row) {
+  return {
+    ...(row?.voucher || row || {}),
+    userVoucherStatus: row?.status || "available",
+  };
+}
+
+function formatVoucherDiscount(voucher) {
+  if (!voucher) return "";
+  if (voucher.discountType === "fixed") {
+    return `Giảm ${formatCurrency(voucher.discountValue || 0)}`;
+  }
+  return `Giảm ${Number(voucher.discountValue || 0)}%`;
+}
 
 function resolveImageUrl(value) {
   if (!value) return FALLBACK_TOUR_IMAGE;
@@ -318,6 +379,76 @@ function BookingCard({ booking, onPay, onCancel, cancellingId }) {
   );
 }
 
+function LoyaltyCard({ user, vouchers = [] }) {
+  const progress = getTierProgress(user);
+  const tierVouchers = vouchers
+    .map(normalizeVoucherRow)
+    .filter(
+      (voucher) =>
+        String(voucher.memberTier || "").toLowerCase() === progress.tier,
+    )
+    .slice(0, 3);
+
+  return (
+    <div className="section-card loyalty-card">
+      <div className="section-title">
+        <div>
+          <h2>Thành viên Travela</h2>
+          <p>Theo dõi điểm tích lũy và ưu đãi theo hạng.</p>
+        </div>
+      </div>
+
+      <div className="loyalty-rank-row">
+        <div>
+          <span>Hạng hiện tại</span>
+          <strong>{progress.currentLabel}</strong>
+        </div>
+        <div>
+          <span>Điểm</span>
+          <strong>{progress.points.toLocaleString("vi-VN")}</strong>
+        </div>
+      </div>
+
+      <div className="loyalty-progress">
+        <div style={{ width: `${progress.percent}%` }} />
+      </div>
+
+      <p className="loyalty-message">{progress.message}</p>
+
+      {progress.nextLabel ? (
+        <div className="next-tier-hint">
+          Voucher dành riêng cho hạng {progress.nextLabel} sẽ mở khi bạn lên
+          hạng.
+        </div>
+      ) : null}
+
+      <div className="tier-voucher-box">
+        <h3>Voucher dành riêng cho hạng {progress.currentLabel}</h3>
+        {tierVouchers.length ? (
+          <div className="tier-voucher-list">
+            {tierVouchers.map((voucher) => (
+              <div
+                key={String(voucher.id || voucher.code)}
+                className="tier-voucher-item"
+              >
+                <div>
+                  <strong>{voucher.code}</strong>
+                  <span>{voucher.name || formatVoucherDiscount(voucher)}</span>
+                </div>
+                <small>{formatVoucherDiscount(voucher)}</small>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-mini">
+            Hiện chưa có voucher khả dụng cho hạng {progress.currentLabel}.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function FavoriteCard({ item }) {
   const tour = getFavoriteTour(item);
   const destination = tour?.destination || {};
@@ -382,20 +513,40 @@ export default function MyTourPage() {
   const [bookings, setBookings] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [vouchers, setVouchers] = useState([]);
+  const [bookingPage, setBookingPage] = useState(1);
+  const [favoritePage, setFavoritePage] = useState(1);
   const [paymentState, setPaymentState] = useState(null);
   const [cancellingId, setCancellingId] = useState(null);
 
   const loadData = async () => {
     try {
-      const [bookingData, favoriteData, notificationData] = await Promise.all([
+      const [
+        bookingData,
+        favoriteData,
+        notificationData,
+        voucherData,
+        freshUser,
+      ] = await Promise.all([
         apiFetch("/bookings/me").catch(() => []),
         apiFetch("/favorites/me").catch(() => []),
         apiFetch("/notifications/me?limit=4").catch(() => []),
+        apiFetch("/vouchers/me").catch(() => []),
+        apiFetch("/auth/me").catch(() => null),
       ]);
 
       setBookings(Array.isArray(bookingData) ? bookingData : []);
       setFavorites(Array.isArray(favoriteData) ? favoriteData : []);
       setNotifications(Array.isArray(notificationData) ? notificationData : []);
+      setVouchers(Array.isArray(voucherData) ? voucherData : []);
+
+      const nextUser = freshUser?.user || freshUser;
+      if (nextUser?.id) {
+        setUser(nextUser);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("tourai_user", JSON.stringify(nextUser));
+        }
+      }
     } catch (error) {
       showToast(error.message || "Không thể tải dữ liệu.", "error");
     }
@@ -430,6 +581,49 @@ export default function MyTourPage() {
       favorites: favorites.length,
     };
   }, [bookings, favorites]);
+
+  const bookingTotalPages = Math.max(
+    1,
+    Math.ceil(bookings.length / BOOKING_PAGE_SIZE),
+  );
+  const favoriteTotalPages = Math.max(
+    1,
+    Math.ceil(favorites.length / FAVORITE_PAGE_SIZE),
+  );
+  const safeBookingPage = Math.min(
+    Math.max(Number(bookingPage || 1), 1),
+    bookingTotalPages,
+  );
+  const safeFavoritePage = Math.min(
+    Math.max(Number(favoritePage || 1), 1),
+    favoriteTotalPages,
+  );
+
+  const pagedBookings = useMemo(
+    () =>
+      bookings.slice(
+        (safeBookingPage - 1) * BOOKING_PAGE_SIZE,
+        safeBookingPage * BOOKING_PAGE_SIZE,
+      ),
+    [bookings, safeBookingPage],
+  );
+
+  const pagedFavorites = useMemo(
+    () =>
+      favorites.slice(
+        (safeFavoritePage - 1) * FAVORITE_PAGE_SIZE,
+        safeFavoritePage * FAVORITE_PAGE_SIZE,
+      ),
+    [favorites, safeFavoritePage],
+  );
+
+  useEffect(() => {
+    if (bookingPage > bookingTotalPages) setBookingPage(bookingTotalPages);
+  }, [bookingPage, bookingTotalPages]);
+
+  useEffect(() => {
+    if (favoritePage > favoriteTotalPages) setFavoritePage(favoriteTotalPages);
+  }, [favoritePage, favoriteTotalPages]);
 
   const handlePay = async (
     bookingId,
@@ -537,6 +731,90 @@ export default function MyTourPage() {
           background: #f8fafc;
           min-height: 100vh;
           padding-bottom: 60px;
+        }
+
+        html.dark-mode .mytour-page {
+          background: #0b1220;
+          color: #e5edf8;
+        }
+
+        html.dark-mode .dashboard-header {
+          background: linear-gradient(
+            135deg,
+            #08111f 0%,
+            #111827 48%,
+            #0f2537 100%
+          );
+          border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+        }
+
+        html.dark-mode .dashboard-header::after {
+          opacity: 0.22;
+          filter: saturate(0.8) contrast(1.05);
+        }
+
+        html.dark-mode .dashboard-header p {
+          color: #dbeafe;
+        }
+
+        html.dark-mode .stat-box,
+        html.dark-mode .section-card,
+        html.dark-mode .booking-card-modern,
+        html.dark-mode .fav-card {
+          background: rgba(15, 23, 42, 0.96);
+          border-color: rgba(148, 163, 184, 0.18);
+          box-shadow: 0 22px 55px rgba(0, 0, 0, 0.32);
+          color: #e5edf8;
+        }
+
+        html.dark-mode .stat-box span,
+        html.dark-mode .section-title p,
+        html.dark-mode .fav-content p,
+        html.dark-mode .notification-item p,
+        html.dark-mode .booking-info-grid .label {
+          color: #a9b9ce;
+        }
+
+        html.dark-mode .stat-box strong,
+        html.dark-mode .section-title h2,
+        html.dark-mode .booking-top h3,
+        html.dark-mode .booking-info-grid strong,
+        html.dark-mode .fav-content h4,
+        html.dark-mode .notification-item strong,
+        html.dark-mode .loyalty-rank-row strong,
+        html.dark-mode .tier-voucher-box h3 {
+          color: #f8fafc;
+        }
+
+        html.dark-mode .stat-icon {
+          background: rgba(34, 197, 94, 0.14);
+          color: #86efac;
+        }
+
+        html.dark-mode .booking-info-grid,
+        html.dark-mode .notification-item,
+        html.dark-mode .empty-box,
+        html.dark-mode .tier-voucher-item {
+          background: rgba(2, 6, 23, 0.48);
+          border-color: rgba(148, 163, 184, 0.18);
+          color: #dbeafe;
+        }
+
+        html.dark-mode .booking-cover,
+        html.dark-mode .fav-img {
+          background: #1e293b;
+        }
+
+        html.dark-mode .pickup-address {
+          background: rgba(251, 146, 60, 0.12);
+          border-color: rgba(251, 146, 60, 0.28);
+          color: #fed7aa;
+        }
+
+        html.dark-mode .guide-box {
+          background: rgba(59, 130, 246, 0.12);
+          border-color: rgba(59, 130, 246, 0.28);
+          color: #bfdbfe;
         }
 
         .dashboard-header {
@@ -826,6 +1104,135 @@ export default function MyTourPage() {
           border: 1px solid #fecaca;
         }
 
+        .loyalty-card {
+          overflow: hidden;
+        }
+
+        .loyalty-rank-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .loyalty-rank-row > div {
+          border-radius: 18px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          padding: 14px;
+        }
+
+        .loyalty-rank-row span {
+          display: block;
+          color: #64748b;
+          font-size: 13px;
+          margin-bottom: 4px;
+        }
+
+        .loyalty-rank-row strong {
+          color: #0f172a;
+          font-size: 20px;
+        }
+
+        .loyalty-progress {
+          height: 12px;
+          border-radius: 999px;
+          background: #e2e8f0;
+          overflow: hidden;
+          margin: 12px 0;
+        }
+
+        .loyalty-progress > div {
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(135deg, #22c55e, #84cc16);
+          box-shadow: 0 8px 20px rgba(34, 197, 94, 0.28);
+        }
+
+        .loyalty-message,
+        .next-tier-hint {
+          margin: 0 0 12px;
+          color: #475569;
+          line-height: 1.55;
+          font-size: 14px;
+        }
+
+        .next-tier-hint {
+          background: #fff7ed;
+          border: 1px solid #fed7aa;
+          color: #9a3412;
+          border-radius: 14px;
+          padding: 12px 14px;
+        }
+
+        .tier-voucher-box {
+          margin-top: 16px;
+        }
+
+        .tier-voucher-box h3 {
+          margin: 0 0 12px;
+          color: #0f172a;
+          font-size: 1rem;
+        }
+
+        .tier-voucher-list {
+          display: grid;
+          gap: 10px;
+        }
+
+        .tier-voucher-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 12px;
+        }
+
+        .tier-voucher-item strong,
+        .tier-voucher-item span {
+          display: block;
+        }
+
+        .tier-voucher-item strong {
+          color: #0f172a;
+          font-size: 14px;
+        }
+
+        .tier-voucher-item span,
+        .empty-mini {
+          color: #64748b;
+          font-size: 13px;
+        }
+
+        .tier-voucher-item small {
+          color: #16a34a;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+
+        html.dark-mode .loyalty-rank-row > div {
+          background: rgba(2, 6, 23, 0.48);
+          border-color: rgba(148, 163, 184, 0.18);
+        }
+
+        html.dark-mode .loyalty-message {
+          color: #cbd5e1;
+        }
+
+        html.dark-mode .next-tier-hint {
+          background: rgba(251, 146, 60, 0.12);
+          border-color: rgba(251, 146, 60, 0.28);
+          color: #fed7aa;
+        }
+
+        html.dark-mode .empty-mini,
+        html.dark-mode .tier-voucher-item span {
+          color: #a9b9ce;
+        }
+
         .side-stack {
           display: grid;
           gap: 22px;
@@ -1028,7 +1435,7 @@ export default function MyTourPage() {
 
               {bookings.length ? (
                 <div className="booking-list">
-                  {bookings.map((booking) => (
+                  {pagedBookings.map((booking) => (
                     <BookingCard
                       key={String(booking.id)}
                       booking={booking}
@@ -1037,6 +1444,12 @@ export default function MyTourPage() {
                       cancellingId={cancellingId}
                     />
                   ))}
+                  <Pagination
+                    compact
+                    page={safeBookingPage}
+                    totalPages={bookingTotalPages}
+                    onPageChange={setBookingPage}
+                  />
                 </div>
               ) : (
                 <div className="empty-box">
@@ -1046,6 +1459,8 @@ export default function MyTourPage() {
             </div>
 
             <aside className="side-stack">
+              <LoyaltyCard user={user} vouchers={vouchers} />
+
               <div className="section-card">
                 <div className="section-title">
                   <div>
@@ -1056,12 +1471,18 @@ export default function MyTourPage() {
 
                 {favorites.length ? (
                   <div className="favorites-grid">
-                    {favorites.map((item, index) => (
+                    {pagedFavorites.map((item, index) => (
                       <FavoriteCard
                         key={String(item.favoriteId || item.id || index)}
                         item={item}
                       />
                     ))}
+                    <Pagination
+                      compact
+                      page={safeFavoritePage}
+                      totalPages={favoriteTotalPages}
+                      onPageChange={setFavoritePage}
+                    />
                   </div>
                 ) : (
                   <div className="empty-box">

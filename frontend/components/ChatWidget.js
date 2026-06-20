@@ -116,9 +116,6 @@ export default function ChatWidget() {
                 <strong style={{ display: "block", fontSize: "0.98rem" }}>
                   Travela AI
                 </strong>
-                <span style={{ fontSize: 12, opacity: 0.92 }}>
-                  Tư vấn như Messenger/Zalo
-                </span>
               </div>
             </div>
             <button

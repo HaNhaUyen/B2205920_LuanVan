@@ -308,7 +308,7 @@ function VoucherCard({ voucher }) {
   );
 }
 
-function BookingCard({ booking }) {
+function BookingCard({ booking, onRefund }) {
   return (
     <div
       style={{
@@ -355,6 +355,25 @@ function BookingCard({ booking }) {
           <span>Giờ đón: {formatTime(booking.pickupTime)}</span>
         ) : null}
       </div>
+      {booking.id || booking.bookingId ? (
+        <button
+          type="button"
+          onClick={() => onRefund?.(booking)}
+          style={{
+            marginTop: 10,
+            border: "none",
+            background: "linear-gradient(135deg, #f97316, #fb923c)",
+            color: "#fff",
+            borderRadius: 999,
+            padding: "8px 12px",
+            fontSize: 12,
+            fontWeight: 800,
+            cursor: "pointer",
+          }}
+        >
+          Yêu cầu hoàn tiền
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -746,6 +765,59 @@ export default function AssistantPage({ embed: embedProp = false }) {
       }
     } catch (error) {
       // Khách chưa đăng nhập vẫn dùng được chat hiện tại, chỉ không tải được lịch sử server.
+    }
+  };
+
+  const requestRefundFromChat = async (booking) => {
+    const bookingId = booking?.id || booking?.bookingId;
+    if (!bookingId) {
+      showToast("Không tìm thấy mã booking để hoàn tiền.", "error");
+      return;
+    }
+
+    try {
+      const refund = await apiFetch("/refunds", {
+        method: "POST",
+        body: JSON.stringify({
+          bookingId,
+          reason: "Khách yêu cầu hoàn tiền từ Travela AI",
+        }),
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Mình đã gửi yêu cầu hoàn tiền cho booking ${booking.bookingCode || bookingId}. Số tiền đề nghị hoàn: ${formatCurrency(refund?.refundAmount || booking.amount)}. Trạng thái hiện tại: chờ admin duyệt.`,
+          time: formatMessageTime(),
+          cards: [],
+          vouchers: [],
+          bookings: [],
+          pickupPoints: [],
+          bookingCheckout: null,
+          suggestedReplies: [
+            "Kiểm tra booking của tôi",
+            "Chính sách hoàn tiền",
+          ],
+        },
+      ]);
+      showToast("Đã gửi yêu cầu hoàn tiền", "success");
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Booking này chưa đủ điều kiện hoàn tiền: ${error.message}`,
+          time: formatMessageTime(),
+          cards: [],
+          vouchers: [],
+          bookings: [],
+          pickupPoints: [],
+          bookingCheckout: null,
+          suggestedReplies: ["Chính sách hoàn tiền", "Liên hệ hỗ trợ"],
+        },
+      ]);
+      showToast(error.message, "error");
     }
   };
 
@@ -1350,6 +1422,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
                               <BookingCard
                                 key={`${index}-${booking.bookingCode}`}
                                 booking={booking}
+                                onRefund={requestRefundFromChat}
                               />
                             ))}
                           </div>

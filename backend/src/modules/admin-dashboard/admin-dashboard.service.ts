@@ -613,7 +613,7 @@ export class AdminDashboardService {
             severity: "warning",
             title: `${expiredHolds} booking đã quá hạn giữ chỗ`,
             message: "Nên chạy xử lý hết hạn hoặc kiểm tra các đơn còn treo.",
-            action: "Kiểm tra booking pending_payment quá hạn.",
+            action: "Kiểm tra booking quá hạn.",
           }
         : null,
       waitingConfirmations > 0

@@ -10,6 +10,17 @@ export class AuthRepository {
     return this.prisma.user.findUnique({ where: { email } });
   }
 
+  findUserByEmailOrName(identifier: string) {
+    return this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: identifier.toLowerCase() },
+          { fullName: { equals: identifier } },
+        ],
+      },
+    });
+  }
+
   findUserByGoogleId(googleId: string) {
     return this.prisma.user.findUnique({ where: { googleId } });
   }
