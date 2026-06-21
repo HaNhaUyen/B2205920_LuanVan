@@ -29,7 +29,7 @@ const resetKeys = [
   "bestDeal",
   "page",
 ];
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 6;
 
 // Danh sách ảnh tự động chuyển cho Slide Hero
 const heroImages = [
@@ -88,10 +88,31 @@ export default function ToursPage() {
     [router.query],
   );
 
-  const filteredTours = useMemo(
-    () => filterTours(tours, query),
-    [tours, query],
-  );
+  const filteredTours = useMemo(() => {
+    const base = filterTours(tours, query);
+
+    if (query.sort === "popular_desc") {
+      return [...base].sort(
+        (a, b) => Number(b.bookingCount || 0) - Number(a.bookingCount || 0),
+      );
+    }
+
+    if (query.sort === "favorite_desc") {
+      return [...base].sort(
+        (a, b) => Number(b.favoriteCount || 0) - Number(a.favoriteCount || 0),
+      );
+    }
+
+    if (query.sort === "remaining_asc") {
+      return [...base].sort(
+        (a, b) =>
+          Number(a.remainingSlots ?? 999999) -
+          Number(b.remainingSlots ?? 999999),
+      );
+    }
+
+    return base;
+  }, [tours, query]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTours.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(Number(query.page || 1), 1), totalPages);
@@ -566,6 +587,9 @@ export default function ToursPage() {
                   }}
                 >
                   <option value="recommended">Gợi ý phù hợp nhất</option>
+                  <option value="popular_desc">Bán chạy nhất</option>
+                  <option value="favorite_desc">Được yêu thích nhất</option>
+                  <option value="remaining_asc">Sắp hết chỗ</option>
                   <option value="price_asc">Giá thấp đến cao</option>
                   <option value="price_desc">Giá cao đến thấp</option>
                   <option value="rating_desc">Đánh giá cao nhất</option>

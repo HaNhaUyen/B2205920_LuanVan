@@ -157,6 +157,10 @@ export function getTourFilterOptions(destinations = []) {
 
   const sortOptions = [
     { value: "recommended", label: "Gợi ý phù hợp nhất" },
+    { value: "popular_desc", label: "Bán chạy nhất" },
+    { value: "favorite_desc", label: "Được yêu thích nhất" },
+    { value: "best_deal_desc", label: "Giá tốt nhất" },
+    { value: "remaining_asc", label: "Sắp hết chỗ" },
     { value: "price_asc", label: "Giá: Thấp đến cao" },
     { value: "price_desc", label: "Giá: Cao đến thấp" },
     { value: "rating_desc", label: "Đánh giá cao nhất" },
@@ -177,11 +181,42 @@ export function normalizeSearchText(value = "") {
     .trim();
 }
 
+function isDynamicBestSeller(tour) {
+  return Boolean(
+    tour.dynamicIsBestSeller ||
+    Number(tour.bookingCount || tour._count?.bookings || 0) >= 5,
+  );
+}
+
+function isDynamicFavorite(tour) {
+  return Boolean(
+    tour.dynamicIsFavorite ||
+    Number(tour.favoriteCount || tour._count?.favorites || 0) >= 5,
+  );
+}
+
+function isDynamicBestDeal(tour) {
+  return Boolean(tour.dynamicIsBestDeal);
+}
+
 function recommendedScore(tour) {
+  const bookingCount = toNumber(
+    tour.bookingCount || tour._count?.bookings || 0,
+  );
+  const favoriteCount = toNumber(
+    tour.favoriteCount || tour._count?.favorites || 0,
+  );
+  const bestSellerScore = isDynamicBestSeller(tour) ? 4 : 0;
+  const bestDealScore = isDynamicBestDeal(tour) ? 3 : 0;
+  const favoriteScore = isDynamicFavorite(tour) ? 2 : 0;
+
   return [
-    Number(Boolean(tour.isTrending)) * 4,
-    Number(Boolean(tour.isBestDeal)) * 3,
+    bestSellerScore,
+    bestDealScore,
+    favoriteScore,
     toNumber(tour.rating || 0),
+    bookingCount / 10,
+    favoriteCount / 20,
     -toNumber(tour.minPrice || 0) / 10000000,
   ].reduce((sum, value) => sum + value, 0);
 }
@@ -261,8 +296,8 @@ export function filterTours(tours = [], query = {}) {
     const matchesDuration =
       !durationMax || toNumber(tour.durationDays) <= durationMax;
     const matchesRating = !minRating || toNumber(tour.rating || 0) >= minRating;
-    const matchesFeatured = !featured || Boolean(tour.isTrending);
-    const matchesBestDeal = !bestDeal || Boolean(tour.isBestDeal);
+    const matchesFeatured = !featured || isDynamicBestSeller(tour);
+    const matchesBestDeal = !bestDeal || isDynamicBestDeal(tour);
 
     return [
       matchesKeyword,
@@ -282,6 +317,26 @@ export function filterTours(tours = [], query = {}) {
   });
 
   return [...filtered].sort((a, b) => {
+    if (sort === "popular_desc")
+      return (
+        toNumber(b.bookingCount || b._count?.bookings || 0) -
+        toNumber(a.bookingCount || a._count?.bookings || 0)
+      );
+    if (sort === "favorite_desc")
+      return (
+        toNumber(b.favoriteCount || b._count?.favorites || 0) -
+        toNumber(a.favoriteCount || a._count?.favorites || 0)
+      );
+    if (sort === "best_deal_desc")
+      return (
+        Number(isDynamicBestDeal(b)) - Number(isDynamicBestDeal(a)) ||
+        recommendedScore(b) - recommendedScore(a)
+      );
+    if (sort === "remaining_asc")
+      return (
+        toNumber(a.remainingSlots ?? 999999) -
+        toNumber(b.remainingSlots ?? 999999)
+      );
     if (sort === "price_asc")
       return toNumber(a.minPrice) - toNumber(b.minPrice);
     if (sort === "price_desc")

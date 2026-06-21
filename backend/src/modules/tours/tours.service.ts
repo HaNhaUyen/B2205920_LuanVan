@@ -25,6 +25,123 @@ function slugify(text = "") {
 export class ToursService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private getRemainingSlots(departure: any) {
+    if (!departure) return 0;
+    return Math.max(
+      0,
+      Number(departure.totalSlots || 0) -
+        Number(departure.bookedSlots || 0) -
+        Number(departure.heldSlots || 0),
+    );
+  }
+
+  private getTourPrice(tour: any) {
+    const departures = Array.isArray(tour.departures) ? tour.departures : [];
+    const departurePrices = departures
+      .map((item: any) => Number(item.adultPrice || 0))
+      .filter((value: number) => value > 0);
+
+    if (departurePrices.length) return Math.min(...departurePrices);
+    return Number(tour.basePriceAdult || tour.base_price_adult || 0);
+  }
+
+  private buildDestinationAveragePriceMap(tours: any[]) {
+    const groups: Record<string, { total: number; count: number }> = {};
+
+    for (const tour of tours || []) {
+      const destinationId = String(
+        tour.destinationId || tour.destination?.id || "",
+      );
+      const price = this.getTourPrice(tour);
+      if (!destinationId || !price) continue;
+
+      if (!groups[destinationId])
+        groups[destinationId] = { total: 0, count: 0 };
+      groups[destinationId].total += price;
+      groups[destinationId].count += 1;
+    }
+
+    return Object.fromEntries(
+      Object.entries(groups).map(([destinationId, item]) => [
+        destinationId,
+        item.count ? item.total / item.count : 0,
+      ]),
+    );
+  }
+
+  private async getDestinationAveragePrice(destinationId: bigint) {
+    const tours = await this.prisma.tour.findMany({
+      where: { destinationId, status: "published" },
+      include: {
+        departures: {
+          where: { status: { in: ["open", "full"] } },
+          orderBy: { departureDate: "asc" },
+          take: 3,
+        },
+      },
+    });
+
+    const prices = tours
+      .map((tour) => this.getTourPrice(tour))
+      .filter((value) => value > 0);
+
+    if (!prices.length) return 0;
+    return prices.reduce((sum, value) => sum + value, 0) / prices.length;
+  }
+
+  private enrichTourStats(
+    tour: any,
+    context: { destinationAveragePrice?: number } = {},
+  ) {
+    const departures = Array.isArray(tour.departures) ? tour.departures : [];
+    const nextDeparture =
+      departures.find((item: any) => item.status === "open") ||
+      departures[0] ||
+      null;
+
+    const remainingSlots = this.getRemainingSlots(nextDeparture);
+    const bookingCount = Array.isArray(tour.bookings)
+      ? tour.bookings.length
+      : Number(tour._count?.bookings || 0);
+    const favoriteCount = Array.isArray(tour.favorites)
+      ? tour.favorites.length
+      : Number(tour._count?.favorites || 0);
+
+    const tourPrice = this.getTourPrice(tour);
+    const destinationAveragePrice = Number(
+      context.destinationAveragePrice || 0,
+    );
+    const dynamicIsBestDeal =
+      tourPrice > 0 &&
+      destinationAveragePrice > 0 &&
+      tourPrice <= destinationAveragePrice * 0.85;
+
+    return {
+      ...tour,
+      nextDeparture,
+      remainingSlots,
+      bookingCount,
+      favoriteCount,
+      destinationAveragePrice,
+      dynamicIsBestSeller: bookingCount >= 5,
+      dynamicIsFavorite: favoriteCount >= 5,
+      dynamicIsBestDeal,
+    };
+  }
+
+  private enrichTourList(tours: any[]) {
+    const averagePriceMap = this.buildDestinationAveragePriceMap(tours || []);
+
+    return (tours || []).map((tour) => {
+      const destinationId = String(
+        tour.destinationId || tour.destination?.id || "",
+      );
+      return this.enrichTourStats(tour, {
+        destinationAveragePrice: Number(averagePriceMap[destinationId] || 0),
+      });
+    });
+  }
+
   private async buildUniqueCode(destinationId: number) {
     const prefixSource = await this.prisma.destination.findUnique({
       where: { id: BigInt(destinationId) },
@@ -74,8 +191,8 @@ export class ToursService {
     }
   }
 
-  findAllPublic() {
-    return this.prisma.tour.findMany({
+  async findAllPublic() {
+    const tours = await this.prisma.tour.findMany({
       where: { status: "published" },
       include: {
         destination: true,
@@ -102,9 +219,20 @@ export class ToursService {
           orderBy: { createdAt: "asc" },
         },
         reviews: { where: { status: "approved" }, select: { rating: true } },
+        bookings: {
+          where: {
+            bookingStatus: {
+              in: ["waiting_confirmation", "confirmed", "completed"],
+            },
+          },
+          select: { id: true },
+        },
+        favorites: { select: { id: true } },
       },
-      orderBy: [{ isTrending: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ createdAt: "desc" }],
     });
+
+    return this.enrichTourList(tours);
   }
 
   async adminList(query: any = {}) {
@@ -191,10 +319,22 @@ export class ToursService {
             { name: "asc" },
           ],
         },
+        bookings: {
+          where: {
+            bookingStatus: {
+              in: ["waiting_confirmation", "confirmed", "completed"],
+            },
+          },
+          select: { id: true },
+        },
+        favorites: { select: { id: true } },
       },
     });
     if (!tour) throw new NotFoundException("Tour not found");
-    return tour;
+    const destinationAveragePrice = await this.getDestinationAveragePrice(
+      tour.destinationId,
+    );
+    return this.enrichTourStats(tour, { destinationAveragePrice });
   }
 
   async findBySlug(slug: string) {
@@ -226,10 +366,22 @@ export class ToursService {
           where: { status: "active" },
           orderBy: [{ departureId: "asc" }, { pickupTime: "asc" }],
         },
+        bookings: {
+          where: {
+            bookingStatus: {
+              in: ["waiting_confirmation", "confirmed", "completed"],
+            },
+          },
+          select: { id: true },
+        },
+        favorites: { select: { id: true } },
       },
     });
     if (!tour) throw new NotFoundException("Tour not found");
-    return tour;
+    const destinationAveragePrice = await this.getDestinationAveragePrice(
+      tour.destinationId,
+    );
+    return this.enrichTourStats(tour, { destinationAveragePrice });
   }
 
   async findPickupPoints(tourId: number, departureId?: number) {

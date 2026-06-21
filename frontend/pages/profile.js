@@ -12,14 +12,26 @@ import {
   updateStoredUser,
 } from "@/lib/storage";
 import { mapImageUrl } from "@/lib/tour";
+import {
+  User,
+  Heart,
+  ShoppingBag,
+  RotateCcw,
+  Ticket,
+  Shield,
+  Camera,
+  X,
+  ChevronRight,
+  Info,
+} from "lucide-react";
 
 const tabs = [
-  { key: "info", label: "Thông tin cá nhân" },
-  { key: "favorites", label: "Tour yêu thích" },
-  { key: "bookings", label: "Tour đã đặt" },
-  { key: "refunds", label: "Hoàn tiền" },
-  { key: "vouchers", label: "Voucher của tôi" },
-  { key: "security", label: "Bảo mật" },
+  { key: "info", label: "Thông tin cá nhân", icon: User },
+  { key: "favorites", label: "Tour yêu thích", icon: Heart },
+  { key: "bookings", label: "Tour đã đặt", icon: ShoppingBag },
+  { key: "refunds", label: "Hoàn tiền", icon: RotateCcw },
+  { key: "vouchers", label: "Voucher của tôi", icon: Ticket },
+  { key: "security", label: "Bảo mật", icon: Shield },
 ];
 
 const tierLabel = {
@@ -29,24 +41,35 @@ const tierLabel = {
   diamond: "Kim cương",
 };
 
+const FAVORITE_PAGE_SIZE = 4;
+const BOOKING_PAGE_SIZE = 5;
+const REFUND_PAGE_SIZE = 5;
+const VOUCHER_PAGE_SIZE = 6;
+
 function StatusPill({ children, tone = "default" }) {
   const colors = {
-    success: ["#dcfce7", "#166534"],
-    warning: ["#fef3c7", "#92400e"],
-    danger: ["#fee2e2", "#991b1b"],
-    info: ["#dbeafe", "#1d4ed8"],
-    default: ["#e2e8f0", "#334155"],
+    success: ["#dcfce7", "#166534", "#bbf7d0"],
+    warning: ["#fef3c7", "#92400e", "#fde68a"],
+    danger: ["#fee2e2", "#991b1b", "#fecaca"],
+    info: ["#eff6ff", "#1d4ed8", "#bfdbfe"],
+    default: ["#f1f5f9", "#475569", "#e2e8f0"],
   };
-  const [bg, color] = colors[tone] || colors.default;
+
+  const [bg, color, border] = colors[tone] || colors.default;
+
   return (
     <span
       style={{
-        padding: "5px 10px",
-        borderRadius: 999,
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "4px 12px",
+        borderRadius: "9999px",
         background: bg,
         color,
-        fontWeight: 700,
-        fontSize: 12,
+        border: `1px solid ${border}`,
+        fontWeight: 600,
+        fontSize: "13px",
+        whiteSpace: "nowrap",
       }}
     >
       {children}
@@ -56,61 +79,191 @@ function StatusPill({ children, tone = "default" }) {
 
 function bookingTone(status) {
   if (["confirmed", "completed"].includes(status)) return "success";
-  if (["pending_payment", "waiting_confirmation"].includes(status))
+  if (["pending_payment", "waiting_confirmation"].includes(status)) {
     return "warning";
+  }
   if (["cancelled", "expired"].includes(status)) return "danger";
   return "default";
 }
 
+function PaginationBar({ page, totalPages, onPageChange }) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        gap: "10px",
+        marginTop: "28px",
+        paddingTop: "20px",
+        borderTop: "1px solid #e2e8f0",
+        flexWrap: "wrap",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => onPageChange(Math.max(1, page - 1))}
+        disabled={page === 1}
+        style={{
+          padding: "10px 16px",
+          borderRadius: "999px",
+          border: "1px solid #dbeafe",
+          background: page === 1 ? "#f8fafc" : "#fff",
+          color: page === 1 ? "#94a3b8" : "#2563eb",
+          fontWeight: 700,
+          cursor: page === 1 ? "not-allowed" : "pointer",
+        }}
+      >
+        Trước
+      </button>
+
+      {Array.from({ length: totalPages }).map((_, index) => {
+        const current = index + 1;
+        const active = current === page;
+
+        return (
+          <button
+            key={current}
+            type="button"
+            onClick={() => onPageChange(current)}
+            style={{
+              width: "38px",
+              height: "38px",
+              borderRadius: "50%",
+              border: active ? "1px solid #2563eb" : "1px solid #dbeafe",
+              background: active ? "#2563eb" : "#fff",
+              color: active ? "#fff" : "#2563eb",
+              fontWeight: 800,
+              cursor: "pointer",
+            }}
+          >
+            {current}
+          </button>
+        );
+      })}
+
+      <button
+        type="button"
+        onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+        disabled={page === totalPages}
+        style={{
+          padding: "10px 16px",
+          borderRadius: "999px",
+          border: "1px solid #dbeafe",
+          background: page === totalPages ? "#f8fafc" : "#fff",
+          color: page === totalPages ? "#94a3b8" : "#2563eb",
+          fontWeight: 700,
+          cursor: page === totalPages ? "not-allowed" : "pointer",
+        }}
+      >
+        Sau
+      </button>
+    </div>
+  );
+}
+
 const styles = {
+  container: {
+    maxWidth: "1200px",
+    margin: "40px auto",
+    padding: "0 20px",
+    display: "grid",
+    gridTemplateColumns: "280px minmax(0, 1fr)",
+    gap: "32px",
+    alignItems: "start",
+  },
+  card: {
+    background: "#fff",
+    borderRadius: "16px",
+    padding: "28px",
+    minWidth: 0,
+    boxShadow:
+      "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 15px -3px rgba(0, 0, 0, 0.05)",
+    border: "1px solid #f1f5f9",
+  },
+  menuButton: (isActive) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    width: "100%",
+    padding: "14px 20px",
+    borderRadius: "12px",
+    border: "none",
+    background: isActive ? "#eff6ff" : "transparent",
+    color: isActive ? "#2563eb" : "#475569",
+    fontWeight: isActive ? 600 : 500,
+    fontSize: "15px",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    textAlign: "left",
+  }),
+  input: {
+    width: "100%",
+    padding: "12px 16px",
+    borderRadius: "10px",
+    border: "1px solid #cbd5e1",
+    fontSize: "15px",
+    outline: "none",
+    transition: "border-color 0.2s, box-shadow 0.2s",
+    marginTop: "6px",
+  },
+  label: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#334155",
+    marginBottom: "4px",
+    display: "block",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "separate",
+    borderSpacing: "0",
+    marginTop: "16px",
+  },
+  th: {
+    background: "#f8fafc",
+    padding: "16px",
+    textAlign: "left",
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#64748b",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+    borderBottom: "1px solid #e2e8f0",
+    whiteSpace: "nowrap",
+  },
+  td: {
+    padding: "16px",
+    fontSize: "14px",
+    color: "#334155",
+    borderBottom: "1px solid #f1f5f9",
+    verticalAlign: "middle",
+  },
+  emptyState: {
+    textAlign: "center",
+    padding: "48px 20px",
+    color: "#64748b",
+  },
   refundOverlay: {
     position: "fixed",
     inset: 0,
     zIndex: 10000,
-    background: "rgba(15,23,42,.65)",
-    backdropFilter: "blur(6px)",
+    background: "rgba(15, 23, 42, 0.4)",
+    backdropFilter: "blur(4px)",
     display: "grid",
     placeItems: "center",
     padding: 18,
   },
   refundModal: {
-    width: "min(620px, 100%)",
+    width: "min(560px, 100%)",
     background: "#fff",
-    borderRadius: 24,
-    padding: 28,
-    boxShadow: "0 24px 80px rgba(15,23,42,.28)",
+    borderRadius: "20px",
+    padding: "32px",
+    boxShadow:
+      "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
     position: "relative",
-  },
-  refundClose: {
-    position: "absolute",
-    right: 18,
-    top: 18,
-    width: 36,
-    height: 36,
-    borderRadius: "50%",
-    border: 0,
-    background: "#e5e7eb",
-    color: "#0f172a",
-    fontSize: 24,
-    cursor: "pointer",
-  },
-  refundBadge: {
-    display: "inline-flex",
-    padding: "7px 13px",
-    borderRadius: 999,
-    background: "#eff6ff",
-    color: "#1d4ed8",
-    fontWeight: 800,
-    fontSize: 13,
-  },
-  refundInfoBox: {
-    display: "grid",
-    gap: 10,
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-    borderRadius: 18,
-    padding: 18,
-    margin: "20px 0",
   },
 };
 
@@ -119,15 +272,24 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("info");
   const [user, setUser] = useState(null);
+
   const [favorites, setFavorites] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [refunds, setRefunds] = useState([]);
   const [vouchers, setVouchers] = useState([]);
+
+  const [favoritePage, setFavoritePage] = useState(1);
+  const [bookingPage, setBookingPage] = useState(1);
+  const [refundPage, setRefundPage] = useState(1);
+  const [voucherPage, setVoucherPage] = useState(1);
+
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
   const [refundForm, setRefundForm] = useState({ bookingId: "", reason: "" });
   const [refundModalBooking, setRefundModalBooking] = useState(null);
+
   const [profileForm, setProfileForm] = useState({
     fullName: "",
     email: "",
@@ -135,6 +297,7 @@ export default function ProfilePage() {
     identityNumber: "",
     birthDate: "",
   });
+
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -145,12 +308,69 @@ export default function ProfilePage() {
     () => (user?.avatarUrl ? mapImageUrl(user.avatarUrl, API_URL) : ""),
     [user],
   );
-  const eligibleBookings = bookings.filter(
-    (b) =>
-      ["confirmed", "waiting_confirmation", "completed"].includes(
-        b.bookingStatus,
-      ) && !b.refundRequests?.some((r) => r.status === "pending"),
+
+  const favoriteTotalPages = Math.max(
+    1,
+    Math.ceil(favorites.length / FAVORITE_PAGE_SIZE),
   );
+
+  const bookingTotalPages = Math.max(
+    1,
+    Math.ceil(bookings.length / BOOKING_PAGE_SIZE),
+  );
+
+  const refundTotalPages = Math.max(
+    1,
+    Math.ceil(refunds.length / REFUND_PAGE_SIZE),
+  );
+
+  const voucherTotalPages = Math.max(
+    1,
+    Math.ceil(vouchers.length / VOUCHER_PAGE_SIZE),
+  );
+
+  const pagedFavorites = useMemo(() => {
+    const start = (favoritePage - 1) * FAVORITE_PAGE_SIZE;
+    return favorites.slice(start, start + FAVORITE_PAGE_SIZE);
+  }, [favorites, favoritePage]);
+
+  const pagedBookings = useMemo(() => {
+    const start = (bookingPage - 1) * BOOKING_PAGE_SIZE;
+    return bookings.slice(start, start + BOOKING_PAGE_SIZE);
+  }, [bookings, bookingPage]);
+
+  const pagedRefunds = useMemo(() => {
+    const start = (refundPage - 1) * REFUND_PAGE_SIZE;
+    return refunds.slice(start, start + REFUND_PAGE_SIZE);
+  }, [refunds, refundPage]);
+
+  const pagedVouchers = useMemo(() => {
+    const start = (voucherPage - 1) * VOUCHER_PAGE_SIZE;
+    return vouchers.slice(start, start + VOUCHER_PAGE_SIZE);
+  }, [vouchers, voucherPage]);
+
+  useEffect(() => {
+    if (favoritePage > favoriteTotalPages) setFavoritePage(favoriteTotalPages);
+    if (bookingPage > bookingTotalPages) setBookingPage(bookingTotalPages);
+    if (refundPage > refundTotalPages) setRefundPage(refundTotalPages);
+    if (voucherPage > voucherTotalPages) setVoucherPage(voucherTotalPages);
+  }, [
+    favoritePage,
+    favoriteTotalPages,
+    bookingPage,
+    bookingTotalPages,
+    refundPage,
+    refundTotalPages,
+    voucherPage,
+    voucherTotalPages,
+  ]);
+
+  useEffect(() => {
+    if (activeTab === "favorites") setFavoritePage(1);
+    if (activeTab === "bookings") setBookingPage(1);
+    if (activeTab === "refunds") setRefundPage(1);
+    if (activeTab === "vouchers") setVoucherPage(1);
+  }, [activeTab]);
 
   const syncUser = (nextUser) => {
     setUser(nextUser);
@@ -174,6 +394,7 @@ export default function ProfilePage() {
       apiFetch("/refunds/me").catch(() => []),
       apiFetch("/vouchers/me").catch(() => []),
     ]);
+
     syncUser(me);
     setFavorites(fav || []);
     setBookings(myBookings || []);
@@ -187,9 +408,11 @@ export default function ProfilePage() {
       window.location.href = "/login";
       return;
     }
+
     loadAll()
       .catch((error) => {
         showToast(error.message, "error");
+
         if (
           String(error.message || "")
             .toLowerCase()
@@ -208,6 +431,7 @@ export default function ProfilePage() {
   const saveProfile = async (event) => {
     event.preventDefault();
     setSavingProfile(true);
+
     try {
       const nextUser = await apiFetch("/auth/me", {
         method: "PATCH",
@@ -218,6 +442,7 @@ export default function ProfilePage() {
           birthDate: profileForm.birthDate || null,
         }),
       });
+
       syncUser(nextUser);
       showToast("Đã cập nhật hồ sơ cá nhân.", "success");
     } catch (error) {
@@ -229,9 +454,13 @@ export default function ProfilePage() {
 
   const changePassword = async (event) => {
     event.preventDefault();
-    if (passwordForm.newPassword !== passwordForm.confirmPassword)
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       return showToast("Mật khẩu xác nhận chưa khớp.", "error");
+    }
+
     setSavingPassword(true);
+
     try {
       await apiFetch("/auth/me/password", {
         method: "PATCH",
@@ -240,11 +469,13 @@ export default function ProfilePage() {
           newPassword: passwordForm.newPassword,
         }),
       });
+
       setPasswordForm({
         currentPassword: "",
         newPassword: "",
         confirmPassword: "",
       });
+
       showToast("Đã đổi mật khẩu thành công.", "success");
     } catch (error) {
       showToast(error.message, "error");
@@ -256,14 +487,18 @@ export default function ProfilePage() {
   const uploadAvatar = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
     setUploadingAvatar(true);
+
     try {
       const formData = new FormData();
       formData.append("file", file);
+
       const nextUser = await apiFetch("/auth/me/avatar", {
         method: "POST",
         body: formData,
       });
+
       syncUser(nextUser);
       showToast("Đã cập nhật ảnh đại diện.", "success");
     } catch (error) {
@@ -286,16 +521,20 @@ export default function ProfilePage() {
 
   const submitRefund = async (event) => {
     event.preventDefault();
-    if (!refundForm.bookingId || !refundForm.reason.trim())
+
+    if (!refundForm.bookingId || !refundForm.reason.trim()) {
       return showToast(
         "Vui lòng chọn booking và nhập lý do hoàn tiền.",
         "error",
       );
+    }
+
     try {
       await apiFetch("/refunds", {
         method: "POST",
         body: JSON.stringify(refundForm),
       });
+
       closeRefundModal();
       await loadAll();
       setActiveTab("refunds");
@@ -308,11 +547,13 @@ export default function ProfilePage() {
   const removeFavorite = async (tourId) => {
     try {
       await apiFetch(`/favorites/${tourId}`, { method: "DELETE" });
+
       setFavorites((items) =>
         items.filter(
           (item) => String(item.tourId || item.tour?.id) !== String(tourId),
         ),
       );
+
       showToast("Đã bỏ tour khỏi yêu thích.", "success");
     } catch (error) {
       showToast(error.message, "error");
@@ -323,90 +564,177 @@ export default function ProfilePage() {
   if (!user) return null;
 
   return (
-    <section className="section section-light">
-      <div
-        className="container"
-        style={{
-          display: "grid",
-          gap: 24,
-          gridTemplateColumns: "320px 1fr",
-          alignItems: "start",
-        }}
-      >
-        <article
-          className="section-card"
-          style={{ textAlign: "center", position: "sticky", top: 100 }}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={user.fullName}
-              style={{
-                width: 132,
-                height: 132,
-                borderRadius: "50%",
-                objectFit: "cover",
-                border: "4px solid #e2e8f0",
-              }}
-            />
-          ) : (
+    <section
+      style={{
+        backgroundColor: "#f8fafc",
+        minHeight: "100vh",
+        padding: "40px 0",
+      }}
+    >
+      <div style={styles.container}>
+        <aside>
+          <div
+            style={{
+              ...styles.card,
+              textAlign: "center",
+              position: "sticky",
+              top: "100px",
+            }}
+          >
             <div
-              className="console-avatar"
               style={{
-                width: 132,
-                height: 132,
-                fontSize: 42,
-                margin: "0 auto",
+                position: "relative",
+                width: "120px",
+                height: "120px",
+                margin: "0 auto 16px",
               }}
             >
-              {user.fullName?.charAt(0)?.toUpperCase() || "U"}
-            </div>
-          )}
-          <h2 style={{ marginBottom: 4 }}>{user.fullName}</h2>
-          <p className="muted">{user.email}</p>
-          <StatusPill tone="info">
-            Hạng {tierLabel[user.memberTier] || user.memberTier} ·{" "}
-            {user.memberPoints || 0} điểm
-          </StatusPill>
-          <label
-            className="btn btn-light"
-            style={{ cursor: "pointer", marginTop: 16 }}
-          >
-            {uploadingAvatar ? "Đang tải ảnh..." : "Chọn ảnh đại diện"}
-            <input
-              type="file"
-              hidden
-              accept="image/*"
-              onChange={uploadAvatar}
-            />
-          </label>
-          <div style={{ display: "grid", gap: 8, marginTop: 18 }}>
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                className={
-                  activeTab === tab.key ? "btn btn-primary" : "btn btn-light"
-                }
-                onClick={() => setActiveTab(tab.key)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </article>
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={user.fullName}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    borderRadius: "50%",
+                    objectFit: "cover",
+                    border: "4px solid #fff",
+                    boxShadow: "0 4px 10px rgba(0,0,0,0.08)",
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    borderRadius: "50%",
+                    background: "#e2e8f0",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "40px",
+                    fontWeight: "bold",
+                    color: "#64748b",
+                  }}
+                >
+                  {user.fullName?.charAt(0)?.toUpperCase() || "U"}
+                </div>
+              )}
 
-        <div className="section-stack">
+              <label
+                style={{
+                  position: "absolute",
+                  bottom: 4,
+                  right: 4,
+                  background: "#2563eb",
+                  color: "#fff",
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 6px rgba(37,99,235,0.4)",
+                }}
+                title="Thay đổi ảnh đại diện"
+              >
+                {uploadingAvatar ? <Loading size={16} /> : <Camera size={18} />}
+                <input
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  onChange={uploadAvatar}
+                  disabled={uploadingAvatar}
+                />
+              </label>
+            </div>
+
+            <h2
+              style={{
+                fontSize: "20px",
+                fontWeight: 700,
+                margin: "0 0 4px",
+                color: "#0f172a",
+              }}
+            >
+              {user.fullName}
+            </h2>
+
+            <p
+              style={{
+                margin: "0 0 16px",
+                color: "#64748b",
+                fontSize: "14px",
+              }}
+            >
+              {user.email}
+            </p>
+
+            <div style={{ marginBottom: "24px" }}>
+              <StatusPill tone="info">
+                Hạng {tierLabel[user.memberTier] || user.memberTier} •{" "}
+                {user.memberPoints || 0} điểm
+              </StatusPill>
+            </div>
+
+            <nav
+              style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+            >
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+
+                return (
+                  <button
+                    key={tab.key}
+                    style={styles.menuButton(activeTab === tab.key)}
+                    onClick={() => setActiveTab(tab.key)}
+                    onMouseEnter={(e) => {
+                      if (activeTab !== tab.key) {
+                        e.currentTarget.style.background = "#f1f5f9";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (activeTab !== tab.key) {
+                        e.currentTarget.style.background = "transparent";
+                      }
+                    }}
+                  >
+                    <Icon size={20} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </aside>
+
+        <main style={{ minWidth: 0 }}>
           {activeTab === "info" && (
-            <article className="section-card">
-              <h2>Thông tin cá nhân</h2>
-              <p className="muted">
-                Số điện thoại và CCCD là bắt buộc trước khi đặt tour. Ngày sinh
-                có thể để trống.
-              </p>
-              <form onSubmit={saveProfile} className="modal-form-grid two-col">
-                <div className="field">
-                  <label>Họ và tên</label>
+            <div style={styles.card}>
+              <h2
+                style={{
+                  fontSize: "22px",
+                  fontWeight: 700,
+                  marginBottom: "24px",
+                  color: "#0f172a",
+                }}
+              >
+                Thông tin cá nhân
+              </h2>
+
+              <form
+                onSubmit={saveProfile}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "24px",
+                }}
+              >
+                <div>
+                  <label style={styles.label}>Họ và tên</label>
                   <input
+                    style={styles.input}
                     value={profileForm.fullName}
                     onChange={(e) =>
                       setProfileForm((p) => ({
@@ -416,13 +744,24 @@ export default function ProfilePage() {
                     }
                   />
                 </div>
-                <div className="field">
-                  <label>Email</label>
-                  <input value={profileForm.email} readOnly />
-                </div>
-                <div className="field">
-                  <label>Số điện thoại *</label>
+
+                <div>
+                  <label style={styles.label}>Email (Chỉ xem)</label>
                   <input
+                    style={{
+                      ...styles.input,
+                      background: "#f8fafc",
+                      color: "#94a3b8",
+                    }}
+                    value={profileForm.email}
+                    readOnly
+                  />
+                </div>
+
+                <div>
+                  <label style={styles.label}>Số điện thoại *</label>
+                  <input
+                    style={styles.input}
                     value={profileForm.phone}
                     onChange={(e) =>
                       setProfileForm((p) => ({ ...p, phone: e.target.value }))
@@ -430,9 +769,11 @@ export default function ProfilePage() {
                     placeholder="Ví dụ: 09xxxxxxxx"
                   />
                 </div>
-                <div className="field">
-                  <label>CCCD *</label>
+
+                <div>
+                  <label style={styles.label}>Căn cước công dân *</label>
                   <input
+                    style={styles.input}
                     value={profileForm.identityNumber}
                     onChange={(e) =>
                       setProfileForm((p) => ({
@@ -443,10 +784,12 @@ export default function ProfilePage() {
                     placeholder="12 số CCCD"
                   />
                 </div>
-                <div className="field">
-                  <label>Ngày sinh, không bắt buộc</label>
+
+                <div>
+                  <label style={styles.label}>Ngày sinh (Không bắt buộc)</label>
                   <input
                     type="date"
+                    style={styles.input}
                     value={profileForm.birthDate}
                     onChange={(e) =>
                       setProfileForm((p) => ({
@@ -456,273 +799,863 @@ export default function ProfilePage() {
                     }
                   />
                 </div>
-                <div className="form-actions" style={{ gridColumn: "1 / -1" }}>
-                  <button className="btn btn-primary" disabled={savingProfile}>
-                    {savingProfile ? "Đang lưu..." : "Lưu thông tin"}
+
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginTop: "12px",
+                  }}
+                >
+                  <button
+                    className="btn btn-primary"
+                    style={{
+                      padding: "12px 32px",
+                      borderRadius: "10px",
+                      fontWeight: 600,
+                      background: "#2563eb",
+                      color: "#fff",
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                    disabled={savingProfile}
+                  >
+                    {savingProfile ? "Đang lưu..." : "Lưu thay đổi"}
                   </button>
                 </div>
               </form>
-            </article>
+            </div>
           )}
 
           {activeTab === "favorites" && (
-            <article className="section-card">
-              <h2>Tour yêu thích</h2>
+            <div style={styles.card}>
+              <h2
+                style={{
+                  fontSize: "22px",
+                  fontWeight: 700,
+                  marginBottom: "24px",
+                  color: "#0f172a",
+                }}
+              >
+                Tour yêu thích
+              </h2>
+
               {!favorites.length ? (
-                <p className="muted">Bạn chưa lưu tour yêu thích.</p>
-              ) : (
-                <div className="tour-grid-next">
-                  {favorites.map((item) => {
-                    const tour = item.tour || item;
-                    const tourId = tour.id || item.tourId;
-                    return (
-                      <div
-                        key={String(item.id || tourId)}
-                        className="section-card"
-                      >
-                        <h3>{tour.name}</h3>
-                        <p className="muted">
-                          {tour.shortDescription ||
-                            "Tour bạn đã lưu để xem lại."}
-                        </p>
-                        <div className="form-actions">
-                          <Link
-                            className="btn btn-primary"
-                            href={`/tour/${tour.slug || tourId}`}
-                          >
-                            Xem tour
-                          </Link>
-                          <button
-                            className="btn btn-light"
-                            onClick={() => removeFavorite(tourId)}
-                          >
-                            Bỏ yêu thích
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div style={styles.emptyState}>
+                  <Heart
+                    size={48}
+                    color="#cbd5e1"
+                    style={{ margin: "0 auto 16px" }}
+                  />
+                  <p>Bạn chưa lưu tour yêu thích nào.</p>
                 </div>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fill, minmax(280px, 1fr))",
+                      gap: "20px",
+                    }}
+                  >
+                    {pagedFavorites.map((item) => {
+                      const tour = item.tour || item;
+                      const tourId = tour.id || item.tourId;
+
+                      return (
+                        <div
+                          key={String(item.id || tourId)}
+                          style={{
+                            border: "1px solid #e2e8f0",
+                            borderRadius: "16px",
+                            padding: "20px",
+                            display: "flex",
+                            flexDirection: "column",
+                          }}
+                        >
+                          <h3
+                            style={{
+                              fontSize: "16px",
+                              fontWeight: 700,
+                              margin: "0 0 8px",
+                              color: "#0f172a",
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {tour.name}
+                          </h3>
+
+                          <p
+                            style={{
+                              color: "#64748b",
+                              fontSize: "14px",
+                              flexGrow: 1,
+                              margin: "0 0 20px",
+                            }}
+                          >
+                            {tour.shortDescription || "Tour đã lưu để xem lại."}
+                          </p>
+
+                          <div style={{ display: "flex", gap: "12px" }}>
+                            <Link
+                              href={`/tour/${tour.slug || tourId}`}
+                              style={{
+                                flex: 1,
+                                textAlign: "center",
+                                background: "#f1f5f9",
+                                color: "#0f172a",
+                                padding: "10px",
+                                borderRadius: "8px",
+                                textDecoration: "none",
+                                fontWeight: 600,
+                                fontSize: "14px",
+                              }}
+                            >
+                              Xem chi tiết
+                            </Link>
+
+                            <button
+                              onClick={() => removeFavorite(tourId)}
+                              style={{
+                                padding: "10px",
+                                background: "#fee2e2",
+                                color: "#ef4444",
+                                border: "none",
+                                borderRadius: "8px",
+                                cursor: "pointer",
+                              }}
+                              title="Bỏ yêu thích"
+                            >
+                              <X size={18} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <PaginationBar
+                    page={favoritePage}
+                    totalPages={favoriteTotalPages}
+                    onPageChange={setFavoritePage}
+                  />
+                </>
               )}
-            </article>
+            </div>
           )}
 
           {activeTab === "bookings" && (
-            <article className="section-card">
-              <h2>Tour đã đặt</h2>
+            <div style={styles.card}>
+              <h2
+                style={{
+                  fontSize: "22px",
+                  fontWeight: 700,
+                  marginBottom: "24px",
+                  color: "#0f172a",
+                }}
+              >
+                Lịch sử đặt tour
+              </h2>
+
               {!bookings.length ? (
-                <p className="muted">Bạn chưa có booking nào.</p>
+                <div style={styles.emptyState}>
+                  <ShoppingBag
+                    size={48}
+                    color="#cbd5e1"
+                    style={{ margin: "0 auto 16px" }}
+                  />
+                  <p>Bạn chưa có booking nào.</p>
+                </div>
               ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Mã đơn</th>
-                        <th>Tour</th>
-                        <th>Ngày đi</th>
-                        <th>HDV</th>
-                        <th>Số khách</th>
-                        <th>Tổng tiền</th>
-                        <th>Trạng thái</th>
-                        <th>Hoàn tiền</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bookings.map((b) => (
-                        <tr key={String(b.id)}>
-                          <td>{b.bookingCode}</td>
-                          <td>{b.tour?.name}</td>
-                          <td>{formatDate(b.departure?.departureDate)}</td>
-                          <td>
-                            {b.guideAssignments?.[0]?.guide?.fullName ||
-                              "Chưa chỉ định"}
-                          </td>
-                          <td>
-                            {Number(b.adultCount || 0) +
-                              Number(b.childCount || 0)}
-                          </td>
-                          <td>{formatCurrency(b.finalAmount)}</td>
-                          <td>
-                            <StatusPill tone={bookingTone(b.bookingStatus)}>
-                              {b.bookingStatus}
-                            </StatusPill>
-                          </td>
-                          <td>
-                            {b.refundRequests?.[0] ? (
+                <>
+                  <div
+                    style={{
+                      width: "100%",
+                      maxWidth: "100%",
+                      overflowX: "auto",
+                      overflowY: "hidden",
+                      borderRadius: "12px",
+                      border: "1px solid #e2e8f0",
+                    }}
+                  >
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th
+                            style={{
+                              ...styles.th,
+                              borderTopLeftRadius: "12px",
+                            }}
+                          >
+                            Mã đơn
+                          </th>
+                          <th style={styles.th}>Tour</th>
+                          <th style={styles.th}>Ngày đi</th>
+                          <th style={styles.th}>Số khách</th>
+                          <th style={styles.th}>Tổng tiền</th>
+                          <th style={styles.th}>Trạng thái</th>
+                          <th
+                            style={{
+                              ...styles.th,
+                              borderTopRightRadius: "12px",
+                            }}
+                          >
+                            Thao tác
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {pagedBookings.map((b) => (
+                          <tr key={String(b.id)}>
+                            <td style={{ ...styles.td, fontWeight: 600 }}>
+                              {b.bookingCode}
+                            </td>
+
+                            <td style={{ ...styles.td, maxWidth: "220px" }}>
+                              <div
+                                style={{
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                                title={b.tour?.name}
+                              >
+                                {b.tour?.name}
+                              </div>
+                            </td>
+
+                            <td style={styles.td}>
+                              {formatDate(b.departure?.departureDate)}
+                            </td>
+
+                            <td style={styles.td}>
+                              {Number(b.adultCount || 0) +
+                                Number(b.childCount || 0)}
+                            </td>
+
+                            <td
+                              style={{
+                                ...styles.td,
+                                fontWeight: 600,
+                                color: "#0f172a",
+                              }}
+                            >
+                              {formatCurrency(b.finalAmount)}
+                            </td>
+
+                            <td style={styles.td}>
+                              <StatusPill tone={bookingTone(b.bookingStatus)}>
+                                {b.bookingStatus}
+                              </StatusPill>
+                            </td>
+
+                            <td style={styles.td}>
+                              {b.refundRequests?.[0] ? (
+                                <StatusPill
+                                  tone={
+                                    b.refundRequests[0].status === "approved"
+                                      ? "success"
+                                      : b.refundRequests[0].status ===
+                                          "rejected"
+                                        ? "danger"
+                                        : "warning"
+                                  }
+                                >
+                                  {b.refundRequests[0].status}
+                                </StatusPill>
+                              ) : [
+                                  "confirmed",
+                                  "waiting_confirmation",
+                                  "completed",
+                                ].includes(b.bookingStatus) ? (
+                                <button
+                                  onClick={() => openRefundModal(b)}
+                                  style={{
+                                    padding: "8px 12px",
+                                    background: "#fff",
+                                    border: "1px solid #cbd5e1",
+                                    borderRadius: "8px",
+                                    fontSize: "13px",
+                                    fontWeight: 600,
+                                    color: "#334155",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Yêu cầu hoàn
+                                </button>
+                              ) : (
+                                <span style={{ color: "#94a3b8" }}>--</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <PaginationBar
+                    page={bookingPage}
+                    totalPages={bookingTotalPages}
+                    onPageChange={setBookingPage}
+                  />
+                </>
+              )}
+            </div>
+          )}
+
+          {activeTab === "refunds" && (
+            <div style={styles.card}>
+              <h2
+                style={{
+                  fontSize: "22px",
+                  fontWeight: 700,
+                  marginBottom: "24px",
+                  color: "#0f172a",
+                }}
+              >
+                Lịch sử hoàn tiền
+              </h2>
+
+              {!refunds.length ? (
+                <div style={styles.emptyState}>
+                  <RotateCcw
+                    size={48}
+                    color="#cbd5e1"
+                    style={{ margin: "0 auto 16px" }}
+                  />
+                  <p>Chưa có yêu cầu hoàn tiền nào được gửi.</p>
+                </div>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      width: "100%",
+                      maxWidth: "100%",
+                      overflowX: "auto",
+                      overflowY: "hidden",
+                      borderRadius: "12px",
+                      border: "1px solid #e2e8f0",
+                    }}
+                  >
+                    <table
+                      style={{
+                        ...styles.table,
+                        width: "max-content",
+                        minWidth: "1080px",
+                        tableLayout: "auto",
+                        marginTop: 0,
+                      }}
+                    >
+                      <thead>
+                        <tr>
+                          <th
+                            style={{
+                              ...styles.th,
+                              minWidth: "140px",
+                              borderTopLeftRadius: "12px",
+                            }}
+                          >
+                            Booking
+                          </th>
+                          <th style={{ ...styles.th, minWidth: "260px" }}>
+                            Tour
+                          </th>
+                          <th style={{ ...styles.th, minWidth: "200px" }}>
+                            Lý do
+                          </th>
+                          <th style={{ ...styles.th, minWidth: "130px" }}>
+                            Trạng thái
+                          </th>
+                          <th style={{ ...styles.th, minWidth: "260px" }}>
+                            Phản hồi Admin
+                          </th>
+                          <th
+                            style={{
+                              ...styles.th,
+                              minWidth: "150px",
+                              borderTopRightRadius: "12px",
+                            }}
+                          >
+                            Ngày gửi
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {pagedRefunds.map((r) => (
+                          <tr key={String(r.id)}>
+                            <td style={{ ...styles.td, fontWeight: 600 }}>
+                              {r.booking?.bookingCode || "--"}
+                            </td>
+
+                            <td style={styles.td}>
+                              <div
+                                style={{
+                                  fontWeight: 700,
+                                  color: "#0f172a",
+                                  lineHeight: 1.45,
+                                  whiteSpace: "normal",
+                                  wordBreak: "break-word",
+                                }}
+                                title={r.booking?.tour?.name}
+                              >
+                                {r.booking?.tour?.name || "--"}
+                              </div>
+                            </td>
+
+                            <td
+                              style={{
+                                ...styles.td,
+                                color: "#64748b",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  lineHeight: 1.5,
+                                  whiteSpace: "normal",
+                                  wordBreak: "break-word",
+                                }}
+                                title={r.reason}
+                              >
+                                {r.reason || "--"}
+                              </div>
+                            </td>
+
+                            <td style={styles.td}>
                               <StatusPill
                                 tone={
-                                  b.refundRequests[0].status === "approved"
+                                  r.status === "approved"
                                     ? "success"
-                                    : b.refundRequests[0].status === "rejected"
+                                    : r.status === "rejected"
                                       ? "danger"
                                       : "warning"
                                 }
                               >
-                                {b.refundRequests[0].status}
+                                {r.status}
                               </StatusPill>
-                            ) : [
-                                "confirmed",
-                                "waiting_confirmation",
-                                "completed",
-                              ].includes(b.bookingStatus) ? (
-                              <button
-                                className="btn btn-light"
-                                onClick={() => openRefundModal(b)}
-                              >
-                                Hoàn tiền
-                              </button>
-                            ) : (
-                              "--"
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </article>
-          )}
+                            </td>
 
-          {activeTab === "refunds" && (
-            <article className="section-card">
-              <h2>Lịch sử hoàn tiền</h2>
-              <p className="muted">
-                Tab này hiển thị thời gian gửi yêu cầu, nội dung hoàn tour và
-                trạng thái duyệt. Để gửi yêu cầu mới, vào tab{" "}
-                <strong>Tour đã đặt</strong> và bấm nút{" "}
-                <strong>Hoàn tiền</strong> kế bên đơn phù hợp.
-              </p>
-              <h3>Danh sách yêu cầu hoàn tiền</h3>
-              {!refunds.length ? (
-                <p className="muted">Chưa có yêu cầu hoàn tiền.</p>
-              ) : (
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>Booking</th>
-                      <th>Tour</th>
-                      <th>Lý do</th>
-                      <th>Trạng thái</th>
-                      <th>Phản hồi admin</th>
-                      <th>Ngày gửi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {refunds.map((r) => (
-                      <tr key={String(r.id)}>
-                        <td>{r.booking?.bookingCode}</td>
-                        <td>{r.booking?.tour?.name}</td>
-                        <td>{r.reason}</td>
-                        <td>
-                          <StatusPill
-                            tone={
-                              r.status === "approved"
-                                ? "success"
-                                : r.status === "rejected"
-                                  ? "danger"
-                                  : "warning"
-                            }
-                          >
-                            {r.status}
-                          </StatusPill>
-                        </td>
-                        <td>{r.adminNote || "--"}</td>
-                        <td>{formatDateTime(r.createdAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            <td
+                              style={{
+                                ...styles.td,
+                                color: r.adminNote ? "#334155" : "#94a3b8",
+                                fontStyle: r.adminNote ? "normal" : "italic",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  lineHeight: 1.55,
+                                  whiteSpace: "normal",
+                                  wordBreak: "break-word",
+                                  background: r.adminNote
+                                    ? "#f8fafc"
+                                    : "transparent",
+                                  border: r.adminNote
+                                    ? "1px solid #e2e8f0"
+                                    : "none",
+                                  borderRadius: "12px",
+                                  padding: r.adminNote ? "12px 14px" : 0,
+                                }}
+                              >
+                                {r.adminNote || "Đang chờ xử lý"}
+                              </div>
+                            </td>
+
+                            <td style={styles.td}>
+                              {formatDateTime(r.createdAt)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <PaginationBar
+                    page={refundPage}
+                    totalPages={refundTotalPages}
+                    onPageChange={setRefundPage}
+                  />
+                </>
               )}
-            </article>
+            </div>
           )}
 
           {activeTab === "vouchers" && (
-            <article className="section-card">
-              <h2>Voucher của tôi</h2>
+            <div style={styles.card}>
+              <h2
+                style={{
+                  fontSize: "22px",
+                  fontWeight: 700,
+                  marginBottom: "24px",
+                  color: "#0f172a",
+                }}
+              >
+                Voucher của tôi
+              </h2>
+
               {!vouchers.length ? (
-                <p className="muted">
-                  Bạn chưa có voucher nào. Khi tích điểm lên hạng, hệ thống có
-                  thể cấp voucher phù hợp.
-                </p>
-              ) : (
-                <div className="tour-grid-next">
-                  {vouchers.map((uv) => (
-                    <div key={String(uv.id)} className="section-card">
-                      <h3>{uv.voucher?.code}</h3>
-                      <p>
-                        <strong>{uv.voucher?.name}</strong>
-                      </p>
-                      <p className="muted">{uv.voucher?.description}</p>
-                      <p>
-                        Giảm:{" "}
-                        {uv.voucher?.discountType === "percent"
-                          ? `${uv.voucher?.discountValue}%`
-                          : formatCurrency(uv.voucher?.discountValue)}
-                      </p>
-                      <p>HSD: {formatDate(uv.voucher?.endDate)}</p>
-                      <StatusPill
-                        tone={uv.status === "available" ? "success" : "default"}
-                      >
-                        {uv.status}
-                      </StatusPill>
-                    </div>
-                  ))}
+                <div style={styles.emptyState}>
+                  <Ticket
+                    size={48}
+                    color="#cbd5e1"
+                    style={{ margin: "0 auto 16px" }}
+                  />
+                  <p>
+                    Bạn chưa có voucher nào. Hãy tích cực đặt tour để nhận thêm
+                    ưu đãi nhé!
+                  </p>
                 </div>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fill, minmax(280px, 1fr))",
+                      gap: "20px",
+                    }}
+                  >
+                    {pagedVouchers.map((uv) => (
+                      <div
+                        key={String(uv.id)}
+                        style={{
+                          border: "1px dashed #cbd5e1",
+                          borderRadius: "16px",
+                          padding: "20px",
+                          position: "relative",
+                          background: "#f8fafc",
+                        }}
+                      >
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: -8,
+                            right: 20,
+                            background: "#2563eb",
+                            color: "#fff",
+                            padding: "4px 12px",
+                            borderRadius: "12px",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            letterSpacing: "1px",
+                          }}
+                        >
+                          {uv.voucher?.code}
+                        </div>
+
+                        <h3
+                          style={{
+                            fontSize: "16px",
+                            fontWeight: 700,
+                            margin: "12px 0 8px",
+                            color: "#0f172a",
+                          }}
+                        >
+                          {uv.voucher?.name}
+                        </h3>
+
+                        <p
+                          style={{
+                            color: "#64748b",
+                            fontSize: "14px",
+                            margin: "0 0 16px",
+                          }}
+                        >
+                          {uv.voucher?.description}
+                        </p>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            borderTop: "1px dashed #cbd5e1",
+                            paddingTop: "16px",
+                          }}
+                        >
+                          <div>
+                            <p
+                              style={{
+                                margin: "0 0 4px",
+                                fontSize: "13px",
+                                color: "#64748b",
+                              }}
+                            >
+                              Mức giảm
+                            </p>
+
+                            <strong
+                              style={{ fontSize: "18px", color: "#ef4444" }}
+                            >
+                              {uv.voucher?.discountType === "percent"
+                                ? `${uv.voucher?.discountValue}%`
+                                : formatCurrency(uv.voucher?.discountValue)}
+                            </strong>
+                          </div>
+
+                          <div style={{ textAlign: "right" }}>
+                            <p
+                              style={{
+                                margin: "0 0 4px",
+                                fontSize: "13px",
+                                color: "#64748b",
+                              }}
+                            >
+                              Hạn sử dụng
+                            </p>
+
+                            <strong
+                              style={{ fontSize: "14px", color: "#0f172a" }}
+                            >
+                              {formatDate(uv.voucher?.endDate)}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <PaginationBar
+                    page={voucherPage}
+                    totalPages={voucherTotalPages}
+                    onPageChange={setVoucherPage}
+                  />
+                </>
               )}
-            </article>
+            </div>
           )}
 
           {activeTab === "security" && (
-            <article className="section-card">
-              <h2>Bảo mật tài khoản</h2>
-              <form onSubmit={changePassword} className="modal-form-grid">
-                <div className="field">
-                  <label>Mật khẩu hiện tại</label>
-                  <input
-                    type="password"
-                    value={passwordForm.currentPassword}
-                    onChange={(e) =>
-                      setPasswordForm((p) => ({
-                        ...p,
-                        currentPassword: e.target.value,
-                      }))
-                    }
-                  />
+            <div
+              style={{
+                ...styles.card,
+                padding: 0,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "0.9fr 1.1fr",
+                  minHeight: "430px",
+                }}
+              >
+                <div
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%)",
+                    padding: "36px",
+                    color: "#fff",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        width: "58px",
+                        height: "58px",
+                        borderRadius: "18px",
+                        background: "rgba(255,255,255,0.16)",
+                        border: "1px solid rgba(255,255,255,0.22)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginBottom: "22px",
+                      }}
+                    >
+                      <Shield size={28} />
+                    </div>
+
+                    <h2
+                      style={{
+                        fontSize: "26px",
+                        lineHeight: 1.25,
+                        fontWeight: 800,
+                        margin: "0 0 12px",
+                      }}
+                    >
+                      Bảo mật tài khoản
+                    </h2>
+
+                    <p
+                      style={{
+                        margin: 0,
+                        color: "rgba(255,255,255,0.78)",
+                        lineHeight: 1.7,
+                        fontSize: "15px",
+                      }}
+                    >
+                      Cập nhật mật khẩu định kỳ giúp bảo vệ thông tin cá nhân,
+                      lịch sử đặt tour và các voucher ưu đãi của bạn.
+                    </p>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: "28px",
+                      display: "grid",
+                      gap: "12px",
+                    }}
+                  >
+                    {[
+                      "Không chia sẻ mật khẩu cho người khác",
+                      "Sử dụng mật khẩu tối thiểu 6 ký tự",
+                      "Đăng xuất sau khi dùng máy tính công cộng",
+                    ].map((text) => (
+                      <div
+                        key={text}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          color: "rgba(255,255,255,0.9)",
+                          fontSize: "14px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: "8px",
+                            height: "8px",
+                            borderRadius: "50%",
+                            background: "#86efac",
+                            flexShrink: 0,
+                          }}
+                        />
+                        {text}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="field">
-                  <label>Mật khẩu mới</label>
-                  <input
-                    type="password"
-                    value={passwordForm.newPassword}
-                    onChange={(e) =>
-                      setPasswordForm((p) => ({
-                        ...p,
-                        newPassword: e.target.value,
-                      }))
-                    }
-                  />
+
+                <div
+                  style={{
+                    padding: "36px",
+                    background: "#fff",
+                  }}
+                >
+                  <div style={{ marginBottom: "26px" }}>
+                    <p
+                      style={{
+                        margin: "0 0 6px",
+                        color: "#2563eb",
+                        fontWeight: 800,
+                        fontSize: "13px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.7px",
+                      }}
+                    >
+                      Đổi mật khẩu
+                    </p>
+
+                    <h3
+                      style={{
+                        margin: 0,
+                        color: "#0f172a",
+                        fontSize: "22px",
+                        fontWeight: 800,
+                      }}
+                    >
+                      Thiết lập mật khẩu mới
+                    </h3>
+                  </div>
+
+                  <form
+                    onSubmit={changePassword}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "18px",
+                    }}
+                  >
+                    <div>
+                      <label style={styles.label}>Mật khẩu hiện tại</label>
+                      <input
+                        type="password"
+                        style={{
+                          ...styles.input,
+                          height: "48px",
+                          background: "#f8fafc",
+                        }}
+                        value={passwordForm.currentPassword}
+                        onChange={(e) =>
+                          setPasswordForm((p) => ({
+                            ...p,
+                            currentPassword: e.target.value,
+                          }))
+                        }
+                        placeholder="Nhập mật khẩu hiện tại"
+                      />
+                    </div>
+
+                    <div>
+                      <label style={styles.label}>Mật khẩu mới</label>
+                      <input
+                        type="password"
+                        style={{
+                          ...styles.input,
+                          height: "48px",
+                          background: "#f8fafc",
+                        }}
+                        value={passwordForm.newPassword}
+                        onChange={(e) =>
+                          setPasswordForm((p) => ({
+                            ...p,
+                            newPassword: e.target.value,
+                          }))
+                        }
+                        placeholder="Nhập mật khẩu mới"
+                      />
+                    </div>
+
+                    <div>
+                      <label style={styles.label}>Xác nhận mật khẩu mới</label>
+                      <input
+                        type="password"
+                        style={{
+                          ...styles.input,
+                          height: "48px",
+                          background: "#f8fafc",
+                        }}
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) =>
+                          setPasswordForm((p) => ({
+                            ...p,
+                            confirmPassword: e.target.value,
+                          }))
+                        }
+                        placeholder="Nhập lại mật khẩu mới"
+                      />
+                    </div>
+
+                    <button
+                      className="btn btn-primary"
+                      style={{
+                        marginTop: "10px",
+                        width: "100%",
+                        padding: "15px 24px",
+                        borderRadius: "14px",
+                        fontWeight: 800,
+                        background: "linear-gradient(135deg, #f59e0b, #fb923c)",
+                        color: "#fff",
+                        border: "none",
+                        cursor: "pointer",
+                        boxShadow: "0 14px 30px rgba(245, 158, 11, 0.25)",
+                      }}
+                      disabled={savingPassword}
+                    >
+                      {savingPassword ? "Đang đổi..." : "Cập nhật mật khẩu"}
+                    </button>
+                  </form>
                 </div>
-                <div className="field">
-                  <label>Xác nhận mật khẩu mới</label>
-                  <input
-                    type="password"
-                    value={passwordForm.confirmPassword}
-                    onChange={(e) =>
-                      setPasswordForm((p) => ({
-                        ...p,
-                        confirmPassword: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <button className="btn btn-primary" disabled={savingPassword}>
-                  {savingPassword ? "Đang đổi..." : "Đổi mật khẩu"}
-                </button>
-              </form>
-            </article>
+              </div>
+            </div>
           )}
-        </div>
+        </main>
       </div>
 
       {refundModalBooking && (
@@ -731,67 +1664,210 @@ export default function ProfilePage() {
             <button
               type="button"
               onClick={closeRefundModal}
-              style={styles.refundClose}
+              style={{
+                position: "absolute",
+                top: "20px",
+                right: "20px",
+                background: "#f1f5f9",
+                border: "none",
+                width: "36px",
+                height: "36px",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                color: "#64748b",
+              }}
             >
-              ×
+              <X size={20} />
             </button>
-            <div style={styles.refundBadge}>Yêu cầu hoàn tiền</div>
-            <h2 style={{ margin: "10px 0 8px", color: "#0f172a" }}>
-              Gửi lý do hoàn tour
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                color: "#2563eb",
+                fontWeight: 700,
+                marginBottom: "8px",
+              }}
+            >
+              <Info size={20} />
+              <span
+                style={{
+                  fontSize: "14px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                Yêu cầu hoàn tiền
+              </span>
+            </div>
+
+            <h2
+              style={{ fontSize: "24px", margin: "0 0 12px", color: "#0f172a" }}
+            >
+              Xác nhận hủy và hoàn tour
             </h2>
-            <p className="muted" style={{ marginTop: 0 }}>
-              Admin sẽ xem xét yêu cầu. Nếu được duyệt, hệ thống sẽ hoàn slot về
-              tour và cập nhật trạng thái hoàn tiền.
+
+            <p
+              style={{
+                color: "#64748b",
+                margin: "0 0 24px",
+                fontSize: "15px",
+                lineHeight: 1.5,
+              }}
+            >
+              Admin sẽ xem xét yêu cầu của bạn. Nếu được duyệt, hệ thống sẽ hoàn
+              slot về tour và cập nhật trạng thái hoàn tiền tương ứng với chính
+              sách của chúng tôi.
             </p>
 
-            <div style={styles.refundInfoBox}>
+            <div
+              style={{
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                borderRadius: "12px",
+                padding: "20px",
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+                marginBottom: "24px",
+              }}
+            >
               <div>
-                <span>Mã đơn</span>
-                <strong>{refundModalBooking.bookingCode}</strong>
+                <p
+                  style={{
+                    margin: "0 0 4px",
+                    fontSize: "13px",
+                    color: "#64748b",
+                  }}
+                >
+                  Mã đơn
+                </p>
+                <strong style={{ color: "#0f172a" }}>
+                  {refundModalBooking.bookingCode}
+                </strong>
               </div>
+
               <div>
-                <span>Tour</span>
-                <strong>{refundModalBooking.tour?.name || "--"}</strong>
-              </div>
-              <div>
-                <span>Ngày đi</span>
-                <strong>
+                <p
+                  style={{
+                    margin: "0 0 4px",
+                    fontSize: "13px",
+                    color: "#64748b",
+                  }}
+                >
+                  Ngày đi
+                </p>
+                <strong style={{ color: "#0f172a" }}>
                   {formatDate(refundModalBooking.departure?.departureDate)}
                 </strong>
               </div>
-              <div>
-                <span>Số tiền</span>
-                <strong>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <p
+                  style={{
+                    margin: "0 0 4px",
+                    fontSize: "13px",
+                    color: "#64748b",
+                  }}
+                >
+                  Tour
+                </p>
+                <strong style={{ color: "#0f172a" }}>
+                  {refundModalBooking.tour?.name || "--"}
+                </strong>
+              </div>
+
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  borderTop: "1px dashed #cbd5e1",
+                  paddingTop: "12px",
+                  marginTop: "4px",
+                }}
+              >
+                <p
+                  style={{
+                    margin: "0 0 4px",
+                    fontSize: "13px",
+                    color: "#64748b",
+                  }}
+                >
+                  Số tiền đã thanh toán
+                </p>
+                <strong style={{ color: "#ef4444", fontSize: "20px" }}>
                   {formatCurrency(refundModalBooking.finalAmount)}
                 </strong>
               </div>
             </div>
 
-            <form onSubmit={submitRefund} style={{ display: "grid", gap: 14 }}>
-              <div className="field">
-                <label>Lý do hoàn tiền / lý do không đi</label>
+            <form
+              onSubmit={submitRefund}
+              style={{ display: "flex", flexDirection: "column", gap: "20px" }}
+            >
+              <div>
+                <label style={styles.label}>
+                  Lý do hoàn tiền / Hủy chuyến{" "}
+                  <span style={{ color: "#ef4444" }}>*</span>
+                </label>
                 <textarea
-                  rows={5}
+                  style={{
+                    ...styles.input,
+                    resize: "vertical",
+                    minHeight: "100px",
+                  }}
                   value={refundForm.reason}
                   onChange={(e) =>
                     setRefundForm((p) => ({ ...p, reason: e.target.value }))
                   }
-                  placeholder="Ví dụ: gia đình có việc đột xuất, lý do sức khỏe, muốn hủy chuyến..."
+                  placeholder="Vui lòng cung cấp lý do cụ thể (VD: sức khỏe, công việc đột xuất...)"
                   required
                 />
               </div>
+
               <div
-                style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "12px",
+                  marginTop: "8px",
+                }}
               >
                 <button
                   type="button"
-                  className="btn btn-light"
                   onClick={closeRefundModal}
+                  style={{
+                    padding: "12px 24px",
+                    borderRadius: "10px",
+                    background: "#f1f5f9",
+                    color: "#334155",
+                    fontWeight: 600,
+                    border: "none",
+                    cursor: "pointer",
+                  }}
                 >
-                  Hủy
+                  Đóng lại
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Gửi yêu cầu
+
+                <button
+                  type="submit"
+                  style={{
+                    padding: "12px 24px",
+                    borderRadius: "10px",
+                    background: "#ef4444",
+                    color: "#fff",
+                    fontWeight: 600,
+                    border: "none",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  Gửi yêu cầu <ChevronRight size={18} />
                 </button>
               </div>
             </form>

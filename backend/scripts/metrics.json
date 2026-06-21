@@ -1,0 +1,51 @@
+{
+  "k": 10,
+  "totalTourCount": 141,
+  "result": [
+    {
+      "modelName": "Collaborative",
+      "precisionAt10": 0,
+      "recallAt10": 0,
+      "ndcgAt10": 0,
+      "coverage": 0.1064,
+      "diversity": 0.057,
+      "evaluatedUsers": 50
+    },
+    {
+      "modelName": "ContentBased",
+      "precisionAt10": 0.118,
+      "recallAt10": 0.24,
+      "ndcgAt10": 0.1452,
+      "coverage": 0.4681,
+      "diversity": 0.9565,
+      "evaluatedUsers": 50
+    },
+    {
+      "modelName": "MatrixFactorization",
+      "precisionAt10": 0.022,
+      "recallAt10": 0.044,
+      "ndcgAt10": 0.0281,
+      "coverage": 0.7021,
+      "diversity": 0.9263,
+      "evaluatedUsers": 50
+    },
+    {
+      "modelName": "DeepLearning",
+      "precisionAt10": 0.128,
+      "recallAt10": 0.264,
+      "ndcgAt10": 0.2731,
+      "coverage": 0.5035,
+      "diversity": 0.8379,
+      "evaluatedUsers": 50
+    },
+    {
+      "modelName": "Hybrid",
+      "precisionAt10": 0.128,
+      "recallAt10": 0.264,
+      "ndcgAt10": 0.273,
+      "coverage": 0.4468,
+      "diversity": 0.8574,
+      "evaluatedUsers": 50
+    }
+  ]
+}

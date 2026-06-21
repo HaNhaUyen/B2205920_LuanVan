@@ -39,6 +39,7 @@ model User {
   notificationReads    NotificationRead[]
   targetedNotifications Notification[]     @relation("NotificationTargetUser")
   chatConversations    ChatConversation[]
+  recommendationFactor RecommendationUserFactor?
 
   @@map("users")
 }
@@ -94,6 +95,8 @@ model Tour {
   reviews        Review[]
   favorites      FavoriteTour[]
   pickupPoints   TourPickupPoint[]
+  recommendationFactor RecommendationTourFactor?
+  embedding      TourEmbedding?
 
   @@map("tours")
 }
@@ -716,4 +719,52 @@ model RagDocument {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("rag_documents")
+}
+
+model RecommendationUserFactor {
+  userId    BigInt   @id @map("user_id") @db.UnsignedBigInt
+  vector    Json
+  trainedAt DateTime @default(now()) @map("trained_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("recommendation_user_factors")
+}
+
+model RecommendationTourFactor {
+  tourId    BigInt   @id @map("tour_id") @db.UnsignedBigInt
+  vector    Json
+  trainedAt DateTime @default(now()) @map("trained_at")
+
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@map("recommendation_tour_factors")
+}
+
+model TourEmbedding {
+  tourId         BigInt   @id @map("tour_id") @db.UnsignedBigInt
+  textEmbedding  Json?    @map("text_embedding")
+  imageEmbedding Json?    @map("image_embedding")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
+
+  @@map("tour_embeddings")
+}
+
+model RecommendationMetricRun {
+  id            BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  modelName     String   @map("model_name") @db.VarChar(100)
+  precisionAt10 Float?   @map("precision_at_10")
+  recallAt10    Float?   @map("recall_at_10")
+  ndcgAt10      Float?   @map("ndcg_at_10")
+  coverage      Float?
+  diversity     Float?
+  novelty       Float?
+  mapAt10       Float?   @map("map_at_10")
+  meta          Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([modelName, createdAt])
+  @@map("recommendation_metric_runs")
 }

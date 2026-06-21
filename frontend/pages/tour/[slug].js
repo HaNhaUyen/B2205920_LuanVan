@@ -134,6 +134,27 @@ export default function TourDetailPage() {
     (tour?.departures || []).find(
       (item) => String(item.id) === String(selectedDepartureId),
     ) || tour?.departures?.[0];
+
+  const selectedDepartureRemainingSlots = selectedDeparture
+    ? Math.max(
+        0,
+        Number(selectedDeparture.totalSlots || 0) -
+          Number(selectedDeparture.bookedSlots || 0) -
+          Number(selectedDeparture.heldSlots || 0),
+      )
+    : 0;
+
+  const requestedPassengerCount =
+    Number(bookingPassengers.adultCount || 0) +
+    Number(bookingPassengers.childCount || 0);
+
+  const isDepartureFull =
+    Boolean(selectedDeparture) && selectedDepartureRemainingSlots <= 0;
+
+  const isOverCapacity =
+    Boolean(selectedDeparture) &&
+    requestedPassengerCount > selectedDepartureRemainingSlots;
+
   const pickupOptions = selectedDeparture?.pickupPoints?.length
     ? selectedDeparture.pickupPoints
     : tour?.pickupPoints || [];
@@ -692,6 +713,28 @@ export default function TourDetailPage() {
                 >
                   {tour.hotelStars || 4}★ Khách sạn
                 </span>
+                {selectedDeparture ? (
+                  <span
+                    style={{
+                      padding: "6px 12px",
+                      background:
+                        selectedDepartureRemainingSlots <= 5
+                          ? "#fff7ed"
+                          : "#ecfdf5",
+                      color:
+                        selectedDepartureRemainingSlots <= 5
+                          ? "#c2410c"
+                          : "#15803d",
+                      borderRadius: "8px",
+                      fontSize: "0.85rem",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {selectedDepartureRemainingSlots > 0
+                      ? `Còn ${selectedDepartureRemainingSlots} chỗ`
+                      : "Hết chỗ"}
+                  </span>
+                ) : null}
               </div>
               <h1
                 style={{
@@ -1664,12 +1707,28 @@ export default function TourDetailPage() {
                         className="input-modern"
                         onChange={handleDepartureChange}
                       >
-                        {(tour.departures || []).map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {formatDate(item.departureDate)} ·{" "}
-                            {formatCurrency(item.adultPrice)}
-                          </option>
-                        ))}
+                        {(tour.departures || []).map((item) => {
+                          const remaining = Math.max(
+                            0,
+                            Number(item.totalSlots || 0) -
+                              Number(item.bookedSlots || 0) -
+                              Number(item.heldSlots || 0),
+                          );
+
+                          return (
+                            <option
+                              key={item.id}
+                              value={item.id}
+                              disabled={remaining <= 0}
+                            >
+                              {formatDate(item.departureDate)} ·{" "}
+                              {formatCurrency(item.adultPrice)} ·{" "}
+                              {remaining > 0
+                                ? `Còn ${remaining} chỗ`
+                                : "Hết chỗ"}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
@@ -1723,6 +1782,35 @@ export default function TourDetailPage() {
                         />
                       </div>
                     </div>
+
+                    {selectedDeparture && (
+                      <div
+                        style={{
+                          padding: "12px 14px",
+                          borderRadius: "14px",
+                          background:
+                            isOverCapacity || isDepartureFull
+                              ? "#fff7ed"
+                              : "#ecfdf5",
+                          border:
+                            isOverCapacity || isDepartureFull
+                              ? "1px solid #fed7aa"
+                              : "1px solid #bbf7d0",
+                          color:
+                            isOverCapacity || isDepartureFull
+                              ? "#c2410c"
+                              : "#15803d",
+                          fontWeight: 700,
+                          fontSize: "0.92rem",
+                        }}
+                      >
+                        {isDepartureFull
+                          ? "Lịch khởi hành này đã hết chỗ."
+                          : isOverCapacity
+                            ? `Chỉ còn ${selectedDepartureRemainingSlots} chỗ, vui lòng giảm số khách.`
+                            : `Lịch này còn ${selectedDepartureRemainingSlots} chỗ trống.`}
+                      </div>
+                    )}
 
                     <div>
                       <label
@@ -2208,6 +2296,27 @@ export default function TourDetailPage() {
                           style={{
                             display: "flex",
                             justifyContent: "space-between",
+                            marginBottom: "8px",
+                            fontSize: "0.95rem",
+                          }}
+                        >
+                          <span style={{ color: "#64748b" }}>Còn trống</span>
+                          <strong
+                            style={{
+                              color:
+                                selectedDepartureRemainingSlots <= 5
+                                  ? "#c2410c"
+                                  : "#15803d",
+                            }}
+                          >
+                            {selectedDepartureRemainingSlots} chỗ
+                          </strong>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
                             marginTop: "16px",
                             paddingTop: "16px",
                             borderTop: "1px dashed #cbd5e1",
@@ -2281,6 +2390,7 @@ export default function TourDetailPage() {
                         type="submit"
                         value="hold"
                         className="btn btn-primary"
+                        disabled={isDepartureFull || isOverCapacity}
                         style={{
                           padding: "16px",
                           borderRadius: "14px",
@@ -2290,15 +2400,20 @@ export default function TourDetailPage() {
                           fontSize: "1rem",
                           fontWeight: 700,
                           width: "100%",
-                          cursor: "pointer",
+                          cursor:
+                            isDepartureFull || isOverCapacity
+                              ? "not-allowed"
+                              : "pointer",
+                          opacity: isDepartureFull || isOverCapacity ? 0.6 : 1,
                         }}
                       >
-                        Giữ chỗ trước
+                        {isDepartureFull ? "Hết chỗ" : "Giữ chỗ trước"}
                       </button>
                       <button
                         type="submit"
                         value="pay_now"
                         className="btn btn-primary"
+                        disabled={isDepartureFull || isOverCapacity}
                         style={{
                           padding: "16px",
                           borderRadius: "14px",
@@ -2309,11 +2424,15 @@ export default function TourDetailPage() {
                           fontSize: "1rem",
                           fontWeight: 700,
                           width: "100%",
-                          cursor: "pointer",
+                          cursor:
+                            isDepartureFull || isOverCapacity
+                              ? "not-allowed"
+                              : "pointer",
+                          opacity: isDepartureFull || isOverCapacity ? 0.6 : 1,
                           boxShadow: "0 8px 20px rgba(114, 180, 75, 0.3)",
                         }}
                       >
-                        Thanh toán ngay
+                        {isDepartureFull ? "Hết chỗ" : "Thanh toán ngay"}
                       </button>
                     </div>
                     <p

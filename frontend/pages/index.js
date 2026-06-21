@@ -114,7 +114,7 @@ export default function HomePage() {
     Promise.all([
       apiFetch("/tours").catch(() => []),
       apiFetch("/destinations").catch(() => []),
-      apiFetch("/recommendations?limit=8").catch(() => []),
+      apiFetch("/recommendations?limit=8&debug=1").catch(() => []),
     ])
       .then(([tourData, destinationData, recommendationData]) => {
         if (!active) return;
