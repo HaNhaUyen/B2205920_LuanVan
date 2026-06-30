@@ -1,27 +1,25 @@
 import { formatCurrency, toNumber } from "./format";
 
-export function mapImageUrl(url, apiBase) {
-  if (!url) return "";
-
-  const value = String(url).trim();
+export function mapImageUrl(value, apiUrl) {
   if (!value) return "";
 
-  if (/^data:image\//i.test(value)) return value;
-  if (/^https?:\/\//i.test(value)) return value;
+  const raw = String(value).trim();
 
-  const cleanBase = String(apiBase || "")
-    .replace(/\/api\/?$/, "")
-    .replace(/\/$/, "");
+  if (!raw) return "";
 
-  const path = value.startsWith("/") ? value : `/${value}`;
-
-  if (path.startsWith("/uploads")) {
-    return cleanBase ? `${cleanBase}${path}` : path;
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
   }
 
-  if (path.startsWith("/images")) return path;
+  const base = String(
+    apiUrl || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api",
+  )
+    .replace(/\/$/, "")
+    .replace(/\/api$/, "");
 
-  return cleanBase ? `${cleanBase}${path}` : path;
+  const cleanPath = raw.startsWith("/") ? raw : `/${raw}`;
+
+  return `${base}${cleanPath}`;
 }
 
 export function pickTourImage(tour = {}) {
@@ -30,24 +28,41 @@ export function pickTourImage(tour = {}) {
   const images = Array.isArray(tour.images) ? tour.images : [];
 
   const coverMedia =
-    media.find((item) => item?.isCover || item?.is_cover) || media[0] || null;
+    media.find((item) => item?.isCover || item?.is_cover) ||
+    media.find(
+      (item) => item?.displayOrder === 1 || item?.display_order === 1,
+    ) ||
+    media[0] ||
+    null;
 
   return (
     tour.coverUrl ||
+    tour.cover_url ||
     tour.thumbnailUrl ||
+    tour.thumbnail_url ||
     tour.imageUrl ||
+    tour.image_url ||
+    tour.mainImage ||
+    tour.main_image ||
+    tour.image ||
     coverMedia?.fileUrl ||
     coverMedia?.file_url ||
+    coverMedia?.imageUrl ||
+    coverMedia?.image_url ||
     coverMedia?.url ||
+    coverMedia?.path ||
     imageUrls[0] ||
     images[0]?.fileUrl ||
     images[0]?.file_url ||
     images[0]?.imageUrl ||
     images[0]?.image_url ||
     images[0]?.url ||
+    images[0]?.path ||
     tour.destination?.coverImage ||
     tour.destination?.cover_image ||
-    "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=90"
+    tour.destination?.imageUrl ||
+    tour.destination?.image_url ||
+    ""
   );
 }
 
@@ -176,8 +191,10 @@ export function normalizeSearchText(value = "") {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
+    .replace(/Đ/g, "d")
     .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -221,15 +238,158 @@ function recommendedScore(tour) {
   ].reduce((sum, value) => sum + value, 0);
 }
 
-export function filterTours(tours = [], query = {}) {
-  const keyword = normalizeSearchText(query.search || "");
-  const destination = query.destination || "";
-  const imageDestinations = String(query.imageDestinations || "")
+function safeJsonParse(value, fallback = null) {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    try {
+      return JSON.parse(decodeURIComponent(String(value)));
+    } catch {
+      return fallback;
+    }
+  }
+}
+
+function parseImageDestinationScores(query = {}) {
+  const rawNames = String(query.imageDestinations || "")
     .split("|")
     .map((item) => item.trim())
     .filter(Boolean);
-  const normalizedImageDestinations = imageDestinations.map((item) =>
-    normalizeSearchText(item),
+
+  const rawScores = safeJsonParse(query.imageDestinationScores, []);
+  const fromScores = Array.isArray(rawScores)
+    ? rawScores
+        .map((item) => ({
+          name: String(
+            item?.destination || item?.name || item?.label || "",
+          ).trim(),
+          confidence: Number(item?.confidence || item?.score || 0),
+        }))
+        .filter((item) => item.name)
+    : [];
+
+  const source = fromScores.length
+    ? fromScores
+    : rawNames.map((name, index) => ({
+        name,
+        confidence: Math.max(0, 1 - index * 0.01),
+      }));
+
+  const map = new Map();
+  source.forEach((item, index) => {
+    const normalized = normalizeSearchText(item.name);
+    if (!normalized) return;
+    const old = map.get(normalized);
+    const confidence = Number.isFinite(item.confidence)
+      ? Number(item.confidence)
+      : 0;
+    if (!old || confidence > old.confidence) {
+      map.set(normalized, {
+        name: item.name,
+        normalized,
+        confidence,
+        rank: index,
+      });
+    }
+  });
+
+  return Array.from(map.values()).sort(
+    (a, b) => b.confidence - a.confidence || a.rank - b.rank,
+  );
+}
+
+function getTourDestinationText(tour = {}) {
+  return [
+    tour.destination?.name,
+    tour.destination?.province,
+    tour.name,
+    tour.slug,
+    tour.shortDescription,
+    tour.fullDescription,
+  ]
+    .filter(Boolean)
+    .map(normalizeSearchText)
+    .join(" ");
+}
+
+function getImageMatchForTour(tour = {}, imageScores = []) {
+  if (!imageScores.length) return null;
+
+  const destinationName = normalizeSearchText(tour.destination?.name || "");
+  const provinceName = normalizeSearchText(tour.destination?.province || "");
+  const searchableText = getTourDestinationText(tour);
+
+  for (const item of imageScores) {
+    const target = item.normalized;
+    if (!target) continue;
+
+    const exactDestination = destinationName === target;
+    const exactProvince = provinceName === target;
+    const fuzzyDestination =
+      destinationName.includes(target) || target.includes(destinationName);
+    const fuzzyProvince =
+      provinceName.includes(target) || target.includes(provinceName);
+    const fuzzyText = searchableText.includes(target);
+
+    if (
+      exactDestination ||
+      exactProvince ||
+      fuzzyDestination ||
+      fuzzyProvince ||
+      fuzzyText
+    ) {
+      return item;
+    }
+  }
+
+  return null;
+}
+
+function sortByNormalRule(a, b, sort) {
+  if (sort === "popular_desc")
+    return (
+      toNumber(b.bookingCount || b._count?.bookings || 0) -
+      toNumber(a.bookingCount || a._count?.bookings || 0)
+    );
+  if (sort === "favorite_desc")
+    return (
+      toNumber(b.favoriteCount || b._count?.favorites || 0) -
+      toNumber(a.favoriteCount || a._count?.favorites || 0)
+    );
+  if (sort === "best_deal_desc")
+    return (
+      Number(isDynamicBestDeal(b)) - Number(isDynamicBestDeal(a)) ||
+      recommendedScore(b) - recommendedScore(a)
+    );
+  if (sort === "remaining_asc")
+    return (
+      toNumber(a.remainingSlots ?? 999999) -
+      toNumber(b.remainingSlots ?? 999999)
+    );
+  if (sort === "price_asc") return toNumber(a.minPrice) - toNumber(b.minPrice);
+  if (sort === "price_desc") return toNumber(b.minPrice) - toNumber(a.minPrice);
+  if (sort === "rating_desc") return toNumber(b.rating) - toNumber(a.rating);
+  if (sort === "duration_asc")
+    return toNumber(a.durationDays) - toNumber(b.durationDays);
+  if (sort === "departure_asc") {
+    const aDate = a.departures?.[0]
+      ? new Date(a.departures[0].departureDate).getTime()
+      : Number.MAX_SAFE_INTEGER;
+    const bDate = b.departures?.[0]
+      ? new Date(b.departures[0].departureDate).getTime()
+      : Number.MAX_SAFE_INTEGER;
+    return aDate - bDate;
+  }
+  return recommendedScore(b) - recommendedScore(a);
+}
+
+export function filterTours(tours = [], query = {}) {
+  const keyword = normalizeSearchText(query.search || "");
+  const destination = query.destination || "";
+  const imageScores = parseImageDestinationScores(query);
+  const normalizedImageDestinations = imageScores.map(
+    (item) => item.normalized,
   );
   const province = query.province || "";
   const departureProvince = query.departureProvince || "";
@@ -246,115 +406,105 @@ export function filterTours(tours = [], query = {}) {
     query.bestDeal === "1" || query.bestDeal === 1 || query.bestDeal === true;
   const sort = query.sort || "recommended";
 
-  const filtered = tours.filter((tour) => {
-    const matchesKeyword =
-      !keyword ||
-      normalizeSearchText(
-        [
-          tour.code,
-          tour.name,
-          tour.slug,
-          tour.shortDescription,
-          tour.fullDescription,
-          tour.destination?.name,
-          tour.destination?.province,
-        ]
-          .filter(Boolean)
-          .join(" "),
-      ).includes(keyword);
-    const tourDestinationName = tour.destination?.name || "";
-    const matchesDestination = normalizedImageDestinations.length
-      ? normalizedImageDestinations.includes(
-          normalizeSearchText(tourDestinationName),
-        )
-      : !destination || tourDestinationName === destination;
-    const matchesProvince =
-      !province || tour.destination?.province === province;
-    const normalizedDepartureProvince = normalizeSearchText(departureProvince);
-    const pickupPoints = [
-      ...(Array.isArray(tour.pickupPoints) ? tour.pickupPoints : []),
-      ...(Array.isArray(tour.departures)
-        ? tour.departures.flatMap((dep) => dep.pickupPoints || [])
-        : []),
-    ];
-    const matchesDepartureProvince =
-      !departureProvince ||
-      pickupPoints.some((point) =>
-        normalizeSearchText(point?.province || "").includes(
-          normalizedDepartureProvince,
-        ),
-      );
-    const matchesTheme = !theme || tour.tourTheme === theme;
-    const matchesType = !type || tour.tourType === type;
-    const matchesMonth =
-      !month ||
-      (tour.departures || []).some(
-        (item) => new Date(item.departureDate).getMonth() + 1 === month,
-      );
-    const matchesMinPrice = !minPrice || toNumber(tour.minPrice) >= minPrice;
-    const matchesMaxPrice = !maxPrice || toNumber(tour.minPrice) <= maxPrice;
-    const matchesDuration =
-      !durationMax || toNumber(tour.durationDays) <= durationMax;
-    const matchesRating = !minRating || toNumber(tour.rating || 0) >= minRating;
-    const matchesFeatured = !featured || isDynamicBestSeller(tour);
-    const matchesBestDeal = !bestDeal || isDynamicBestDeal(tour);
+  const filtered = tours
+    .map((tour) => ({
+      tour,
+      imageMatch: getImageMatchForTour(tour, imageScores),
+    }))
+    .filter(({ tour, imageMatch }) => {
+      const matchesKeyword =
+        !keyword ||
+        normalizeSearchText(
+          [
+            tour.code,
+            tour.name,
+            tour.slug,
+            tour.shortDescription,
+            tour.fullDescription,
+            tour.destination?.name,
+            tour.destination?.province,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        ).includes(keyword);
 
-    return [
-      matchesKeyword,
-      matchesDestination,
-      matchesProvince,
-      matchesDepartureProvince,
-      matchesTheme,
-      matchesType,
-      matchesMonth,
-      matchesMinPrice,
-      matchesMaxPrice,
-      matchesDuration,
-      matchesRating,
-      matchesFeatured,
-      matchesBestDeal,
-    ].every(Boolean);
-  });
+      const tourDestinationName = tour.destination?.name || "";
+      const matchesImageDestination = normalizedImageDestinations.length
+        ? Boolean(imageMatch)
+        : true;
+      const matchesDestination = normalizedImageDestinations.length
+        ? matchesImageDestination
+        : !destination || tourDestinationName === destination;
+      const matchesProvince =
+        !province || tour.destination?.province === province;
+      const normalizedDepartureProvince =
+        normalizeSearchText(departureProvince);
+      const pickupPoints = [
+        ...(Array.isArray(tour.pickupPoints) ? tour.pickupPoints : []),
+        ...(Array.isArray(tour.departures)
+          ? tour.departures.flatMap((dep) => dep.pickupPoints || [])
+          : []),
+      ];
+      const matchesDepartureProvince =
+        !departureProvince ||
+        pickupPoints.some((point) =>
+          normalizeSearchText(point?.province || "").includes(
+            normalizedDepartureProvince,
+          ),
+        );
+      const matchesTheme = !theme || tour.tourTheme === theme;
+      const matchesType = !type || tour.tourType === type;
+      const matchesMonth =
+        !month ||
+        (tour.departures || []).some(
+          (item) => new Date(item.departureDate).getMonth() + 1 === month,
+        );
+      const matchesMinPrice = !minPrice || toNumber(tour.minPrice) >= minPrice;
+      const matchesMaxPrice = !maxPrice || toNumber(tour.minPrice) <= maxPrice;
+      const matchesDuration =
+        !durationMax || toNumber(tour.durationDays) <= durationMax;
+      const matchesRating =
+        !minRating || toNumber(tour.rating || 0) >= minRating;
+      const matchesFeatured = !featured || isDynamicBestSeller(tour);
+      const matchesBestDeal = !bestDeal || isDynamicBestDeal(tour);
 
-  return [...filtered].sort((a, b) => {
-    if (sort === "popular_desc")
-      return (
-        toNumber(b.bookingCount || b._count?.bookings || 0) -
-        toNumber(a.bookingCount || a._count?.bookings || 0)
-      );
-    if (sort === "favorite_desc")
-      return (
-        toNumber(b.favoriteCount || b._count?.favorites || 0) -
-        toNumber(a.favoriteCount || a._count?.favorites || 0)
-      );
-    if (sort === "best_deal_desc")
-      return (
-        Number(isDynamicBestDeal(b)) - Number(isDynamicBestDeal(a)) ||
-        recommendedScore(b) - recommendedScore(a)
-      );
-    if (sort === "remaining_asc")
-      return (
-        toNumber(a.remainingSlots ?? 999999) -
-        toNumber(b.remainingSlots ?? 999999)
-      );
-    if (sort === "price_asc")
-      return toNumber(a.minPrice) - toNumber(b.minPrice);
-    if (sort === "price_desc")
-      return toNumber(b.minPrice) - toNumber(a.minPrice);
-    if (sort === "rating_desc") return toNumber(b.rating) - toNumber(a.rating);
-    if (sort === "duration_asc")
-      return toNumber(a.durationDays) - toNumber(b.durationDays);
-    if (sort === "departure_asc") {
-      const aDate = a.departures?.[0]
-        ? new Date(a.departures[0].departureDate).getTime()
-        : Number.MAX_SAFE_INTEGER;
-      const bDate = b.departures?.[0]
-        ? new Date(b.departures[0].departureDate).getTime()
-        : Number.MAX_SAFE_INTEGER;
-      return aDate - bDate;
-    }
-    return recommendedScore(b) - recommendedScore(a);
-  });
+      return [
+        matchesKeyword,
+        matchesDestination,
+        matchesProvince,
+        matchesDepartureProvince,
+        matchesTheme,
+        matchesType,
+        matchesMonth,
+        matchesMinPrice,
+        matchesMaxPrice,
+        matchesDuration,
+        matchesRating,
+        matchesFeatured,
+        matchesBestDeal,
+      ].every(Boolean);
+    });
+
+  return filtered
+    .sort((a, b) => {
+      // Khi tìm bằng ảnh, luôn ưu tiên nhóm địa điểm có % cao hơn trước.
+      // Ví dụ AI trả: Tây Ninh 43%, Cần Thơ 9%, An Giang 8%
+      // thì tour Tây Ninh lên trước, rồi mới tới Cần Thơ, An Giang.
+      if (imageScores.length) {
+        const imageDiff =
+          Number(b.imageMatch?.confidence || 0) -
+          Number(a.imageMatch?.confidence || 0);
+        if (Math.abs(imageDiff) > 0.000001) return imageDiff;
+
+        const rankDiff =
+          Number(a.imageMatch?.rank ?? 9999) -
+          Number(b.imageMatch?.rank ?? 9999);
+        if (rankDiff) return rankDiff;
+      }
+
+      return sortByNormalRule(a.tour, b.tour, sort);
+    })
+    .map((item) => item.tour);
 }
 
 export function renderDeparturePreview(

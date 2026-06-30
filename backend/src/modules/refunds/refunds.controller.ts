@@ -13,6 +13,8 @@ import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RefundsService } from "./refunds.service";
+import { CreateRefundDto } from "./dto/create-refund.dto";
+import { ReviewRefundDto } from "./dto/review-refund.dto";
 
 @Controller("refunds")
 export class RefundsController {
@@ -20,7 +22,7 @@ export class RefundsController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  create(@CurrentUser() u: { userId: bigint }, @Body() dto: any) {
+  create(@CurrentUser() u: { userId: bigint }, @Body() dto: CreateRefundDto) {
     return this.service.create(u.userId, dto);
   }
 
@@ -43,7 +45,7 @@ export class RefundsController {
   review(
     @CurrentUser() u: { userId: bigint },
     @Param("id") id: string,
-    @Body() dto: any,
+    @Body() dto: ReviewRefundDto,
   ) {
     return this.service.review(BigInt(id), u.userId, dto);
   }

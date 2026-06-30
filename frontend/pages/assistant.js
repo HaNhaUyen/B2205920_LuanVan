@@ -745,6 +745,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
     bookings: msg.bookings || [],
     pickupPoints: msg.pickupPoints || [],
     bookingCheckout: msg.bookingCheckout || null,
+    refundRequest: msg.refundRequest || null,
     suggestedReplies: Array.isArray(msg.suggestedReplies)
       ? msg.suggestedReplies
       : [],
@@ -795,6 +796,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
           bookings: [],
           pickupPoints: [],
           bookingCheckout: null,
+          refundRequest: null,
           suggestedReplies: [
             "Kiểm tra booking của tôi",
             "Chính sách hoàn tiền",
@@ -814,6 +816,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
           bookings: [],
           pickupPoints: [],
           bookingCheckout: null,
+          refundRequest: null,
           suggestedReplies: ["Chính sách hoàn tiền", "Liên hệ hỗ trợ"],
         },
       ]);
@@ -936,6 +939,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
           bookings: result?.bookings || [],
           pickupPoints: result?.pickupPoints || [],
           bookingCheckout: result?.bookingCheckout || null,
+          refundRequest: result?.refundRequest || null,
           suggestedReplies: Array.isArray(result?.suggestedReplies)
             ? result.suggestedReplies
             : [],
@@ -956,6 +960,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
           bookings: [],
           pickupPoints: [],
           bookingCheckout: null,
+          refundRequest: null,
           suggestedReplies: [],
         },
       ]);
@@ -1254,18 +1259,21 @@ export default function AssistantPage({ embed: embedProp = false }) {
               flexDirection: "column",
             }}
           >
-            {!embed ? (
-              <header
-                style={{
-                  padding: embed ? "12px 14px" : "16px 20px",
-                  background: "linear-gradient(135deg, #16a34a, #22c55e)",
-                  color: "#fff",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <header
+              style={{
+                padding: embed ? "14px 16px" : "16px 20px",
+                background: embed
+                  ? "#f8fafc"
+                  : "linear-gradient(135deg, #16a34a, #22c55e)",
+                color: embed ? "#0f172a" : "#fff",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderBottom: embed ? "1px solid #e2e8f0" : "none",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {!embed ? (
                   <div
                     style={{
                       width: 38,
@@ -1279,30 +1287,81 @@ export default function AssistantPage({ embed: embedProp = false }) {
                   >
                     AI
                   </div>
-                  <div>
-                    <strong style={{ display: "block" }}>Travela AI</strong>
-                    <span style={{ fontSize: 12, opacity: 0.9 }}>
-                      Đang trực tuyến • trả lời theo dữ liệu hệ thống
-                    </span>
-                  </div>
+                ) : null}
+
+                <div>
+                  <strong
+                    style={{
+                      display: "block",
+                      fontSize: embed ? 18 : 16,
+                      color: embed ? "#0f172a" : "#fff",
+                    }}
+                  >
+                    Travela AI
+                  </strong>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: embed ? "#64748b" : "rgba(255,255,255,0.9)",
+                    }}
+                  >
+                    {embed
+                      ? "Hỏi nhanh tour, booking, voucher..."
+                      : "Đang trực tuyến • trả lời theo dữ liệu hệ thống"}
+                  </span>
                 </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <button
                   type="button"
                   onClick={clearConversation}
+                  title="Tạo cuộc hội thoại mới"
                   style={{
-                    border: "none",
-                    background: "rgba(255,255,255,0.16)",
-                    color: "#fff",
+                    border: embed ? "1px solid #cbd5e1" : "none",
+                    background: embed ? "#fff" : "rgba(255,255,255,0.16)",
+                    color: embed ? "#0f172a" : "#fff",
                     borderRadius: 999,
-                    padding: "8px 12px",
+                    padding: embed ? "9px 18px" : "8px 12px",
                     cursor: "pointer",
-                    fontWeight: 700,
+                    fontWeight: 800,
+                    boxShadow: embed
+                      ? "0 4px 12px rgba(15,23,42,0.08)"
+                      : "none",
                   }}
                 >
-                  Chat mới
+                  Mới
                 </button>
-              </header>
-            ) : null}
+
+                {embed ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.parent?.postMessage?.(
+                        { type: "TRAVELA_CHAT_CLOSE" },
+                        "*",
+                      );
+                      window.parent?.postMessage?.("TRAVELA_CHAT_CLOSE", "*");
+                    }}
+                    title="Đóng chatbot"
+                    style={{
+                      width: 38,
+                      height: 38,
+                      border: "none",
+                      borderRadius: 999,
+                      background: "#0f172a",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontSize: 22,
+                      fontWeight: 900,
+                      lineHeight: "38px",
+                    }}
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+            </header>
 
             <div
               style={{

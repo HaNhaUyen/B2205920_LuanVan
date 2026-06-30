@@ -10,9 +10,16 @@ import { ChatbotToolsService } from "./chatbot-tools.service";
 import { PrismaModule } from "../../prisma/prisma.module";
 import { BookingsModule } from "../bookings/bookings.module";
 import { PaymentsModule } from "../payments/payments.module";
+import { RefundsModule } from "../refunds/refunds.module";
 
 @Module({
-  imports: [PrismaModule, ConfigModule, BookingsModule, PaymentsModule],
+  imports: [
+    PrismaModule,
+    ConfigModule,
+    BookingsModule,
+    PaymentsModule,
+    RefundsModule,
+  ],
   controllers: [ChatbotController],
   providers: [
     ChatbotService,

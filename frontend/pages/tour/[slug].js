@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import Loading from "@/components/Loading";
 import TourCard from "@/components/TourCard";
+import TourReviewSection from "@/components/reviews/TourReviewSection";
 import PaymentModal from "@/components/PaymentModal";
 import { apiFetch } from "@/lib/api";
 import { API_URL } from "@/lib/config";
@@ -12,6 +13,54 @@ import { normalizeTour, mapImageUrl, renderDeparturePreview } from "@/lib/tour";
 import { getUser } from "@/lib/storage";
 import { useToast } from "@/components/ToastContext";
 import { trackBehavior } from "@/lib/behavior";
+
+function buildDefaultGuests(
+  adultCount = 1,
+  childCount = 0,
+  currentUser = null,
+  previous = [],
+) {
+  const rows = [];
+  const safeAdult = Math.max(1, Number(adultCount || 1));
+  const safeChild = Math.max(0, Number(childCount || 0));
+
+  for (let i = 0; i < safeAdult; i += 1) {
+    const old =
+      previous.find((item) => item.guestType === "adult" && item.index === i) ||
+      previous.filter((item) => item.guestType === "adult")[i];
+    rows.push({
+      index: i,
+      guestType: "adult",
+      fullName: old?.fullName || (i === 0 ? currentUser?.fullName || "" : ""),
+      dateOfBirth: old?.dateOfBirth || "",
+      gender: old?.gender || "",
+      idNumber:
+        old?.idNumber || (i === 0 ? currentUser?.identityNumber || "" : ""),
+    });
+  }
+
+  for (let i = 0; i < safeChild; i += 1) {
+    const old =
+      previous.find((item) => item.guestType === "child" && item.index === i) ||
+      previous.filter((item) => item.guestType === "child")[i];
+    rows.push({
+      index: i,
+      guestType: "child",
+      fullName: old?.fullName || "",
+      dateOfBirth: old?.dateOfBirth || "",
+      gender: old?.gender || "",
+      idNumber: old?.idNumber || "",
+    });
+  }
+
+  return rows;
+}
+
+function updateGuestAtIndex(rows, rowIndex, field, value) {
+  return rows.map((item, index) =>
+    index === rowIndex ? { ...item, [field]: value } : item,
+  );
+}
 
 function getFavoriteTourId(item) {
   return item?.tourId || item?.tour_id || item?.tour?.id || item?.id || "";
@@ -37,6 +86,7 @@ export default function TourDetailPage() {
     adultCount: 2,
     childCount: 0,
   });
+  const [bookingGuests, setBookingGuests] = useState([]);
   const [myVouchers, setMyVouchers] = useState([]);
   const [selectedVoucherCode, setSelectedVoucherCode] = useState("");
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
@@ -64,7 +114,9 @@ export default function TourDetailPage() {
           : [{ fileUrl: normalized.coverUrl }];
         setSelectedImage(mapImageUrl(gallery[0]?.fileUrl, API_URL));
         setSelectedDepartureId(normalized.departures?.[0]?.id || "");
-        setBookingPassengers({ adultCount: 2, childCount: 0 });
+        const initialPassengers = { adultCount: 2, childCount: 0 };
+        setBookingPassengers(initialPassengers);
+        setBookingGuests(buildDefaultGuests(2, 0, getUser(), []));
         setPreview(
           renderDeparturePreview(
             normalized,
@@ -134,27 +186,6 @@ export default function TourDetailPage() {
     (tour?.departures || []).find(
       (item) => String(item.id) === String(selectedDepartureId),
     ) || tour?.departures?.[0];
-
-  const selectedDepartureRemainingSlots = selectedDeparture
-    ? Math.max(
-        0,
-        Number(selectedDeparture.totalSlots || 0) -
-          Number(selectedDeparture.bookedSlots || 0) -
-          Number(selectedDeparture.heldSlots || 0),
-      )
-    : 0;
-
-  const requestedPassengerCount =
-    Number(bookingPassengers.adultCount || 0) +
-    Number(bookingPassengers.childCount || 0);
-
-  const isDepartureFull =
-    Boolean(selectedDeparture) && selectedDepartureRemainingSlots <= 0;
-
-  const isOverCapacity =
-    Boolean(selectedDeparture) &&
-    requestedPassengerCount > selectedDepartureRemainingSlots;
-
   const pickupOptions = selectedDeparture?.pickupPoints?.length
     ? selectedDeparture.pickupPoints
     : tour?.pickupPoints || [];
@@ -243,7 +274,21 @@ export default function TourDetailPage() {
     };
 
     setBookingPassengers(nextPassengers);
+    setBookingGuests((prev) =>
+      buildDefaultGuests(
+        nextPassengers.adultCount,
+        nextPassengers.childCount,
+        currentUser,
+        prev,
+      ),
+    );
     recalculatePreview(selectedDepartureId, nextPassengers);
+  };
+
+  const handleGuestChange = (index, field) => (event) => {
+    setBookingGuests((prev) =>
+      updateGuestAtIndex(prev, index, field, event.target.value),
+    );
   };
 
   const selectedVoucher = availableVouchers.find(
@@ -264,7 +309,7 @@ export default function TourDetailPage() {
     response?.data?.bookingId ||
     response?.data?.booking?.id;
 
-  const getPaymentSession = (checkout, booking, paymentMethod) => ({
+  const getPaymentSession = (checkout, booking) => ({
     bookingId: String(
       getBookingId(booking) ||
         checkout?.bookingId ||
@@ -285,7 +330,7 @@ export default function TourDetailPage() {
         booking?.final_amount ||
         0,
     ),
-    paymentMethod,
+    paymentMethod: "bank_transfer",
     transactionCode:
       checkout?.transactionCode ||
       checkout?.internalTransactionCode ||
@@ -327,19 +372,33 @@ export default function TourDetailPage() {
       "",
   });
 
-  const buildBookingPayload = (formData) => ({
-    departureId: Number(formData.get("departureId")),
-    adultCount: Number(formData.get("adultCount")),
-    childCount: Number(formData.get("childCount")),
-    contactName: formData.get("contactName"),
-    contactEmail: formData.get("contactEmail"),
-    contactPhone: formData.get("contactPhone"),
-    pickupPointId: formData.get("pickupPointId")
-      ? Number(formData.get("pickupPointId"))
-      : undefined,
-    voucherCode: String(formData.get("voucherCode") || "").trim() || undefined,
-    note: formData.get("note"),
-  });
+  const buildBookingPayload = (formData) => {
+    const adultCount = Number(formData.get("adultCount"));
+    const childCount = Number(formData.get("childCount"));
+    const guests = bookingGuests.map((guest) => ({
+      fullName: String(guest.fullName || "").trim(),
+      dateOfBirth: guest.dateOfBirth || undefined,
+      gender: guest.gender || undefined,
+      guestType: guest.guestType,
+      idNumber: String(guest.idNumber || "").trim() || undefined,
+    }));
+
+    return {
+      departureId: Number(formData.get("departureId")),
+      adultCount,
+      childCount,
+      guests,
+      contactName: formData.get("contactName"),
+      contactEmail: formData.get("contactEmail"),
+      contactPhone: formData.get("contactPhone"),
+      pickupPointId: formData.get("pickupPointId")
+        ? Number(formData.get("pickupPointId"))
+        : undefined,
+      voucherCode:
+        String(formData.get("voucherCode") || "").trim() || undefined,
+      note: formData.get("note"),
+    };
+  };
 
   const handleBooking = async (event) => {
     event.preventDefault();
@@ -352,8 +411,21 @@ export default function TourDetailPage() {
 
     const formData = new FormData(event.currentTarget);
     const payload = buildBookingPayload(formData);
+    const expectedGuests = payload.adultCount + payload.childCount;
+
+    if (payload.guests.length !== expectedGuests) {
+      showToast("Số form hành khách chưa khớp với số vé đã chọn.", "error");
+      return;
+    }
+
+    const missingGuest = payload.guests.find((guest) => !guest.fullName);
+    if (missingGuest) {
+      showToast("Vui lòng nhập họ tên cho tất cả hành khách.", "error");
+      return;
+    }
+
     const action = event.nativeEvent?.submitter?.value || "hold";
-    const paymentMethod = formData.get("paymentMethod") || "bank_transfer";
+    const paymentMethod = "bank_transfer";
 
     try {
       const booking = await apiFetch("/bookings", {
@@ -378,7 +450,7 @@ export default function TourDetailPage() {
         });
 
         setBookingResult(null);
-        setPaymentState(getPaymentSession(checkout, booking, paymentMethod));
+        setPaymentState(getPaymentSession(checkout, booking));
         showToast(
           `Đã tạo mã QR thanh toán cho booking ${booking.bookingCode || checkout.bookingCode || ""}`,
           "success",
@@ -410,9 +482,7 @@ export default function TourDetailPage() {
       return;
     }
 
-    const paymentMethod =
-      new FormData(event.currentTarget).get("paymentMethod") || "bank_transfer";
-
+    const paymentMethod = "bank_transfer";
     try {
       const checkout = await apiFetch("/payments/checkout", {
         method: "POST",
@@ -422,9 +492,7 @@ export default function TourDetailPage() {
         }),
       });
 
-      setPaymentState(
-        getPaymentSession(checkout, bookingResult, paymentMethod),
-      );
+      setPaymentState(getPaymentSession(checkout, bookingResult));
       showToast(
         "Đã tạo mã QR thanh toán. Vui lòng quét mã bằng điện thoại.",
         "success",
@@ -713,28 +781,6 @@ export default function TourDetailPage() {
                 >
                   {tour.hotelStars || 4}★ Khách sạn
                 </span>
-                {selectedDeparture ? (
-                  <span
-                    style={{
-                      padding: "6px 12px",
-                      background:
-                        selectedDepartureRemainingSlots <= 5
-                          ? "#fff7ed"
-                          : "#ecfdf5",
-                      color:
-                        selectedDepartureRemainingSlots <= 5
-                          ? "#c2410c"
-                          : "#15803d",
-                      borderRadius: "8px",
-                      fontSize: "0.85rem",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {selectedDepartureRemainingSlots > 0
-                      ? `Còn ${selectedDepartureRemainingSlots} chỗ`
-                      : "Hết chỗ"}
-                  </span>
-                ) : null}
               </div>
               <h1
                 style={{
@@ -1253,222 +1299,15 @@ export default function TourDetailPage() {
               </article>
             </div>
 
-            {/* Đánh giá */}
-            <article
-              className="section-card"
-              style={{
-                background: "#fff",
-                padding: "40px",
-                borderRadius: "24px",
-                border: "1px solid #f1f5f9",
-                boxShadow: "0 10px 30px rgba(0,0,0,0.03)",
+            {/* Đánh giá kiểu Shopee: lọc sao, xem thêm trong modal, upload hình ảnh */}
+            <TourReviewSection
+              tour={tour}
+              currentUser={currentUser}
+              onRequireLogin={() => {
+                showToast("Bạn cần đăng nhập để gửi đánh giá.", "error");
+                setTimeout(() => router.push("/login"), 300);
               }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "32px",
-                }}
-              >
-                <h2 style={{ fontSize: "1.8rem", color: "#0f172a", margin: 0 }}>
-                  Đánh giá từ khách hàng
-                </h2>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    background: "#fffbeb",
-                    color: "#d97706",
-                    padding: "8px 16px",
-                    borderRadius: "999px",
-                    fontWeight: 700,
-                  }}
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
-                  </svg>
-                  {tour.rating?.toFixed?.(1) || tour.rating} / 5
-                </div>
-              </div>
-
-              {(reviews || []).length ? (
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fill, minmax(300px, 1fr))",
-                    gap: "20px",
-                    marginBottom: "40px",
-                  }}
-                >
-                  {reviews.slice(0, 6).map((item) => (
-                    <div
-                      key={item.id}
-                      style={{
-                        background: "#f8fafc",
-                        padding: "24px",
-                        borderRadius: "20px",
-                        border: "1px solid #f1f5f9",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: "12px",
-                        }}
-                      >
-                        <strong style={{ color: "#0f172a" }}>
-                          {item.user?.fullName || "Khách hàng"}
-                        </strong>
-                        <div style={{ color: "#d97706" }}>
-                          {renderStars(item.rating)}
-                        </div>
-                      </div>
-                      <p
-                        style={{
-                          color: "#475569",
-                          fontSize: "0.95rem",
-                          lineHeight: 1.6,
-                          margin: "0 0 12px",
-                        }}
-                      >
-                        {item.comment}
-                      </p>
-                      {item.adminReply && (
-                        <div
-                          style={{
-                            background: "#fff",
-                            padding: "12px",
-                            borderRadius: "12px",
-                            border: "1px solid #e2e8f0",
-                            fontSize: "0.9rem",
-                          }}
-                        >
-                          <strong
-                            style={{
-                              color: "#72b44b",
-                              display: "block",
-                              marginBottom: "4px",
-                            }}
-                          >
-                            Travela phản hồi:
-                          </strong>
-                          <span style={{ color: "#475569" }}>
-                            {item.adminReply}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p style={{ color: "#64748b", marginBottom: "40px" }}>
-                  Chưa có đánh giá nào cho tour này.
-                </p>
-              )}
-
-              <div
-                style={{
-                  background: "#f8fafc",
-                  padding: "32px",
-                  borderRadius: "20px",
-                  border: "1px dashed #cbd5e1",
-                }}
-              >
-                <h3
-                  style={{
-                    margin: "0 0 20px",
-                    color: "#0f172a",
-                    fontSize: "1.2rem",
-                  }}
-                >
-                  Viết đánh giá của bạn
-                </h3>
-                <form
-                  onSubmit={submitReview}
-                  style={{ display: "grid", gap: "20px" }}
-                >
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        marginBottom: "8px",
-                        fontWeight: 600,
-                        color: "#334155",
-                      }}
-                    >
-                      Chất lượng tour
-                    </label>
-                    <select
-                      className="input-modern"
-                      value={reviewForm.rating}
-                      onChange={(e) =>
-                        setReviewForm((prev) => ({
-                          ...prev,
-                          rating: e.target.value,
-                        }))
-                      }
-                    >
-                      {[5, 4, 3, 2, 1].map((value) => (
-                        <option key={value} value={value}>
-                          {value} Sao
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        marginBottom: "8px",
-                        fontWeight: 600,
-                        color: "#334155",
-                      }}
-                    >
-                      Chia sẻ trải nghiệm
-                    </label>
-                    <textarea
-                      className="input-modern"
-                      rows={4}
-                      value={reviewForm.comment}
-                      onChange={(e) =>
-                        setReviewForm((prev) => ({
-                          ...prev,
-                          comment: e.target.value,
-                        }))
-                      }
-                      placeholder="HDV nhiệt tình, xe mới, khách sạn sát biển..."
-                      required
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={submittingReview}
-                    className="btn btn-primary"
-                    style={{
-                      padding: "14px",
-                      borderRadius: "12px",
-                      background: "linear-gradient(135deg, #72b44b, #5a9d34)",
-                      color: "#fff",
-                      border: "none",
-                      fontWeight: 700,
-                      cursor: submittingReview ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {submittingReview ? "Đang gửi..." : "Gửi đánh giá"}
-                  </button>
-                </form>
-              </div>
-            </article>
+            />
           </div>
 
           {/* CỘT PHẢI: Sticky Booking Widget */}
@@ -1566,52 +1405,48 @@ export default function TourDetailPage() {
                   style={{ display: "grid", gap: "20px" }}
                 >
                   <div>
-                    <label
-                      style={{
-                        display: "block",
-                        marginBottom: "12px",
-                        fontWeight: 600,
-                        color: "#1f2937",
-                      }}
-                    >
-                      Chọn phương thức thanh toán
-                    </label>
-                    <div style={{ display: "grid", gap: "12px" }}>
-                      {[
-                        ["bank_transfer", "SePay / MBBank VietQR"],
-                        ["vnpay", "VNPay"],
-                        ["card", "Thẻ quốc tế / nội địa"],
-                        ["bank_transfer", "Chuyển khoản NH"],
-                      ].map(([val, label]) => (
-                        <label
-                          key={val}
+                    <input
+                      type="hidden"
+                      name="paymentMethod"
+                      value="bank_transfer"
+                    />
+
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          marginBottom: "12px",
+                          fontWeight: 600,
+                          color: "#1f2937",
+                        }}
+                      >
+                        Phương thức thanh toán
+                      </label>
+
+                      <div
+                        style={{
+                          padding: "16px",
+                          borderRadius: "14px",
+                          background: "#f8fafc",
+                          border: "1px solid #e2e8f0",
+                        }}
+                      >
+                        <strong style={{ display: "block", color: "#0f172a" }}>
+                          Chuyển khoản ngân hàng qua SePay / MBBank VietQR
+                        </strong>
+                        <p
                           style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "12px",
-                            padding: "16px",
-                            border: "1px solid #e2e8f0",
-                            borderRadius: "12px",
-                            cursor: "pointer",
-                            transition: "all 0.2s",
+                            margin: "6px 0 0",
+                            color: "#64748b",
+                            fontSize: "0.9rem",
+                            lineHeight: 1.5,
                           }}
                         >
-                          <input
-                            type="radio"
-                            name="paymentMethod"
-                            value={val}
-                            defaultChecked={val === "bank_transfer"}
-                            style={{
-                              width: "18px",
-                              height: "18px",
-                              accentColor: "#72b44b",
-                            }}
-                          />
-                          <span style={{ fontWeight: 600, color: "#334155" }}>
-                            {label}
-                          </span>
-                        </label>
-                      ))}
+                          Travela hiện chỉ hỗ trợ thanh toán bằng mã QR ngân
+                          hàng. Sau khi bấm thanh toán, hệ thống sẽ tạo mã QR để
+                          bạn quét bằng app ngân hàng.
+                        </p>
+                      </div>
                     </div>
                   </div>
                   <button
@@ -1707,28 +1542,12 @@ export default function TourDetailPage() {
                         className="input-modern"
                         onChange={handleDepartureChange}
                       >
-                        {(tour.departures || []).map((item) => {
-                          const remaining = Math.max(
-                            0,
-                            Number(item.totalSlots || 0) -
-                              Number(item.bookedSlots || 0) -
-                              Number(item.heldSlots || 0),
-                          );
-
-                          return (
-                            <option
-                              key={item.id}
-                              value={item.id}
-                              disabled={remaining <= 0}
-                            >
-                              {formatDate(item.departureDate)} ·{" "}
-                              {formatCurrency(item.adultPrice)} ·{" "}
-                              {remaining > 0
-                                ? `Còn ${remaining} chỗ`
-                                : "Hết chỗ"}
-                            </option>
-                          );
-                        })}
+                        {(tour.departures || []).map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {formatDate(item.departureDate)} ·{" "}
+                            {formatCurrency(item.adultPrice)}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
@@ -1782,35 +1601,6 @@ export default function TourDetailPage() {
                         />
                       </div>
                     </div>
-
-                    {selectedDeparture && (
-                      <div
-                        style={{
-                          padding: "12px 14px",
-                          borderRadius: "14px",
-                          background:
-                            isOverCapacity || isDepartureFull
-                              ? "#fff7ed"
-                              : "#ecfdf5",
-                          border:
-                            isOverCapacity || isDepartureFull
-                              ? "1px solid #fed7aa"
-                              : "1px solid #bbf7d0",
-                          color:
-                            isOverCapacity || isDepartureFull
-                              ? "#c2410c"
-                              : "#15803d",
-                          fontWeight: 700,
-                          fontSize: "0.92rem",
-                        }}
-                      >
-                        {isDepartureFull
-                          ? "Lịch khởi hành này đã hết chỗ."
-                          : isOverCapacity
-                            ? `Chỉ còn ${selectedDepartureRemainingSlots} chỗ, vui lòng giảm số khách.`
-                            : `Lịch này còn ${selectedDepartureRemainingSlots} chỗ trống.`}
-                      </div>
-                    )}
 
                     <div>
                       <label
@@ -1918,6 +1708,148 @@ export default function TourDetailPage() {
                           className="input-modern"
                           placeholder="SĐT"
                         />
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "16px",
+                        borderRadius: "18px",
+                        border: "1px solid #e2e8f0",
+                        background: "#f8fafc",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          alignItems: "center",
+                          marginBottom: "14px",
+                        }}
+                      >
+                        <div>
+                          <strong style={{ color: "#0f172a" }}>
+                            Thông tin hành khách
+                          </strong>
+                          <p
+                            style={{
+                              margin: "4px 0 0",
+                              color: "#64748b",
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            Nhập đúng{" "}
+                            {bookingPassengers.adultCount +
+                              bookingPassengers.childCount}{" "}
+                            người tương ứng số vé đã chọn.
+                          </p>
+                        </div>
+                        <span
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: "999px",
+                            background: "#ecfdf5",
+                            color: "#047857",
+                            fontWeight: 800,
+                            fontSize: "0.85rem",
+                          }}
+                        >
+                          {bookingGuests.length} khách
+                        </span>
+                      </div>
+
+                      <div style={{ display: "grid", gap: "14px" }}>
+                        {bookingGuests.map((guest, index) => (
+                          <div
+                            key={`${guest.guestType}-${guest.index}`}
+                            style={{
+                              padding: "14px",
+                              borderRadius: "16px",
+                              background: "#fff",
+                              border: "1px solid #e2e8f0",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                marginBottom: "12px",
+                              }}
+                            >
+                              <strong style={{ color: "#334155" }}>
+                                {guest.guestType === "adult"
+                                  ? "Người lớn"
+                                  : "Trẻ em"}{" "}
+                                {guest.index + 1}
+                              </strong>
+                              <span
+                                style={{
+                                  color:
+                                    guest.guestType === "adult"
+                                      ? "#2563eb"
+                                      : "#d97706",
+                                  background:
+                                    guest.guestType === "adult"
+                                      ? "#eff6ff"
+                                      : "#fffbeb",
+                                  padding: "4px 8px",
+                                  borderRadius: "999px",
+                                  fontSize: "0.78rem",
+                                  fontWeight: 800,
+                                }}
+                              >
+                                {guest.guestType === "adult"
+                                  ? "adult"
+                                  : "child"}
+                              </span>
+                            </div>
+
+                            <div style={{ display: "grid", gap: "10px" }}>
+                              <input
+                                className="input-modern"
+                                value={guest.fullName}
+                                onChange={handleGuestChange(index, "fullName")}
+                                required
+                                placeholder="Họ tên hành khách"
+                              />
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "1fr 1fr",
+                                  gap: "10px",
+                                }}
+                              >
+                                <input
+                                  className="input-modern"
+                                  type="date"
+                                  value={guest.dateOfBirth}
+                                  onChange={handleGuestChange(
+                                    index,
+                                    "dateOfBirth",
+                                  )}
+                                />
+                                <select
+                                  className="input-modern"
+                                  value={guest.gender}
+                                  onChange={handleGuestChange(index, "gender")}
+                                >
+                                  <option value="">Giới tính</option>
+                                  <option value="male">Nam</option>
+                                  <option value="female">Nữ</option>
+                                  <option value="other">Khác</option>
+                                </select>
+                              </div>
+                              <input
+                                className="input-modern"
+                                value={guest.idNumber}
+                                onChange={handleGuestChange(index, "idNumber")}
+                                placeholder="CCCD/Hộ chiếu/Giấy tờ (nếu có)"
+                              />
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
@@ -2186,6 +2118,12 @@ export default function TourDetailPage() {
                     </div>
 
                     <div>
+                      <input
+                        type="hidden"
+                        name="paymentMethod"
+                        value="bank_transfer"
+                      />
+
                       <label
                         style={{
                           display: "block",
@@ -2197,42 +2135,30 @@ export default function TourDetailPage() {
                       >
                         Phương thức thanh toán
                       </label>
-                      <div style={{ display: "grid", gap: "10px" }}>
-                        {[
-                          ["bank_transfer", "SePay / MBBank VietQR"],
-                          ["vnpay", "VNPay"],
-                          ["card", "Thẻ quốc tế / nội địa"],
-                          ["bank_transfer", "Chuyển khoản NH"],
-                        ].map(([val, label]) => (
-                          <label
-                            key={val}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "12px",
-                              padding: "14px",
-                              border: "1px solid #e2e8f0",
-                              borderRadius: "12px",
-                              cursor: "pointer",
-                              background: "#fff",
-                            }}
-                          >
-                            <input
-                              type="radio"
-                              name="paymentMethod"
-                              value={val}
-                              defaultChecked={val === "bank_transfer"}
-                              style={{
-                                width: "18px",
-                                height: "18px",
-                                accentColor: "#72b44b",
-                              }}
-                            />
-                            <span style={{ fontWeight: 600, color: "#334155" }}>
-                              {label}
-                            </span>
-                          </label>
-                        ))}
+
+                      <div
+                        style={{
+                          padding: "14px",
+                          borderRadius: "14px",
+                          background: "#f8fafc",
+                          border: "1px solid #e2e8f0",
+                        }}
+                      >
+                        <strong style={{ display: "block", color: "#0f172a" }}>
+                          Chuyển khoản ngân hàng qua mã QR
+                        </strong>
+                        <p
+                          style={{
+                            margin: "6px 0 0",
+                            color: "#64748b",
+                            fontSize: "0.88rem",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          Sau khi tạo booking, Travela sẽ hiển thị mã QR
+                          SePay/VietQR. Bạn dùng app ngân hàng để quét mã và
+                          chuyển khoản đúng nội dung.
+                        </p>
                       </div>
                     </div>
 
@@ -2291,27 +2217,6 @@ export default function TourDetailPage() {
                             </strong>
                           </div>
                         ))}
-
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            marginBottom: "8px",
-                            fontSize: "0.95rem",
-                          }}
-                        >
-                          <span style={{ color: "#64748b" }}>Còn trống</span>
-                          <strong
-                            style={{
-                              color:
-                                selectedDepartureRemainingSlots <= 5
-                                  ? "#c2410c"
-                                  : "#15803d",
-                            }}
-                          >
-                            {selectedDepartureRemainingSlots} chỗ
-                          </strong>
-                        </div>
 
                         <div
                           style={{
@@ -2390,7 +2295,6 @@ export default function TourDetailPage() {
                         type="submit"
                         value="hold"
                         className="btn btn-primary"
-                        disabled={isDepartureFull || isOverCapacity}
                         style={{
                           padding: "16px",
                           borderRadius: "14px",
@@ -2400,20 +2304,15 @@ export default function TourDetailPage() {
                           fontSize: "1rem",
                           fontWeight: 700,
                           width: "100%",
-                          cursor:
-                            isDepartureFull || isOverCapacity
-                              ? "not-allowed"
-                              : "pointer",
-                          opacity: isDepartureFull || isOverCapacity ? 0.6 : 1,
+                          cursor: "pointer",
                         }}
                       >
-                        {isDepartureFull ? "Hết chỗ" : "Giữ chỗ trước"}
+                        Giữ chỗ trước
                       </button>
                       <button
                         type="submit"
                         value="pay_now"
                         className="btn btn-primary"
-                        disabled={isDepartureFull || isOverCapacity}
                         style={{
                           padding: "16px",
                           borderRadius: "14px",
@@ -2424,15 +2323,11 @@ export default function TourDetailPage() {
                           fontSize: "1rem",
                           fontWeight: 700,
                           width: "100%",
-                          cursor:
-                            isDepartureFull || isOverCapacity
-                              ? "not-allowed"
-                              : "pointer",
-                          opacity: isDepartureFull || isOverCapacity ? 0.6 : 1,
+                          cursor: "pointer",
                           boxShadow: "0 8px 20px rgba(114, 180, 75, 0.3)",
                         }}
                       >
-                        {isDepartureFull ? "Hết chỗ" : "Thanh toán ngay"}
+                        Thanh toán ngay
                       </button>
                     </div>
                     <p

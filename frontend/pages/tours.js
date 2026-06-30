@@ -15,6 +15,7 @@ const resetKeys = [
   "search",
   "destination",
   "imageDestinations",
+  "imageDestinationScores",
   "province",
   "departureProvince",
   "theme",
@@ -128,14 +129,30 @@ export default function ToursPage() {
       if (
         merged[key] === null ||
         merged[key] === undefined ||
-        merged[key] === ""
-      )
+        merged[key] === "" ||
+        merged[key] === false
+      ) {
         delete merged[key];
+      }
     });
+
     router.push({ pathname: "/tours", query: merged }, undefined, {
       shallow: true,
     });
   };
+
+  const clearAllFilters = () => {
+    router.push({ pathname: "/tours", query: {} }, undefined, {
+      shallow: true,
+    });
+    setShowMobileFilter(false);
+  };
+
+  const filterSidebarKey = useMemo(() => {
+    return resetKeys
+      .map((key) => `${key}:${router.query[key] ?? ""}`)
+      .join("|");
+  }, [router.query]);
 
   const onFilterSubmit = (event) => {
     event.preventDefault();
@@ -145,6 +162,7 @@ export default function ToursPage() {
       destination: formData.get("destination"),
       // Khi người dùng lọc thủ công thì bỏ chế độ lọc nhiều điểm đến bằng ảnh.
       imageDestinations: null,
+      imageDestinationScores: null,
       province: formData.get("province"),
       departureProvince: formData.get("departureProvince"),
       theme: formData.get("theme"),
@@ -516,12 +534,8 @@ export default function ToursPage() {
                 destinations={destinations}
                 query={query}
                 onSubmit={onFilterSubmit}
-                onReset={() => {
-                  updateQuery(
-                    Object.fromEntries(resetKeys.map((key) => [key, null])),
-                  );
-                  setShowMobileFilter(false);
-                }}
+                key={filterSidebarKey}
+                onReset={clearAllFilters}
                 onQuickDestination={(value) => {
                   updateQuery({
                     destination: value,
@@ -632,11 +646,7 @@ export default function ToursPage() {
                   thêm các lựa chọn khác.
                 </p>
                 <button
-                  onClick={() =>
-                    updateQuery(
-                      Object.fromEntries(resetKeys.map((key) => [key, null])),
-                    )
-                  }
+                  onClick={clearAllFilters}
                   className="btn btn-light"
                   style={{
                     marginTop: "20px",

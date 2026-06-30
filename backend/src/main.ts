@@ -23,7 +23,7 @@ async function bootstrap(): Promise<void> {
   });
 
   app.useStaticAssets(join(process.cwd(), "uploads"), {
-    prefix: "/uploads",
+    prefix: "/uploads/",
   });
 
   app.setGlobalPrefix("api");

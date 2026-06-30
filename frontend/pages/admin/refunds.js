@@ -486,6 +486,7 @@ export default function AdminRefundsPage() {
                 <th>Booking & Tour</th>
                 <th>Khách hàng</th>
                 <th>Lý do hủy</th>
+                <th>Tài khoản nhận hoàn</th>
                 <th>Số tiền hoàn</th>
                 <th>Trạng thái</th>
                 <th>Phản hồi Admin</th>
@@ -496,7 +497,7 @@ export default function AdminRefundsPage() {
               {data.items.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="7"
+                    colSpan="8"
                     style={{
                       textAlign: "center",
                       padding: "60px 20px",
@@ -571,6 +572,34 @@ export default function AdminRefundsPage() {
                       </div>
                     </td>
 
+                    <td className="reason-cell">
+                      <strong style={{ display: "block", color: "#0f172a" }}>
+                        {r.refundBankName || "--"}
+                      </strong>
+                      <div className="stat-text">
+                        STK: {r.refundAccountNo || "--"}
+                      </div>
+                      <div className="stat-text">
+                        Chủ TK: {r.refundAccountName || "--"}
+                      </div>
+                      {r.refundQrUrl ? (
+                        <a
+                          href={r.refundQrUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            display: "inline-block",
+                            marginTop: "6px",
+                            color: "#2563eb",
+                            fontWeight: 600,
+                            fontSize: "0.85rem",
+                          }}
+                        >
+                          Xem QR
+                        </a>
+                      ) : null}
+                    </td>
+
                     <td>
                       <strong style={{ color: "#0f172a", fontSize: "1.05rem" }}>
                         {formatCurrency(
@@ -619,7 +648,7 @@ export default function AdminRefundsPage() {
                             onClick={() => {
                               setModal({ item: r, status: "approved" });
                               setAdminNote(
-                                "Yêu cầu hoàn tiền đã được duyệt. Travela sẽ xử lý theo chính sách.",
+                                "Yêu cầu hoàn tiền đã được duyệt. Travela sẽ chuyển khoản về tài khoản khách đã cung cấp theo chính sách.",
                               );
                             }}
                           >
@@ -768,6 +797,42 @@ export default function AdminRefundsPage() {
                     modal?.item?.booking?.finalAmount,
                 )}
               </strong>
+            </div>
+
+            <div
+              style={{
+                marginTop: "14px",
+                paddingTop: "14px",
+                borderTop: "1px dashed #cbd5e1",
+              }}
+            >
+              <div className="stat-text" style={{ marginBottom: "8px" }}>
+                Tài khoản nhận hoàn tiền
+              </div>
+              <div style={{ color: "#0f172a", fontWeight: 700 }}>
+                {modal?.item?.refundBankName || "--"}
+              </div>
+              <div className="stat-text">
+                STK: {modal?.item?.refundAccountNo || "--"}
+              </div>
+              <div className="stat-text">
+                Chủ TK: {modal?.item?.refundAccountName || "--"}
+              </div>
+              {modal?.item?.refundQrUrl ? (
+                <a
+                  href={modal.item.refundQrUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: "inline-block",
+                    marginTop: "8px",
+                    color: "#2563eb",
+                    fontWeight: 700,
+                  }}
+                >
+                  Mở mã QR ngân hàng
+                </a>
+              ) : null}
             </div>
           </div>
 

@@ -21,6 +21,28 @@ export class BookingsService {
     private readonly emailService: EmailService,
   ) {}
 
+  private normalizeUserId(value: any): bigint | undefined {
+    if (!value) return undefined;
+
+    if (typeof value === "bigint") return value;
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return BigInt(value);
+    }
+
+    if (typeof value === "string" && value.trim()) {
+      return BigInt(value);
+    }
+
+    if (typeof value === "object") {
+      if (value.userId) return this.normalizeUserId(value.userId);
+      if (value.id) return this.normalizeUserId(value.id);
+      if (value.sub) return this.normalizeUserId(value.sub);
+    }
+
+    return undefined;
+  }
+
   private calcStatusCategory(status: string) {
     if (["confirmed", "completed"].includes(status)) return "booked";
     if (["pending_payment", "waiting_confirmation"].includes(status)) {
@@ -45,8 +67,10 @@ export class BookingsService {
 
   private async ensureBookableUser(
     tx: Prisma.TransactionClient,
-    userId?: bigint,
+    rawUserId?: any,
   ) {
+    const userId = this.normalizeUserId(rawUserId);
+
     if (!userId) return null;
 
     const user = await tx.user.findUnique({
@@ -408,6 +432,61 @@ export class BookingsService {
     }
   }
 
+  private normalizeBookingGuests(dto: CreateBookingDto) {
+    const guests = Array.isArray(dto.guests) ? dto.guests : [];
+    const expectedTotal =
+      Number(dto.adultCount || 0) + Number(dto.childCount || 0);
+
+    if (guests.length !== expectedTotal) {
+      throw new BadRequestException(
+        `Số lượng thông tin hành khách (${guests.length}) phải bằng tổng số vé đã chọn (${expectedTotal}).`,
+      );
+    }
+
+    const adultGuests = guests.filter((guest) => guest.guestType === "adult");
+    const childGuests = guests.filter((guest) => guest.guestType === "child");
+
+    if (adultGuests.length !== Number(dto.adultCount || 0)) {
+      throw new BadRequestException(
+        `Bạn đã chọn ${dto.adultCount} vé người lớn, vui lòng nhập đúng ${dto.adultCount} thông tin người lớn.`,
+      );
+    }
+
+    if (childGuests.length !== Number(dto.childCount || 0)) {
+      throw new BadRequestException(
+        `Bạn đã chọn ${dto.childCount} vé trẻ em, vui lòng nhập đúng ${dto.childCount} thông tin trẻ em.`,
+      );
+    }
+
+    return guests.map((guest, index) => {
+      const fullName = String(guest.fullName || "").trim();
+      if (!fullName) {
+        throw new BadRequestException(
+          `Hành khách số ${index + 1} chưa có họ tên.`,
+        );
+      }
+
+      let dateOfBirth: Date | null = null;
+      if (guest.dateOfBirth) {
+        const parsed = new Date(guest.dateOfBirth);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new BadRequestException(
+            `Ngày sinh của hành khách ${fullName} không hợp lệ.`,
+          );
+        }
+        dateOfBirth = parsed;
+      }
+
+      return {
+        fullName,
+        dateOfBirth,
+        gender: guest.gender ? String(guest.gender).trim() : null,
+        guestType: guest.guestType,
+        idNumber: guest.idNumber ? String(guest.idNumber).trim() : null,
+      };
+    });
+  }
+
   private buildBookingCreateData(input: any) {
     const {
       dto,
@@ -448,7 +527,8 @@ export class BookingsService {
     };
   }
 
-  async create(dto: CreateBookingDto, userId?: bigint) {
+  async create(dto: CreateBookingDto, rawUserId?: any) {
+    const userId = this.normalizeUserId(rawUserId);
     const departureId = BigInt(dto.departureId);
     const lockKey = `lock:departure:${departureId}`;
     const lockToken = await this.redisService.acquireLock(lockKey, 10000);
@@ -500,6 +580,8 @@ export class BookingsService {
 
         const finalAmount = Math.max(originalAmount - discountAmount, 0);
 
+        const normalizedGuests = this.normalizeBookingGuests(dto);
+
         const booking = await tx.booking.create({
           data: this.buildBookingCreateData({
             dto,
@@ -512,6 +594,13 @@ export class BookingsService {
             finalAmount,
             bookingCode: `BK${Date.now()}`,
           }),
+        });
+
+        await tx.bookingGuest.createMany({
+          data: normalizedGuests.map((guest) => ({
+            bookingId: booking.id,
+            ...guest,
+          })),
         });
 
         await tx.tourDeparture.update({
@@ -558,6 +647,7 @@ export class BookingsService {
           discountAmount: booking.discountAmount,
           finalAmount: booking.finalAmount,
           holdExpiresAt: booking.holdExpiresAt,
+          guests: normalizedGuests,
         };
       });
     } finally {

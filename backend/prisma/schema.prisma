@@ -341,8 +341,23 @@ model Review {
   tour Tour @relation(fields: [tourId], references: [id], onDelete: Cascade)
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
   booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  media ReviewMedia[]
 
   @@map("reviews")
+}
+
+model ReviewMedia {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  reviewId     BigInt   @map("review_id") @db.UnsignedBigInt
+  fileUrl      String   @map("file_url") @db.VarChar(500)
+  mediaType    String   @default("image") @map("media_type") @db.VarChar(30)
+  displayOrder Int      @default(1) @map("display_order") @db.UnsignedInt
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId, displayOrder])
+  @@map("review_media")
 }
 
 model FavoriteTour {
@@ -457,6 +472,7 @@ model NotificationRead {
 enum Role {
   admin
   user
+  guide
 }
 
 enum UserStatus {
@@ -540,6 +556,7 @@ enum NotificationTargetRole {
   all
   admin
   user
+  guide
 }
 
 
@@ -630,20 +647,29 @@ model UserVoucher {
 }
 
 model RefundRequest {
-  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
-  bookingId BigInt @map("booking_id") @db.UnsignedBigInt
-  userId BigInt? @map("user_id") @db.UnsignedBigInt
-  reason String @db.Text
-  refundAmount Decimal? @map("refund_amount") @db.Decimal(12,2)
-  status RefundStatus @default(pending)
-  adminNote String? @map("admin_note") @db.Text
-  reviewedBy BigInt? @map("reviewed_by") @db.UnsignedBigInt
-  reviewedAt DateTime? @map("reviewed_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  bookingId    BigInt   @map("booking_id") @db.UnsignedBigInt
+  userId       BigInt?  @map("user_id") @db.UnsignedBigInt
+  reason       String   @db.Text
+  refundAmount Decimal? @map("refund_amount") @db.Decimal(12, 2)
+
+  refundBankName    String? @map("refund_bank_name") @db.VarChar(100)
+  refundAccountNo   String? @map("refund_account_no") @db.VarChar(50)
+  refundAccountName String? @map("refund_account_name") @db.VarChar(150)
+  refundQrUrl       String? @map("refund_qr_url") @db.VarChar(500)
+
+  status     RefundStatus @default(pending)
+  adminNote  String?      @map("admin_note") @db.Text
+  reviewedBy BigInt?      @map("reviewed_by") @db.UnsignedBigInt
+  reviewedAt DateTime?    @map("reviewed_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   @@index([status, createdAt])
+  @@index([refundAccountNo])
   @@map("refund_requests")
 }
 
@@ -676,6 +702,7 @@ model RevokedToken {
 model ChatConversation {
   id         BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
   userId     BigInt?      @map("user_id") @db.UnsignedBigInt
+  scope      String       @default("user") @db.VarChar(20)
   title      String?      @db.VarChar(255)
   summary    String?      @db.Text
   lastIntent String?      @map("last_intent") @db.VarChar(100)
@@ -687,6 +714,7 @@ model ChatConversation {
   messages   ChatMessage[]
 
   @@index([userId])
+  @@index([userId, scope, updatedAt])
   @@index([updatedAt])
   @@map("chat_conversations")
 }

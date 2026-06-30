@@ -21,6 +21,15 @@ const alias = {
   "cần thơ": "Cần Thơ",
   sapa: "Sa Pa",
   "sa pa": "Sa Pa",
+  "tay ninh": "Tây Ninh",
+  "tây ninh": "Tây Ninh",
+  "nui ba den": "Tây Ninh",
+  "núi bà đen": "Tây Ninh",
+  "ba den": "Tây Ninh",
+  "bà đen": "Tây Ninh",
+  "an giang": "An Giang",
+  "vung tau": "Vũng Tàu",
+  "vũng tàu": "Vũng Tàu",
 };
 
 function strip(text = "") {
@@ -85,44 +94,73 @@ function buildImageDestinationQuery(
   detectedDestination = "",
   destinations = [],
 ) {
-  const picked = [];
-  const seen = new Set();
+  const byDestination = new Map();
 
-  const pushDestination = (value, confidence = 0, raw = {}) => {
+  const pushDestination = (
+    value,
+    confidence = 0,
+    raw = {},
+    sourceIndex = 999,
+  ) => {
     const name = normalizeDestination(value, destinations);
     if (!name) return;
+
     const key = strip(name);
-    if (seen.has(key)) return;
-    seen.add(key);
-    picked.push({
-      ...raw,
-      destination: name,
-      confidence: Number(confidence || raw?.confidence || 0),
-    });
+    const safeConfidence = Number(
+      confidence || raw?.confidence || raw?.score || 0,
+    );
+    const old = byDestination.get(key);
+
+    // Nếu trùng địa điểm thì giữ confidence cao nhất.
+    if (!old || safeConfidence > old.confidence) {
+      byDestination.set(key, {
+        ...raw,
+        destination: name,
+        confidence: Number.isFinite(safeConfidence) ? safeConfidence : 0,
+        sourceIndex,
+      });
+    }
   };
 
   topMatches.forEach((match, index) => {
-    const confidence = Number(match?.confidence || 0);
-    // Lấy nhiều điểm đến nếu ảnh có khả năng giống nhiều nơi.
-    // Top 3 luôn được giữ để user có lựa chọn; Top 4-5 chỉ giữ nếu confidence đủ tốt.
-    if (index < 3 || confidence >= 0.12) {
+    const confidence = Number(match?.confidence || match?.score || 0);
+
+    // Top 5 được lấy, nhưng chỉ giữ top thấp nếu % còn tương đối có ý nghĩa.
+    // Sau đó sort lại theo confidence giảm dần.
+    if (index < 3 || confidence >= 0.08) {
       pushDestination(
         match?.destination || match?.name || match?.label,
         confidence,
         match,
+        index,
       );
     }
   });
 
-  if (!picked.length && detectedDestination) {
-    pushDestination(detectedDestination, 0.45, {
-      destination: detectedDestination,
-    });
+  if (!byDestination.size && detectedDestination) {
+    pushDestination(
+      detectedDestination,
+      0.45,
+      { destination: detectedDestination },
+      0,
+    );
   }
+
+  const picked = Array.from(byDestination.values())
+    .sort(
+      (a, b) =>
+        Number(b.confidence || 0) - Number(a.confidence || 0) ||
+        Number(a.sourceIndex || 0) - Number(b.sourceIndex || 0),
+    )
+    .slice(0, 5);
 
   return {
     names: picked.map((item) => item.destination),
     matches: picked,
+    scores: picked.map((item) => ({
+      destination: item.destination,
+      confidence: Number(item.confidence || 0),
+    })),
   };
 }
 
@@ -215,6 +253,7 @@ export default function AISmartSearchBar({
         apply(
           {
             imageDestinations: imageQuery.names.join("|"),
+            imageDestinationScores: JSON.stringify(imageQuery.scores),
             destination: null,
             search: "",
           },
@@ -240,7 +279,7 @@ export default function AISmartSearchBar({
         { destination: fallback || null, search: fallback || file.name },
         fallback
           ? `AI service chưa phản hồi, fallback theo tên file: ${fallback}.`
-          : "AI service chưa phản hồi, vui lòng kiểm tra ai-service port 8001.",
+          : "AI service chưa phản hồi, vui lòng kiểm tra ai-service port 8000.",
       );
       showToast(error.message, "error");
     } finally {
@@ -348,6 +387,7 @@ export default function AISmartSearchBar({
                   setSummary("");
                   onApplyQuery?.({
                     imageDestinations: null,
+                    imageDestinationScores: null,
                     destination: null,
                     search: "",
                     page: null,
@@ -483,6 +523,7 @@ export default function AISmartSearchBar({
                     {
                       destination: destinationName,
                       imageDestinations: null,
+                      imageDestinationScores: null,
                       search: destinationName,
                     },
                     `Đang lọc riêng tour ${destinationName}.`,

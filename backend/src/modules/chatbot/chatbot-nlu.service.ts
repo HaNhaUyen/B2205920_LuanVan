@@ -12,6 +12,7 @@ export type ChatbotIntent =
   | "booking_create"
   | "booking_change"
   | "booking_status"
+  | "refund_create"
   | "personal_recommendation"
   | "small_talk"
   | "general_consulting";
@@ -26,7 +27,7 @@ export type NluEntities = {
   tourType?: "group" | "private" | null;
   softNeeds?: string[];
   avoidNeeds?: string[];
-  paymentMethod?: "momo" | "vnpay" | "card" | "bank_transfer" | "cash" | null;
+  paymentMethod?: "bank_transfer" | null;
   voucherCode?: string | null;
   bookingCode?: string | null;
 };
@@ -50,6 +51,7 @@ const ALLOWED_INTENTS: ChatbotIntent[] = [
   "booking_create",
   "booking_change",
   "booking_status",
+  "refund_create",
   "personal_recommendation",
   "small_talk",
   "general_consulting",
@@ -104,6 +106,22 @@ function normalizeSoftNeeds(items: any): string[] {
         ),
       )
     : [];
+}
+
+function normalizePaymentMethod(value: any): "bank_transfer" | null {
+  const raw = stripText(String(value || ""));
+
+  if (!raw) return null;
+
+  if (
+    /\b(thanh toan|thanh toán|chuyen khoan|chuyển khoản|bank|qr|vietqr|sepay|momo|vi momo|ví momo|vnpay|vn pay|cash|tien mat|tiền mặt|card|the|thẻ|visa|mastercard)\b/.test(
+      raw,
+    )
+  ) {
+    return "bank_transfer";
+  }
+
+  return null;
 }
 
 @Injectable()
@@ -222,7 +240,7 @@ export class ChatbotNluService {
           process.env.GROQ_MODEL ||
           this.configService.get<string>("CHATBOT_MODEL") ||
           process.env.CHATBOT_MODEL ||
-          "llama-3.1-8b-instant",
+          "openai/gpt-oss-20b",
       };
     }
 
@@ -240,7 +258,7 @@ export class ChatbotNluService {
       model:
         this.configService.get<string>("CHATBOT_MODEL") ||
         process.env.CHATBOT_MODEL ||
-        "llama-3.1-8b-instant",
+        "openai/gpt-oss-20b",
     };
   }
 
@@ -410,7 +428,7 @@ JSON schema cần trả:
     "tourType": "group/private/null",
     "softNeeds": ["family", "children", "relaxing"],
     "avoidNeeds": ["trekking", "too_tired"],
-    "paymentMethod": "momo/vnpay/card/bank_transfer/cash/null",
+    "paymentMethod": "bank_transfer/null",
     "voucherCode": null,
     "bookingCode": null
   },
@@ -463,20 +481,27 @@ ${input.message}
   }
 
   private normalizeResult(parsed: any, fallback: NluResult): NluResult {
-    const entities = parsed?.entities || {};
-    const confidence = Math.max(
-      0,
-      Math.min(1, Number(parsed?.confidence ?? fallback.confidence ?? 0.5)),
-    );
+    const entities =
+      parsed?.entities && typeof parsed.entities === "object"
+        ? parsed.entities
+        : {};
 
     return {
-      intent: normalizeIntent(parsed?.intent || fallback.intent),
+      intent: normalizeIntent(parsed?.intent),
+      confidence: Math.min(
+        1,
+        Math.max(0, Number(parsed?.confidence ?? fallback.confidence ?? 0.5)),
+      ),
+      needsClarification: Boolean(parsed?.needsClarification),
+      clarificationQuestion:
+        typeof parsed?.clarificationQuestion === "string"
+          ? parsed.clarificationQuestion
+          : null,
+      raw: parsed,
       entities: {
-        ...fallback.entities,
         destination:
-          typeof entities.destination === "string" &&
-          entities.destination.trim()
-            ? entities.destination.trim()
+          typeof entities.destination === "string"
+            ? entities.destination
             : (fallback.entities.destination ?? null),
         budgetMax:
           asNumber(entities.budgetMax) ?? fallback.entities.budgetMax ?? null,
@@ -485,8 +510,7 @@ ${input.message}
           fallback.entities.durationDays ??
           null,
         departureMonth:
-          typeof entities.departureMonth === "string" &&
-          /^\d{4}-\d{2}$/.test(entities.departureMonth)
+          typeof entities.departureMonth === "string"
             ? entities.departureMonth
             : (fallback.entities.departureMonth ?? null),
         partySize:
@@ -497,42 +521,27 @@ ${input.message}
           entities.tourType === "group" || entities.tourType === "private"
             ? entities.tourType
             : (fallback.entities.tourType ?? null),
-        softNeeds: Array.from(
-          new Set([
-            ...(fallback.entities.softNeeds || []),
-            ...normalizeSoftNeeds(entities.softNeeds),
-          ]),
+        softNeeds: normalizeSoftNeeds(
+          Array.isArray(entities.softNeeds)
+            ? entities.softNeeds
+            : fallback.entities.softNeeds || [],
         ),
         avoidNeeds: Array.isArray(entities.avoidNeeds)
-          ? entities.avoidNeeds.map(String).filter(Boolean).slice(0, 8)
+          ? entities.avoidNeeds.map(String).filter(Boolean)
           : fallback.entities.avoidNeeds || [],
-        paymentMethod: [
-          "momo",
-          "vnpay",
-          "card",
-          "bank_transfer",
-          "cash",
-        ].includes(entities.paymentMethod)
-          ? entities.paymentMethod
-          : (fallback.entities.paymentMethod ?? null),
+        paymentMethod:
+          normalizePaymentMethod(entities.paymentMethod) ||
+          normalizePaymentMethod(fallback.entities.paymentMethod) ||
+          null,
         voucherCode:
-          typeof entities.voucherCode === "string" &&
-          entities.voucherCode.trim()
-            ? entities.voucherCode.trim().toUpperCase()
+          typeof entities.voucherCode === "string"
+            ? entities.voucherCode.toUpperCase()
             : (fallback.entities.voucherCode ?? null),
         bookingCode:
-          typeof entities.bookingCode === "string" &&
-          entities.bookingCode.trim()
-            ? entities.bookingCode.trim().toUpperCase()
+          typeof entities.bookingCode === "string"
+            ? entities.bookingCode.toUpperCase()
             : (fallback.entities.bookingCode ?? null),
       },
-      confidence,
-      needsClarification: Boolean(parsed?.needsClarification),
-      clarificationQuestion:
-        typeof parsed?.clarificationQuestion === "string"
-          ? parsed.clarificationQuestion
-          : null,
-      raw: parsed,
     };
   }
 

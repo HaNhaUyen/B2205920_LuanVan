@@ -13,12 +13,7 @@ import { CheckoutPaymentDto } from "./dto/checkout-payment.dto";
 import { SepayWebhookDto } from "./dto/sepay-webhook.dto";
 import { RedisService } from "../../redis/redis.service";
 
-type SupportedPaymentMethod =
-  | "momo"
-  | "vnpay"
-  | "card"
-  | "bank_transfer"
-  | "cash";
+type SupportedPaymentMethod = "bank_transfer";
 
 type CurrentUserLike = {
   userId: bigint;
@@ -85,14 +80,8 @@ export class PaymentsService {
     return (value || "").trim();
   }
 
-  private validatePaymentMethod(paymentMethod: SupportedPaymentMethod) {
-    if (
-      !["momo", "vnpay", "card", "bank_transfer", "cash"].includes(
-        paymentMethod,
-      )
-    ) {
-      throw new BadRequestException("Phương thức thanh toán không hợp lệ.");
-    }
+  private validatePaymentMethod(_paymentMethod: unknown) {
+    return true;
   }
 
   private async markVoucherUsedAfterPaid(
@@ -125,15 +114,8 @@ export class PaymentsService {
     );
   }
 
-  private mapPaymentMethodLabel(paymentMethod: string) {
-    const labels: Record<string, string> = {
-      momo: "Ví MoMo",
-      vnpay: "VNPay",
-      card: "Thẻ ngân hàng",
-      bank_transfer: "SePay / MBBank VietQR",
-      cash: "Tiền mặt",
-    };
-    return labels[paymentMethod] || paymentMethod;
+  private mapPaymentMethodLabel(_paymentMethod: string) {
+    return "Chuyển khoản ngân hàng qua SePay / MBBank VietQR";
   }
 
   private buildPaymentQrData(input: {
@@ -411,7 +393,8 @@ export class PaymentsService {
   }
 
   async checkout(dto: CheckoutPaymentDto, user?: CurrentUserLike) {
-    this.validatePaymentMethod(dto.paymentMethod);
+    const paymentMethod: SupportedPaymentMethod = "bank_transfer";
+    this.validatePaymentMethod(paymentMethod);
 
     const departureId = BigInt(dto.departureId);
     const lockKey = `lock:departure:${departureId}`;
@@ -489,7 +472,7 @@ export class PaymentsService {
                 bookingId: booking.id.toString(),
                 bookingCode: booking.bookingCode,
                 departureId: booking.departureId.toString(),
-                paymentMethod: dto.paymentMethod,
+                paymentMethod,
                 finalAmount: Number(booking.finalAmount),
               } as any,
             },
@@ -499,7 +482,7 @@ export class PaymentsService {
         const payment = await tx.payment.create({
           data: {
             bookingId: booking.id,
-            paymentMethod: dto.paymentMethod,
+            paymentMethod,
             internalTransactionCode,
             amount: booking.finalAmount,
             paymentStatus: paymentStatus as any,
@@ -513,11 +496,21 @@ export class PaymentsService {
         };
       });
 
-      return this.buildPaymentSessionResponse({
+      const response = this.buildPaymentSessionResponse({
         booking: result.booking,
         payment: result.payment,
-        paymentMethod: dto.paymentMethod,
+        paymentMethod,
       });
+
+      const paymentInstructionEmail = await this.sendPaymentInstructionEmail(
+        Number(result.booking.id),
+        String(result.payment.internalTransactionCode),
+      );
+
+      return {
+        ...response,
+        paymentInstructionEmail,
+      };
     } finally {
       await this.redisService.releaseLock(lockKey, lockToken);
     }
@@ -525,9 +518,10 @@ export class PaymentsService {
 
   async initiatePayment(
     bookingId: number,
-    paymentMethod: SupportedPaymentMethod,
+    _paymentMethod: SupportedPaymentMethod | string,
     user?: CurrentUserLike,
   ) {
+    const paymentMethod: SupportedPaymentMethod = "bank_transfer";
     this.validatePaymentMethod(paymentMethod);
 
     const booking = await this.prisma.booking.findUnique({
@@ -595,13 +589,21 @@ export class PaymentsService {
     );
 
     if (reusable) {
+      const response = this.buildPaymentSessionResponse({
+        booking: refreshed,
+        payment: reusable,
+        paymentMethod,
+      });
+
+      const paymentInstructionEmail = await this.sendPaymentInstructionEmail(
+        Number(refreshed.id),
+        String(reusable.internalTransactionCode),
+      );
+
       return {
-        ...this.buildPaymentSessionResponse({
-          booking: refreshed,
-          payment: reusable,
-          paymentMethod,
-        }),
+        ...response,
         reused: true,
+        paymentInstructionEmail,
       };
     }
 
@@ -632,13 +634,21 @@ export class PaymentsService {
       },
     });
 
+    const response = this.buildPaymentSessionResponse({
+      booking: refreshed,
+      payment,
+      paymentMethod,
+    });
+
+    const paymentInstructionEmail = await this.sendPaymentInstructionEmail(
+      Number(refreshed.id),
+      String(payment.internalTransactionCode),
+    );
+
     return {
-      ...this.buildPaymentSessionResponse({
-        booking: refreshed,
-        payment,
-        paymentMethod,
-      }),
+      ...response,
       reused: false,
+      paymentInstructionEmail,
     };
   }
 
@@ -706,94 +716,82 @@ export class PaymentsService {
 
         if (!booking) throw new NotFoundException("Booking not found");
 
-        if (payment.paymentStatus === "paid" && dto.paymentStatus === "paid") {
+        const isPaidCallback = dto.paymentStatus === "paid";
+
+        /**
+         * QUAN TRỌNG:
+         * Nếu payment/booking đã được cập nhật paid/confirmed trước đó,
+         * vẫn cho gửi email xác nhận thanh toán.
+         * Trước đây đoạn này return shouldSendEmail: false nên khách không nhận mail.
+         */
+        if (payment.paymentStatus === "paid" && isPaidCallback) {
           return {
             success: true,
             message: "Already processed",
             bookingId: booking.id.toString(),
-            shouldSendEmail: false,
+            shouldSendEmail: true,
           };
         }
 
         if (
-          dto.paymentStatus === "paid" &&
+          isPaidCallback &&
           ["confirmed", "completed"].includes(String(booking.bookingStatus))
         ) {
           await tx.payment.update({
             where: { id: payment.id },
             data: {
               paymentStatus: "paid",
-              gatewayTransactionId: dto.gatewayTransactionId,
+              gatewayTransactionId:
+                dto.gatewayTransactionId || payment.gatewayTransactionId,
               paidAt: payment.paidAt || new Date(),
             },
           });
+
           return {
             success: true,
             message: "Booking already settled",
             bookingId: booking.id.toString(),
-            shouldSendEmail: false,
+            shouldSendEmail: true,
           };
         }
 
-        await tx.payment.update({
+        const updatedPayment = await tx.payment.update({
           where: { id: payment.id },
           data: {
             paymentStatus: dto.paymentStatus,
-            gatewayTransactionId: dto.gatewayTransactionId,
-            paidAt: dto.paymentStatus === "paid" ? new Date() : null,
+            gatewayTransactionId:
+              dto.gatewayTransactionId || payment.gatewayTransactionId,
+            paidAt: isPaidCallback ? payment.paidAt || new Date() : null,
           },
         });
 
         const totalGuests =
-          Number(booking.adultCount) + Number(booking.childCount);
+          Number(booking.adultCount || 0) + Number(booking.childCount || 0);
+
         const isHeldBooking = [
           "pending_payment",
           "waiting_confirmation",
         ].includes(String(booking.bookingStatus));
 
-        if (dto.paymentStatus === "paid") {
+        if (isPaidCallback) {
           await tx.booking.update({
             where: { id: booking.id },
-            data: { bookingStatus: "confirmed", holdExpiresAt: null },
+            data: {
+              bookingStatus: "confirmed",
+              holdExpiresAt: null,
+            },
           });
 
           await this.markVoucherUsedAfterPaid(tx, booking);
 
-          await tx.tourDeparture.update({
-            where: { id: booking.departureId },
-            data: {
-              ...(isHeldBooking
-                ? { heldSlots: { decrement: totalGuests } }
-                : {}),
-              bookedSlots: { increment: totalGuests },
-            },
-          });
-
-          await tx.bookingStatusLog.create({
-            data: {
-              bookingId: booking.id,
-              paymentId: payment.id,
-              actionType: "payment_success",
-              oldStatus: booking.bookingStatus,
-              newStatus: "confirmed",
-              source: "payment_gateway",
-              reason: "Payment success callback",
-            },
-          });
-        } else {
-          const newStatus =
-            dto.paymentStatus === "expired" ? "expired" : "cancelled";
-
-          await tx.booking.update({
-            where: { id: booking.id },
-            data: { bookingStatus: newStatus as any, holdExpiresAt: null },
-          });
-
-          if (isHeldBooking) {
+          if (totalGuests > 0) {
             await tx.tourDeparture.update({
               where: { id: booking.departureId },
               data: {
-                heldSlots: { decrement: totalGuests },
+                ...(isHeldBooking
+                  ? { heldSlots: { decrement: totalGuests } }
+                  : {}),
+                bookedSlots: { increment: totalGuests },
               },
             });
           }
@@ -801,24 +799,60 @@ export class PaymentsService {
           await tx.bookingStatusLog.create({
             data: {
               bookingId: booking.id,
-              paymentId: payment.id,
-              actionType:
-                dto.paymentStatus === "expired" ? "expire" : "payment_failed",
+              paymentId: updatedPayment.id,
+              actionType: "payment_success",
               oldStatus: booking.bookingStatus,
-              newStatus: newStatus,
-              source:
-                dto.paymentStatus === "expired"
-                  ? "scheduler"
-                  : "payment_gateway",
-              reason: "Payment failed/expired callback",
+              newStatus: "confirmed",
+              source: "payment_gateway",
+              reason: "Payment success callback",
+            },
+          });
+
+          return {
+            success: true,
+            bookingId: booking.id.toString(),
+            shouldSendEmail: true,
+          };
+        }
+
+        const newStatus =
+          dto.paymentStatus === "expired" ? "expired" : "cancelled";
+
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: {
+            bookingStatus: newStatus as any,
+            holdExpiresAt: null,
+          },
+        });
+
+        if (isHeldBooking && totalGuests > 0) {
+          await tx.tourDeparture.update({
+            where: { id: booking.departureId },
+            data: {
+              heldSlots: { decrement: totalGuests },
             },
           });
         }
 
+        await tx.bookingStatusLog.create({
+          data: {
+            bookingId: booking.id,
+            paymentId: updatedPayment.id,
+            actionType:
+              dto.paymentStatus === "expired" ? "expire" : "payment_failed",
+            oldStatus: booking.bookingStatus,
+            newStatus,
+            source:
+              dto.paymentStatus === "expired" ? "scheduler" : "payment_gateway",
+            reason: "Payment failed/expired callback",
+          },
+        });
+
         return {
           success: true,
           bookingId: booking.id.toString(),
-          shouldSendEmail: dto.paymentStatus === "paid",
+          shouldSendEmail: false,
         };
       },
     );
@@ -828,9 +862,16 @@ export class PaymentsService {
     }
 
     await this.applyMembershipAfterPaid(Number(transactionResult.bookingId));
+
     const email = await this.sendBookingConfirmationEmail(
       Number(transactionResult.bookingId),
     );
+
+    console.log("[Payment Success Email]", {
+      bookingId: transactionResult.bookingId,
+      email,
+    });
+
     return {
       ...transactionResult,
       email,
@@ -871,7 +912,22 @@ export class PaymentsService {
     }
 
     if (payment.paymentStatus === "paid") {
-      return { success: true, ignored: true, reason: "Already paid" };
+      const email = await this.sendBookingConfirmationEmail(
+        Number(payment.bookingId),
+      );
+
+      console.log("[Payment Success Email][Already paid]", {
+        bookingId: payment.bookingId.toString(),
+        email,
+      });
+
+      return {
+        success: true,
+        ignored: false,
+        reason: "Already paid, confirmation email attempted",
+        bookingId: payment.bookingId.toString(),
+        email,
+      };
     }
 
     const expectedAmount = Math.round(Number(payment.amount || 0));

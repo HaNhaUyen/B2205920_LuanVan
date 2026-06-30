@@ -110,6 +110,26 @@ export class ToursController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("admin")
+  @Delete("admin/tours/:tourId/media/:mediaId")
+  removeMedia(
+    @Param("tourId") tourId: string,
+    @Param("mediaId") mediaId: string,
+  ) {
+    return this.toursService.removeMedia(Number(tourId), Number(mediaId));
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Patch("admin/tours/:tourId/media/:mediaId/cover")
+  setCoverMedia(
+    @Param("tourId") tourId: string,
+    @Param("mediaId") mediaId: string,
+  ) {
+    return this.toursService.setCoverMedia(Number(tourId), Number(mediaId));
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @Post("admin/tours/:tourId/itinerary")
   saveItinerary(
     @Param("tourId") tourId: string,

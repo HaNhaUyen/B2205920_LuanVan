@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
+import { unlink } from "fs/promises";
+import { join, normalize } from "path";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateTourStep1Dto } from "./dto/create-tour-step1.dto";
 import { SaveItineraryDto } from "./dto/save-itinerary.dto";
@@ -495,16 +497,58 @@ export class ToursService {
     };
   }
 
+  private mapTourMediaItem(item: any) {
+    if (!item) return item;
+
+    return {
+      ...item,
+      id: item.id?.toString?.() || String(item.id || ""),
+      tourId: item.tourId?.toString?.() || String(item.tourId || ""),
+    };
+  }
+
+  private async deleteLocalUploadFile(fileUrl?: string | null) {
+    if (!fileUrl) return;
+
+    const raw = String(fileUrl).trim();
+
+    // Chỉ xóa file local trong backend/uploads.
+    // Ảnh online như https://... chỉ xóa record trong CSDL.
+    if (!raw.startsWith("/uploads/")) return;
+
+    const uploadsRoot = join(process.cwd(), "uploads");
+    const relativePath = normalize(raw.replace(/^\/uploads\/?/, ""));
+    const absolutePath = join(uploadsRoot, relativePath);
+
+    // Chặn path traversal, tránh xóa nhầm file ngoài thư mục uploads.
+    if (!absolutePath.startsWith(uploadsRoot)) return;
+
+    await unlink(absolutePath).catch(() => null);
+  }
+
   async uploadMedia(tourId: number, files: Array<Express.Multer.File>) {
+    if (!tourId || Number.isNaN(tourId)) {
+      throw new BadRequestException("Mã tour không hợp lệ.");
+    }
+
+    if (!files?.length) {
+      throw new BadRequestException("Vui lòng chọn ít nhất một ảnh.");
+    }
+
     const tour = await this.prisma.tour.findUnique({
       where: { id: BigInt(tourId) },
       include: { media: true },
     });
+
     if (!tour) throw new NotFoundException("Tour not found");
+
     const currentMaxOrder =
-      tour.media.reduce((max, item) => Math.max(max, item.displayOrder), 0) ||
-      0;
-    const created = await Promise.all(
+      tour.media.reduce(
+        (max, item) => Math.max(max, Number(item.displayOrder || 0)),
+        0,
+      ) || 0;
+
+    await Promise.all(
       files.map((file, index) =>
         this.prisma.tourMedia.create({
           data: {
@@ -517,7 +561,143 @@ export class ToursService {
         }),
       ),
     );
-    return { message: "Media uploaded", items: created };
+
+    const items = await this.prisma.tourMedia.findMany({
+      where: { tourId: BigInt(tourId) },
+      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+    });
+
+    return {
+      message: "Media uploaded",
+      items: items.map((item) => this.mapTourMediaItem(item)),
+    };
+  }
+
+  async removeMedia(tourId: number, mediaId: number) {
+    if (!tourId || Number.isNaN(tourId)) {
+      throw new BadRequestException("Mã tour không hợp lệ.");
+    }
+
+    if (!mediaId || Number.isNaN(mediaId)) {
+      throw new BadRequestException("Mã ảnh không hợp lệ.");
+    }
+
+    const tour = await this.prisma.tour.findUnique({
+      where: { id: BigInt(tourId) },
+      select: { id: true, name: true },
+    });
+
+    if (!tour) {
+      throw new NotFoundException("Không tìm thấy tour.");
+    }
+
+    const media = await this.prisma.tourMedia.findFirst({
+      where: {
+        id: BigInt(mediaId),
+        tourId: BigInt(tourId),
+      },
+    });
+
+    if (!media) {
+      throw new NotFoundException("Không tìm thấy ảnh thuộc tour này.");
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tourMedia.delete({
+        where: { id: BigInt(mediaId) },
+      });
+
+      const remaining = await tx.tourMedia.findMany({
+        where: { tourId: BigInt(tourId) },
+        orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+      });
+
+      // Nếu ảnh vừa xóa là ảnh bìa thì tự chọn ảnh còn lại đầu tiên làm ảnh bìa.
+      if (media.isCover && remaining.length > 0) {
+        await tx.tourMedia.updateMany({
+          where: { tourId: BigInt(tourId) },
+          data: { isCover: false },
+        });
+
+        await tx.tourMedia.update({
+          where: { id: remaining[0].id },
+          data: { isCover: true },
+        });
+      }
+
+      // Sắp lại thứ tự ảnh cho gọn.
+      for (let index = 0; index < remaining.length; index += 1) {
+        await tx.tourMedia.update({
+          where: { id: remaining[index].id },
+          data: { displayOrder: index + 1 },
+        });
+      }
+    });
+
+    await this.deleteLocalUploadFile(media.fileUrl);
+
+    const items = await this.prisma.tourMedia.findMany({
+      where: { tourId: BigInt(tourId) },
+      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+    });
+
+    return {
+      message: "Đã xóa ảnh tour.",
+      deletedId: String(mediaId),
+      items: items.map((item) => this.mapTourMediaItem(item)),
+    };
+  }
+
+  async setCoverMedia(tourId: number, mediaId: number) {
+    if (!tourId || Number.isNaN(tourId)) {
+      throw new BadRequestException("Mã tour không hợp lệ.");
+    }
+
+    if (!mediaId || Number.isNaN(mediaId)) {
+      throw new BadRequestException("Mã ảnh không hợp lệ.");
+    }
+
+    const tour = await this.prisma.tour.findUnique({
+      where: { id: BigInt(tourId) },
+      select: { id: true },
+    });
+
+    if (!tour) {
+      throw new NotFoundException("Không tìm thấy tour.");
+    }
+
+    const media = await this.prisma.tourMedia.findFirst({
+      where: {
+        id: BigInt(mediaId),
+        tourId: BigInt(tourId),
+      },
+    });
+
+    if (!media) {
+      throw new NotFoundException("Không tìm thấy ảnh thuộc tour này.");
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tourMedia.updateMany({
+        where: { tourId: BigInt(tourId) },
+        data: { isCover: false },
+      });
+
+      await tx.tourMedia.update({
+        where: { id: BigInt(mediaId) },
+        data: { isCover: true },
+      });
+    });
+
+    const items = await this.prisma.tourMedia.findMany({
+      where: { tourId: BigInt(tourId) },
+      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+    });
+
+    return {
+      message: "Đã đặt ảnh bìa cho tour.",
+      items: items.map((item) => this.mapTourMediaItem(item)),
+    };
   }
 
   async saveItinerary(tourId: number, dto: SaveItineraryDto) {

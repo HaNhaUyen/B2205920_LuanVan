@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { EmailService } from "../../common/services/email.service";
+import * as bcrypt from "bcrypt";
 
 function htmlEscape(value = "") {
   return String(value).replace(
@@ -33,9 +34,21 @@ export class GuidesService {
     const pageSize = Math.min(Math.max(Number(query.pageSize || 10), 1), 100);
     const search = String(query.search || "").trim();
     const status = String(query.status || "").trim();
+
     const where: any = {};
 
-    if (status && status !== "all") where.status = status;
+    if (status && status !== "all") {
+      if (status === "issue") {
+        where.assignments = {
+          some: {
+            status: "issue",
+          },
+        };
+      } else {
+        where.status = status;
+      }
+    }
+
     if (search) {
       where.OR = [
         { fullName: { contains: search } },
@@ -46,6 +59,14 @@ export class GuidesService {
       ];
     }
 
+    const activeAssignmentStatuses = [
+      "assigned",
+      "accepted",
+      "in_progress",
+      "confirmed",
+      "issue",
+    ];
+
     const [total, items] = await Promise.all([
       this.prisma.guide.count({ where }),
       this.prisma.guide.findMany({
@@ -54,17 +75,41 @@ export class GuidesService {
         take: pageSize,
         include: {
           assignments: {
-            where: { status: { in: ["assigned", "confirmed"] } },
-            include: { booking: true, tour: true },
-            orderBy: { startDate: "desc" },
+            where: {
+              status: {
+                in: activeAssignmentStatuses,
+              },
+            },
+            include: {
+              booking: true,
+              tour: true,
+            },
+            orderBy: {
+              startDate: "desc",
+            },
           },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: {
+          createdAt: "desc",
+        },
       }),
     ]);
 
+    const mappedItems = items.map((guide: any) => {
+      const issueAssignments = (guide.assignments || []).filter(
+        (assignment: any) => assignment.status === "issue",
+      );
+
+      return {
+        ...guide,
+        hasIssue: issueAssignments.length > 0,
+        issueCount: issueAssignments.length,
+        issueAssignments,
+      };
+    });
+
     return {
-      items,
+      items: mappedItems,
       pagination: {
         page,
         pageSize,
@@ -74,30 +119,392 @@ export class GuidesService {
     };
   }
 
-  create(dto: any) {
-    return this.prisma.guide.create({
-      data: {
-        fullName: dto.fullName,
-        phone: dto.phone,
-        email: dto.email || null,
-        identityNumber: dto.identityNumber || null,
-        languages: dto.languages || null,
-        experienceYears: Number(dto.experienceYears || 0),
-        status: dto.status || "active",
-        note: dto.note || null,
-      },
+  async create(dto: any) {
+    const fullName = String(dto.fullName || "").trim();
+    const phone = String(dto.phone || "").trim();
+    const email = String(dto.email || "")
+      .trim()
+      .toLowerCase();
+    const createAccount = Boolean(dto.createAccount || dto.password);
+
+    if (!fullName) {
+      throw new BadRequestException("Vui lòng nhập họ tên HDV.");
+    }
+
+    if (!phone) {
+      throw new BadRequestException("Vui lòng nhập số điện thoại HDV.");
+    }
+
+    if (createAccount && !email) {
+      throw new BadRequestException(
+        "Cần email để tạo tài khoản đăng nhập cho hướng dẫn viên.",
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let userId = dto.userId ? BigInt(dto.userId) : null;
+
+      if (createAccount) {
+        const existed = await tx.user.findUnique({
+          where: { email },
+        });
+
+        if (existed && existed.role !== "guide") {
+          throw new BadRequestException(
+            "Email này đã thuộc tài khoản khách/admin, không thể dùng cho HDV.",
+          );
+        }
+
+        if (existed) {
+          userId = existed.id;
+
+          await tx.user.update({
+            where: { id: existed.id },
+            data: {
+              role: "guide",
+              status: "active",
+            },
+          });
+        } else {
+          const password = String(dto.password || "123456");
+
+          if (password.length < 6) {
+            throw new BadRequestException(
+              "Mật khẩu HDV cần tối thiểu 6 ký tự.",
+            );
+          }
+
+          const passwordHash = await bcrypt.hash(password, 10);
+
+          const user = await tx.user.create({
+            data: {
+              fullName,
+              email,
+              phone: phone || undefined,
+              identityNumber: dto.identityNumber || undefined,
+              passwordHash,
+              role: "guide",
+              status: "active",
+              authProvider: "local",
+            },
+          });
+
+          userId = user.id;
+        }
+      }
+
+      return tx.guide.create({
+        data: {
+          userId,
+          fullName,
+          phone,
+          email: email || null,
+          identityNumber: dto.identityNumber || null,
+          languages: dto.languages || null,
+          experienceYears: Number(dto.experienceYears || 0),
+          status: dto.status || "active",
+          note: dto.note || null,
+        },
+        include: {
+          userAccount: true,
+        },
+      });
     });
   }
 
-  update(id: bigint, dto: any) {
-    return this.prisma.guide.update({
+  async update(id: bigint, dto: any) {
+    const guide = await this.prisma.guide.findUnique({
       where: { id },
-      data: {
-        ...dto,
-        experienceYears:
-          dto.experienceYears == null ? undefined : Number(dto.experienceYears),
+    });
+
+    if (!guide) {
+      throw new NotFoundException("Không tìm thấy hướng dẫn viên.");
+    }
+
+    const fullName =
+      dto.fullName == null ? undefined : String(dto.fullName).trim();
+    const phone = dto.phone == null ? undefined : String(dto.phone).trim();
+    const email =
+      dto.email == null ? undefined : String(dto.email).trim().toLowerCase();
+
+    return this.prisma.$transaction(async (tx) => {
+      let userId =
+        dto.userId === undefined
+          ? guide.userId
+          : dto.userId
+            ? BigInt(dto.userId)
+            : null;
+
+      if (dto.createAccount || dto.password) {
+        const accountEmail = email || guide.email;
+
+        if (!accountEmail) {
+          throw new BadRequestException(
+            "Cần email để tạo tài khoản đăng nhập cho hướng dẫn viên.",
+          );
+        }
+
+        const existed = await tx.user.findUnique({
+          where: { email: accountEmail },
+        });
+
+        if (
+          existed &&
+          existed.id !== guide.userId &&
+          existed.role !== "guide"
+        ) {
+          throw new BadRequestException(
+            "Email này đã thuộc tài khoản khách/admin, không thể dùng cho HDV.",
+          );
+        }
+
+        if (existed) {
+          userId = existed.id;
+
+          await tx.user.update({
+            where: { id: existed.id },
+            data: {
+              role: "guide",
+              status: "active",
+            },
+          });
+        } else {
+          const password = String(dto.password || "123456");
+
+          if (password.length < 6) {
+            throw new BadRequestException(
+              "Mật khẩu HDV cần tối thiểu 6 ký tự.",
+            );
+          }
+
+          const user = await tx.user.create({
+            data: {
+              fullName: fullName || guide.fullName,
+              email: accountEmail,
+              phone: phone || guide.phone || undefined,
+              identityNumber:
+                dto.identityNumber || guide.identityNumber || undefined,
+              passwordHash: await bcrypt.hash(password, 10),
+              role: "guide",
+              status: "active",
+              authProvider: "local",
+            },
+          });
+
+          userId = user.id;
+        }
+      }
+
+      const updated = await tx.guide.update({
+        where: { id },
+        data: {
+          userId,
+          fullName,
+          phone,
+          email,
+          identityNumber:
+            dto.identityNumber === undefined
+              ? undefined
+              : dto.identityNumber || null,
+          languages:
+            dto.languages === undefined ? undefined : dto.languages || null,
+          status: dto.status === undefined ? undefined : dto.status,
+          note: dto.note === undefined ? undefined : dto.note || null,
+          experienceYears:
+            dto.experienceYears == null
+              ? undefined
+              : Number(dto.experienceYears),
+        },
+        include: {
+          userAccount: true,
+        },
+      });
+
+      if (updated.userId) {
+        await tx.user
+          .update({
+            where: { id: updated.userId },
+            data: {
+              fullName: updated.fullName,
+              phone: updated.phone || undefined,
+              avatarUrl: undefined,
+            },
+          })
+          .catch(() => null);
+      }
+
+      return updated;
+    });
+  }
+
+  private buildAssignmentInclude() {
+    return {
+      guide: true,
+      tour: {
+        include: {
+          destination: true,
+          media: {
+            where: { isCover: true },
+            take: 1,
+          },
+        },
+      },
+      booking: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phone: true,
+            },
+          },
+          departure: true,
+          pickupPoint: true,
+          guests: {
+            orderBy: {
+              id: "asc",
+            },
+          },
+          payments: {
+            orderBy: {
+              createdAt: "desc",
+            },
+            take: 1,
+          },
+        },
+      },
+    } as any;
+  }
+
+  private async getGuideByUserId(userId: bigint) {
+    const guide = await this.prisma.guide.findFirst({
+      where: {
+        userId,
+        status: {
+          not: "locked",
+        },
       },
     });
+
+    if (!guide) {
+      throw new NotFoundException(
+        "Tài khoản này chưa được gán hồ sơ hướng dẫn viên.",
+      );
+    }
+
+    return guide;
+  }
+
+  private normalizeAssignment(row: any) {
+    const booking = row.booking;
+    const guests = booking?.guests || [];
+    const adultCount = Number(booking?.adultCount || 0);
+    const childCount = Number(booking?.childCount || 0);
+
+    return {
+      id: row.id,
+      status: row.status,
+      startDate: row.startDate,
+      endDate: row.endDate,
+      note: row.note,
+      guide: row.guide,
+      tour: row.tour,
+      booking: {
+        id: booking?.id,
+        bookingCode: booking?.bookingCode,
+        contactName: booking?.contactName,
+        contactEmail: booking?.contactEmail,
+        contactPhone: booking?.contactPhone,
+        adultCount,
+        childCount,
+        totalGuests: adultCount + childCount,
+        bookingStatus: booking?.bookingStatus,
+        note: booking?.note,
+        pickupName: booking?.pickupName,
+        pickupAddress: booking?.pickupAddress,
+        pickupTime: booking?.pickupTime,
+        departure: booking?.departure,
+        user: booking?.user,
+        guests,
+      },
+    };
+  }
+
+  async mySchedule(userId: bigint, query: { from?: string; to?: string } = {}) {
+    const guide = await this.getGuideByUserId(userId);
+
+    const where: any = {
+      guideId: guide.id,
+      status: {
+        in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+      },
+    };
+
+    if (query.from || query.to) {
+      const from = query.from ? new Date(query.from) : null;
+      const to = query.to ? new Date(query.to) : null;
+
+      where.AND = [];
+
+      if (from) {
+        where.AND.push({
+          endDate: {
+            gte: from,
+          },
+        });
+      }
+
+      if (to) {
+        where.AND.push({
+          startDate: {
+            lte: to,
+          },
+        });
+      }
+    }
+
+    const rows = await this.prisma.guideAssignment.findMany({
+      where,
+      include: this.buildAssignmentInclude(),
+      orderBy: [{ startDate: "asc" }, { id: "asc" }],
+    });
+
+    return {
+      guide,
+      items: rows.map((row: any) => this.normalizeAssignment(row)),
+    };
+  }
+
+  async myToday(userId: bigint) {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const today = `${yyyy}-${mm}-${dd}`;
+
+    return this.mySchedule(userId, {
+      from: today,
+      to: today,
+    });
+  }
+
+  async myAssignmentDetail(userId: bigint, assignmentId: bigint) {
+    const guide = await this.getGuideByUserId(userId);
+
+    const assignment = await this.prisma.guideAssignment.findFirst({
+      where: {
+        id: assignmentId,
+        guideId: guide.id,
+      },
+      include: this.buildAssignmentInclude(),
+    });
+
+    if (!assignment) {
+      throw new NotFoundException("Không tìm thấy lịch phân công này.");
+    }
+
+    return this.normalizeAssignment(assignment);
   }
 
   async toggleLock(id: bigint) {
@@ -129,110 +536,239 @@ export class GuidesService {
   async remove(id: bigint) {
     const guide = await this.prisma.guide.findUnique({
       where: { id },
-      include: { _count: { select: { assignments: true } } },
+      include: {
+        _count: {
+          select: {
+            assignments: true,
+          },
+        },
+      },
     });
-    if (!guide) throw new NotFoundException("Guide not found");
+
+    if (!guide) {
+      throw new NotFoundException("Guide not found");
+    }
+
     if (guide._count.assignments > 0) {
       return this.prisma.guide.update({
         where: { id },
-        data: { status: "locked" },
+        data: {
+          status: "locked",
+        },
       });
     }
-    await this.prisma.guide.delete({ where: { id } });
-    return { success: true };
+
+    await this.prisma.guide.delete({
+      where: { id },
+    });
+
+    return {
+      success: true,
+    };
   }
 
   calendar(id: bigint) {
     return this.prisma.guideAssignment.findMany({
-      where: { guideId: id, status: { in: ["assigned", "confirmed"] } },
-      include: { booking: true, tour: true, guide: true },
-      orderBy: { startDate: "asc" },
+      where: {
+        guideId: id,
+        status: {
+          in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+        },
+      },
+      include: {
+        booking: true,
+        tour: true,
+        guide: true,
+      },
+      orderBy: {
+        startDate: "asc",
+      },
     });
   }
 
   async allCalendar(month?: string) {
-    const where: any = { status: { in: ["assigned", "confirmed"] } };
+    const where: any = {
+      status: {
+        in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+      },
+    };
+
     if (month && /^\d{4}-\d{2}$/.test(month)) {
       const [year, m] = month.split("-").map(Number);
       const start = new Date(year, m - 1, 1);
       const end = new Date(year, m, 0);
-      where.NOT = [{ endDate: { lt: start } }, { startDate: { gt: end } }];
+
+      where.NOT = [
+        {
+          endDate: {
+            lt: start,
+          },
+        },
+        {
+          startDate: {
+            gt: end,
+          },
+        },
+      ];
     }
+
     return this.prisma.guideAssignment.findMany({
       where,
-      include: { guide: true, booking: true, tour: true },
-      orderBy: { startDate: "asc" },
+      include: {
+        guide: true,
+        booking: true,
+        tour: true,
+      },
+      orderBy: {
+        startDate: "asc",
+      },
     });
   }
 
   async available(startDate: string, endDate: string) {
-    if (!startDate || !endDate)
+    if (!startDate || !endDate) {
       return this.prisma.guide.findMany({
-        where: { status: "active" },
-        orderBy: { fullName: "asc" },
+        where: {
+          status: "active",
+        },
+        orderBy: {
+          fullName: "asc",
+        },
       });
+    }
+
     const start = new Date(startDate);
     const end = new Date(endDate);
+
     const busy = await this.prisma.guideAssignment.findMany({
       where: {
-        status: { in: ["assigned", "confirmed"] },
-        NOT: [{ endDate: { lt: start } }, { startDate: { gt: end } }],
+        status: {
+          in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+        },
+        NOT: [
+          {
+            endDate: {
+              lt: start,
+            },
+          },
+          {
+            startDate: {
+              gt: end,
+            },
+          },
+        ],
       },
-      select: { guideId: true },
+      select: {
+        guideId: true,
+      },
     });
+
     return this.prisma.guide.findMany({
-      where: { status: "active", id: { notIn: busy.map((x) => x.guideId) } },
-      orderBy: { fullName: "asc" },
+      where: {
+        status: "active",
+        id: {
+          notIn: busy.map((x) => x.guideId),
+        },
+      },
+      orderBy: {
+        fullName: "asc",
+      },
     });
   }
 
   async assign(dto: any) {
     const bookingId = BigInt(dto.bookingId);
     const guideId = BigInt(dto.guideId);
+
     const booking = await this.prisma.booking.findUnique({
-      where: { id: bookingId },
+      where: {
+        id: bookingId,
+      },
       include: {
         departure: true,
         tour: true,
         user: true,
         guideAssignments: {
-          include: { guide: true },
-          where: { status: { in: ["assigned", "confirmed"] } },
+          include: {
+            guide: true,
+          },
+          where: {
+            status: {
+              in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+            },
+          },
         },
       },
     });
-    if (!booking) throw new BadRequestException("Không tìm thấy booking.");
+
+    if (!booking) {
+      throw new BadRequestException("Không tìm thấy booking.");
+    }
+
+    if (!booking.departure) {
+      throw new BadRequestException("Booking này chưa có lịch khởi hành.");
+    }
+
     const guide = await this.prisma.guide.findUnique({
-      where: { id: guideId },
+      where: {
+        id: guideId,
+      },
     });
-    if (!guide || guide.status !== "active")
+
+    if (!guide || guide.status !== "active") {
       throw new BadRequestException("Hướng dẫn viên không khả dụng.");
+    }
+
     const overlap = await this.prisma.guideAssignment.findFirst({
       where: {
         guideId,
-        status: { in: ["assigned", "confirmed"] },
-        bookingId: { not: booking.id },
+        status: {
+          in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+        },
+        bookingId: {
+          not: booking.id,
+        },
         NOT: [
-          { endDate: { lt: booking.departure.departureDate } },
-          { startDate: { gt: booking.departure.endDate } },
+          {
+            endDate: {
+              lt: booking.departure.departureDate,
+            },
+          },
+          {
+            startDate: {
+              gt: booking.departure.endDate,
+            },
+          },
         ],
       },
-      include: { booking: true, tour: true },
+      include: {
+        booking: true,
+        tour: true,
+      },
     });
-    if (overlap)
+
+    if (overlap) {
       throw new BadRequestException(
         `Hướng dẫn viên đã bận tour ${overlap.tour?.name || ""} trong thời gian này.`,
       );
+    }
 
     const previousGuide = booking.guideAssignments[0]?.guide;
+
     const created = await this.prisma.$transaction(async (tx) => {
       await tx.guideAssignment.updateMany({
         where: {
           bookingId: booking.id,
-          status: { in: ["assigned", "confirmed"] },
+          status: {
+            in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+          },
         },
-        data: { status: "replaced", note: dto.note || "Đã đổi hướng dẫn viên" },
+        data: {
+          status: "replaced",
+          note: dto.note || "Đã đổi hướng dẫn viên sau khi HDV báo sự cố",
+        },
       });
+
       const assignment = await tx.guideAssignment.create({
         data: {
           guideId,
@@ -243,8 +779,13 @@ export class GuidesService {
           status: "assigned",
           note: dto.note || null,
         },
-        include: { guide: true, booking: true, tour: true },
+        include: {
+          guide: true,
+          booking: true,
+          tour: true,
+        },
       });
+
       await tx.bookingStatusLog.create({
         data: {
           bookingId: booking.id,
@@ -258,10 +799,12 @@ export class GuidesService {
             : `Chỉ định HDV ${guide.fullName}`,
         },
       });
+
       return assignment;
     });
 
     const customerEmail = booking.user?.email || booking.contactEmail;
+
     if (customerEmail) {
       try {
         await this.email.sendMail({
@@ -269,7 +812,29 @@ export class GuidesService {
           subject: previousGuide
             ? `Travela cập nhật hướng dẫn viên cho đơn ${booking.bookingCode}`
             : `Travela đã chỉ định hướng dẫn viên cho đơn ${booking.bookingCode}`,
-          html: `<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>Thông báo hướng dẫn viên</h2><p>Xin chào ${htmlEscape(booking.contactName)},</p><p>Đơn <b>${htmlEscape(booking.bookingCode)}</b> - tour <b>${htmlEscape(booking.tour.name)}</b> đã được ${previousGuide ? "cập nhật" : "chỉ định"} hướng dẫn viên.</p><ul><li>Hướng dẫn viên: <b>${htmlEscape(guide.fullName)}</b></li><li>Số điện thoại HDV: ${htmlEscape(guide.phone)}</li><li>Thời gian tour: ${new Date(booking.departure.departureDate).toLocaleDateString("vi-VN")} - ${new Date(booking.departure.endDate).toLocaleDateString("vi-VN")}</li></ul>${dto.note ? `<p>Ghi chú: ${htmlEscape(dto.note)}</p>` : ""}<p>Travela chúc quý khách có chuyến đi vui vẻ.</p></div>`,
+          html: `
+            <div style="font-family:Arial,sans-serif;line-height:1.6">
+              <h2>Thông báo hướng dẫn viên</h2>
+              <p>Xin chào ${htmlEscape(booking.contactName)},</p>
+              <p>
+                Đơn <b>${htmlEscape(booking.bookingCode)}</b> - tour 
+                <b>${htmlEscape(booking.tour.name)}</b> đã được 
+                ${previousGuide ? "cập nhật" : "chỉ định"} hướng dẫn viên.
+              </p>
+              <ul>
+                <li>Hướng dẫn viên: <b>${htmlEscape(guide.fullName)}</b></li>
+                <li>Số điện thoại HDV: ${htmlEscape(guide.phone)}</li>
+                <li>
+                  Thời gian tour:
+                  ${new Date(booking.departure.departureDate).toLocaleDateString("vi-VN")}
+                  -
+                  ${new Date(booking.departure.endDate).toLocaleDateString("vi-VN")}
+                </li>
+              </ul>
+              ${dto.note ? `<p>Ghi chú: ${htmlEscape(dto.note)}</p>` : ""}
+              <p>Travela chúc quý khách có chuyến đi vui vẻ.</p>
+            </div>
+          `,
         });
       } catch (error) {
         await this.prisma.bookingStatusLog

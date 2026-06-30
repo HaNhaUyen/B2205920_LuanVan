@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { API_URL } from "@/lib/config";
 import { apiFetch } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -17,6 +17,36 @@ import {
   Users,
   Flame,
 } from "lucide-react";
+
+function formatRating(value) {
+  const number = Number(value || 0);
+
+  if (!number || Number.isNaN(number)) return "0";
+
+  const rounded = Math.round(number * 10) / 10;
+
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function getTourRating(tour) {
+  return (
+    tour?.rating ??
+    tour?.averageRating ??
+    tour?.avgRating ??
+    tour?.reviewAverage ??
+    0
+  );
+}
+
+function getTourReviewCount(tour) {
+  return Number(
+    tour?.reviewCount ??
+      tour?.reviewsCount ??
+      tour?._count?.reviews ??
+      tour?.reviews?.length ??
+      0,
+  );
+}
 
 function getRemainingSlots(tour) {
   if (typeof tour?.remainingSlots === "number") return tour.remainingSlots;
@@ -45,19 +75,84 @@ function getMatchPercent(tour) {
   return Math.max(60, Math.min(99, Math.round(normalized)));
 }
 
+const FALLBACK_TOUR_IMAGE =
+  "data:image/svg+xml;charset=UTF-8," +
+  encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
+      <defs>
+        <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#dbeafe"/>
+          <stop offset="45%" stop-color="#f0f9ff"/>
+          <stop offset="100%" stop-color="#dcfce7"/>
+        </linearGradient>
+      </defs>
+      <rect width="900" height="600" fill="url(#g)"/>
+      <circle cx="690" cy="150" r="72" fill="#facc15" opacity="0.85"/>
+      <path d="M0 420 C160 360 280 470 430 405 C590 335 720 405 900 355 L900 600 L0 600 Z" fill="#2563eb" opacity="0.78"/>
+      <path d="M0 485 C180 430 310 530 470 475 C620 425 760 480 900 440 L900 600 L0 600 Z" fill="#16a34a" opacity="0.55"/>
+      <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="700" fill="#0f172a">
+        Travela Tour
+      </text>
+    </svg>
+  `);
+
+function buildImageCandidates(tour, rawCover) {
+  const candidates = [
+    rawCover,
+    tour?.coverUrl,
+    tour?.cover_url,
+    tour?.thumbnailUrl,
+    tour?.thumbnail_url,
+    tour?.imageUrl,
+    tour?.image_url,
+    tour?.mainImage,
+    tour?.main_image,
+    tour?.image,
+    tour?.media?.find?.((item) => item?.isCover || item?.is_cover)?.fileUrl,
+    tour?.media?.find?.((item) => item?.isCover || item?.is_cover)?.file_url,
+    tour?.media?.find?.((item) => item?.isCover || item?.is_cover)?.url,
+    tour?.media?.[0]?.fileUrl,
+    tour?.media?.[0]?.file_url,
+    tour?.media?.[0]?.url,
+    tour?.imageUrls?.[0],
+    tour?.images?.[0]?.fileUrl,
+    tour?.images?.[0]?.file_url,
+    tour?.images?.[0]?.imageUrl,
+    tour?.images?.[0]?.image_url,
+    tour?.images?.[0]?.url,
+    tour?.destination?.coverImage,
+    tour?.destination?.cover_image,
+    tour?.destination?.imageUrl,
+    tour?.destination?.image_url,
+  ]
+    .filter(Boolean)
+    .map((item) => mapImageUrl(item, API_URL))
+    .filter(Boolean);
+
+  return [...new Set(candidates)];
+}
+
 export default function TourCard({
   tour,
   initialFavorite = false,
   onFavoriteChange,
 }) {
-  const [imageError, setImageError] = useState(false);
+  const [imageIndex, setImageIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [favorite, setFavorite] = useState(Boolean(initialFavorite));
 
+  useEffect(() => {
+    setImageIndex(0);
+  }, [tour?.id, tour?.coverUrl, tour?.imageUrl, tour?.media]);
+
   const rawCover = pickTourImage(tour);
-  const cover = imageError
-    ? "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=90"
-    : mapImageUrl(rawCover, API_URL);
+
+  const imageCandidates = useMemo(
+    () => buildImageCandidates(tour, rawCover),
+    [tour, rawCover],
+  );
+
+  const cover = imageCandidates[imageIndex] || FALLBACK_TOUR_IMAGE;
 
   const firstDeparture = tour.nextDeparture || tour.departures?.[0];
   const currentUser = useMemo(() => getUser(), []);
@@ -74,6 +169,8 @@ export default function TourCard({
   const matchPercent = getMatchPercent(tour);
 
   const price = tour.minPrice || tour.basePriceAdult || 0;
+  const rating = getTourRating(tour);
+  const reviewCount = getTourReviewCount(tour);
 
   const toggleFavorite = async (e) => {
     e.preventDefault();
@@ -285,11 +382,22 @@ export default function TourCard({
     >
       <div style={styles.imageWrapper}>
         <img
+          key={`${tour?.id || tour?.slug || "tour"}-${imageIndex}`}
           src={cover}
-          alt={tour.name}
+          alt={tour.name || "Tour Travela"}
           loading="lazy"
           decoding="async"
-          onError={() => setImageError(true)}
+          referrerPolicy="no-referrer"
+          onError={(event) => {
+            event.currentTarget.onerror = null;
+
+            if (imageIndex < imageCandidates.length - 1) {
+              setImageIndex((prev) => prev + 1);
+              return;
+            }
+
+            event.currentTarget.src = FALLBACK_TOUR_IMAGE;
+          }}
           style={styles.image}
         />
 
@@ -375,9 +483,9 @@ export default function TourCard({
             <Star size={16} fill="currentColor" />
             <span style={{ color: "#64748b" }}>
               <strong style={{ color: "#1e293b" }}>
-                {tour.rating || "5.0"}
+                {formatRating(rating)}
               </strong>{" "}
-              ({tour.reviewCount || 0})
+              ({reviewCount})
             </span>
           </div>
         </div>

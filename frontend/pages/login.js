@@ -42,7 +42,11 @@ export default function LoginPage() {
           showToast("Đăng nhập Google thành công", "success");
           setTimeout(() => {
             window.location.href =
-              payload.user.role === "admin" ? "/admin" : "/";
+              payload.user.role === "admin"
+                ? "/admin"
+                : payload.user.role === "guide"
+                  ? "/guide"
+                  : "/";
           }, 350);
         } catch (error) {
           showToast(error.message, "error");
@@ -80,7 +84,14 @@ export default function LoginPage() {
       saveSession(session);
       showToast("Đăng nhập thành công", "success");
       setTimeout(
-        () => router.push(session.user.role === "admin" ? "/admin" : "/"),
+        () =>
+          router.push(
+            session.user.role === "admin"
+              ? "/admin"
+              : session.user.role === "guide"
+                ? "/guide"
+                : "/",
+          ),
         350,
       );
     } catch (error) {

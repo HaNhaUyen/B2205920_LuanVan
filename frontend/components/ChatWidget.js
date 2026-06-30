@@ -1,157 +1,131 @@
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { useState } from "react";
 
 export default function ChatWidget() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
 
-  const currentPath = router.pathname || "/";
-  const isAssistantPage = currentPath === "/assistant";
-  const isAdminPage = currentPath.startsWith("/admin");
-  const isAuthPage = ["/login", "/register"].includes(currentPath);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  if (isAssistantPage || isAdminPage || isAuthPage) {
+  useEffect(() => {
+    function handleMessage(event) {
+      const data = event?.data;
+
+      if (
+        data === "TRAVELA_CHAT_CLOSE" ||
+        data === "CLOSE_CHATBOT" ||
+        data?.type === "TRAVELA_CHAT_CLOSE" ||
+        data?.type === "CLOSE_CHATBOT"
+      ) {
+        setOpen(false);
+      }
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
+  if (!mounted) return null;
+
+  const currentPath = router.asPath || router.pathname || "";
+
+  // Không hiện chatbot user trong admin
+  if (currentPath.startsWith("/admin")) {
+    return null;
+  }
+
+  // Quan trọng: không render ChatWidget bên trong chính trang assistant iframe
+  // Nếu không sẽ bị iframe lồng iframe khi bấm icon máy bay.
+  if (currentPath.startsWith("/assistant")) {
     return null;
   }
 
   return (
     <>
-      <button
-        type="button"
-        aria-label={open ? "Đóng chat AI" : "Mở chat AI"}
-        onClick={() => setOpen((prev) => !prev)}
-        style={{
-          position: "fixed",
-          right: 16,
-          bottom: 16,
-          width: 60,
-          height: 60,
-          borderRadius: "50%",
-          border: "none",
-          background: "linear-gradient(135deg, #16a34a, #22c55e)",
-          color: "#fff",
-          boxShadow: "0 18px 40px rgba(34, 197, 94, 0.28)",
-          cursor: "pointer",
-          zIndex: 999,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {open ? (
-          <span style={{ fontSize: 28, lineHeight: 1 }}>×</span>
-        ) : (
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
-        )}
-      </button>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="travela-chat-open-button"
+          aria-label="Mở Travela AI"
+          title="Mở Travela AI"
+        >
+          ✈
+        </button>
+      ) : null}
 
       {open ? (
-        <div
-          style={{
-            position: "fixed",
-            right: 12,
-            bottom: 84,
-            width: "min(410px, calc(100vw - 24px))",
-            height: "min(78vh, calc(100vh - 96px))",
-            minHeight: "min(560px, calc(100vh - 96px))",
-            maxHeight: "calc(100vh - 96px)",
-            background: "#fff",
-            borderRadius: 28,
-            overflow: "hidden",
-            border: "1px solid rgba(226, 232, 240, 0.95)",
-            boxShadow: "0 32px 80px rgba(15, 23, 42, 0.22)",
-            zIndex: 999,
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "12px 14px",
-              background: "linear-gradient(135deg, #16a34a, #22c55e)",
-              color: "#fff",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: "50%",
-                  background: "rgba(255,255,255,0.18)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M12 8V4H8" />
-                  <rect width="16" height="12" x="4" y="8" rx="2" />
-                </svg>
-              </div>
-              <div>
-                <strong style={{ display: "block", fontSize: "0.98rem" }}>
-                  Travela AI
-                </strong>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: "50%",
-                background: "rgba(255,255,255,0.16)",
-                border: "none",
-                color: "#fff",
-                fontSize: 22,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              ×
-            </button>
-          </div>
-
+        <div className="travela-chat-frame">
           <iframe
-            title="Travela AI"
             src="/assistant?embed=1"
-            style={{
-              width: "100%",
-              flex: 1,
-              minHeight: 0,
-              border: "none",
-              background: "#fff",
-            }}
+            title="Travela AI"
+            className="travela-chat-iframe"
           />
         </div>
       ) : null}
+
+      <style jsx>{`
+        .travela-chat-open-button {
+          position: fixed;
+          right: 22px;
+          bottom: 22px;
+          width: 62px;
+          height: 62px;
+          border-radius: 999px;
+          border: none;
+          background: #16a34a;
+          color: #ffffff;
+          box-shadow: 0 18px 45px rgba(22, 163, 74, 0.35);
+          cursor: pointer;
+          z-index: 9999;
+          display: grid;
+          place-items: center;
+          font-size: 28px;
+          font-weight: 900;
+        }
+
+        .travela-chat-frame {
+          position: fixed;
+          right: 18px;
+          bottom: 18px;
+          width: 460px;
+          height: 680px;
+          max-width: calc(100vw - 24px);
+          max-height: calc(100vh - 24px);
+          border-radius: 22px;
+          overflow: hidden;
+          background: #ffffff;
+          box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+          z-index: 9999;
+          border: 1px solid #dbe3ef;
+        }
+
+        .travela-chat-iframe {
+          width: 100%;
+          height: 100%;
+          border: none;
+          display: block;
+          background: #ffffff;
+        }
+
+        @media (max-width: 520px) {
+          .travela-chat-frame {
+            right: 8px;
+            bottom: 8px;
+            width: calc(100vw - 16px);
+            height: calc(100vh - 16px);
+            border-radius: 18px;
+          }
+
+          .travela-chat-open-button {
+            right: 18px;
+            bottom: 18px;
+          }
+        }
+      `}</style>
     </>
   );
 }

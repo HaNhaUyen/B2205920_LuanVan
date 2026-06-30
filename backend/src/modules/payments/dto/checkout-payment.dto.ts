@@ -1,6 +1,6 @@
 import {
   IsEmail,
-  IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -40,6 +40,7 @@ export class CheckoutPaymentDto {
   @IsString()
   note?: string;
 
-  @IsEnum(["momo", "vnpay", "card", "bank_transfer", "cash"])
-  paymentMethod!: "momo" | "vnpay" | "card" | "bank_transfer" | "cash";
+  @IsOptional()
+  @IsIn(["bank_transfer"])
+  paymentMethod?: "bank_transfer" = "bank_transfer";
 }

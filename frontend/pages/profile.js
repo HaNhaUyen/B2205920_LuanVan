@@ -250,20 +250,49 @@ const styles = {
     position: "fixed",
     inset: 0,
     zIndex: 10000,
-    background: "rgba(15, 23, 42, 0.4)",
+    background: "rgba(15, 23, 42, 0.45)",
     backdropFilter: "blur(4px)",
-    display: "grid",
-    placeItems: "center",
-    padding: 18,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "18px",
+    overflowY: "auto",
   },
+
   refundModal: {
-    width: "min(560px, 100%)",
+    width: "min(640px, 100%)",
+    maxHeight: "calc(100vh - 36px)",
     background: "#fff",
-    borderRadius: "20px",
-    padding: "32px",
+    borderRadius: "22px",
     boxShadow:
-      "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+      "0 24px 70px rgba(15, 23, 42, 0.22), 0 8px 18px rgba(15, 23, 42, 0.08)",
     position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  },
+
+  refundModalHeader: {
+    padding: "28px 32px 18px",
+    borderBottom: "1px solid #eef2f7",
+    flexShrink: 0,
+  },
+
+  refundModalBody: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    padding: "22px 32px",
+  },
+
+  refundModalFooter: {
+    padding: "16px 32px 24px",
+    borderTop: "1px solid #eef2f7",
+    background: "#fff",
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    flexShrink: 0,
   },
 };
 
@@ -287,7 +316,14 @@ export default function ProfilePage() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  const [refundForm, setRefundForm] = useState({ bookingId: "", reason: "" });
+  const [refundForm, setRefundForm] = useState({
+    bookingId: "",
+    reason: "",
+    refundBankName: "",
+    refundAccountNo: "",
+    refundAccountName: "",
+    refundQrUrl: "",
+  });
   const [refundModalBooking, setRefundModalBooking] = useState(null);
 
   const [profileForm, setProfileForm] = useState({
@@ -509,14 +545,23 @@ export default function ProfilePage() {
     }
   };
 
+  const emptyRefundForm = (bookingId = "") => ({
+    bookingId,
+    reason: "",
+    refundBankName: "",
+    refundAccountNo: "",
+    refundAccountName: "",
+    refundQrUrl: "",
+  });
+
   const openRefundModal = (booking) => {
     setRefundModalBooking(booking);
-    setRefundForm({ bookingId: String(booking.id), reason: "" });
+    setRefundForm(emptyRefundForm(String(booking.id)));
   };
 
   const closeRefundModal = () => {
     setRefundModalBooking(null);
-    setRefundForm({ bookingId: "", reason: "" });
+    setRefundForm(emptyRefundForm());
   };
 
   const submitRefund = async (event) => {
@@ -525,6 +570,17 @@ export default function ProfilePage() {
     if (!refundForm.bookingId || !refundForm.reason.trim()) {
       return showToast(
         "Vui lòng chọn booking và nhập lý do hoàn tiền.",
+        "error",
+      );
+    }
+
+    if (
+      !refundForm.refundBankName.trim() ||
+      !refundForm.refundAccountNo.trim() ||
+      !refundForm.refundAccountName.trim()
+    ) {
+      return showToast(
+        "Vui lòng nhập đủ ngân hàng, số tài khoản và tên chủ tài khoản nhận hoàn tiền.",
         "error",
       );
     }
@@ -1659,192 +1715,321 @@ export default function ProfilePage() {
       </div>
 
       {refundModalBooking && (
-        <div style={styles.refundOverlay}>
-          <div style={styles.refundModal}>
+        <div style={styles.refundOverlay} onClick={closeRefundModal}>
+          <div
+            style={styles.refundModal}
+            onClick={(event) => event.stopPropagation()}
+          >
             <button
               type="button"
               onClick={closeRefundModal}
               style={{
                 position: "absolute",
-                top: "20px",
-                right: "20px",
+                top: "18px",
+                right: "18px",
                 background: "#f1f5f9",
                 border: "none",
-                width: "36px",
-                height: "36px",
+                width: "38px",
+                height: "38px",
                 borderRadius: "50%",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 cursor: "pointer",
                 color: "#64748b",
+                zIndex: 2,
               }}
+              aria-label="Đóng form hoàn tiền"
             >
               <X size={20} />
             </button>
 
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                color: "#2563eb",
-                fontWeight: 700,
-                marginBottom: "8px",
-              }}
-            >
-              <Info size={20} />
-              <span
-                style={{
-                  fontSize: "14px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                }}
-              >
-                Yêu cầu hoàn tiền
-              </span>
-            </div>
-
-            <h2
-              style={{ fontSize: "24px", margin: "0 0 12px", color: "#0f172a" }}
-            >
-              Xác nhận hủy và hoàn tour
-            </h2>
-
-            <p
-              style={{
-                color: "#64748b",
-                margin: "0 0 24px",
-                fontSize: "15px",
-                lineHeight: 1.5,
-              }}
-            >
-              Admin sẽ xem xét yêu cầu của bạn. Nếu được duyệt, hệ thống sẽ hoàn
-              slot về tour và cập nhật trạng thái hoàn tiền tương ứng với chính
-              sách của chúng tôi.
-            </p>
-
-            <div
-              style={{
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                borderRadius: "12px",
-                padding: "20px",
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "16px",
-                marginBottom: "24px",
-              }}
-            >
-              <div>
-                <p
-                  style={{
-                    margin: "0 0 4px",
-                    fontSize: "13px",
-                    color: "#64748b",
-                  }}
-                >
-                  Mã đơn
-                </p>
-                <strong style={{ color: "#0f172a" }}>
-                  {refundModalBooking.bookingCode}
-                </strong>
-              </div>
-
-              <div>
-                <p
-                  style={{
-                    margin: "0 0 4px",
-                    fontSize: "13px",
-                    color: "#64748b",
-                  }}
-                >
-                  Ngày đi
-                </p>
-                <strong style={{ color: "#0f172a" }}>
-                  {formatDate(refundModalBooking.departure?.departureDate)}
-                </strong>
-              </div>
-
-              <div style={{ gridColumn: "1 / -1" }}>
-                <p
-                  style={{
-                    margin: "0 0 4px",
-                    fontSize: "13px",
-                    color: "#64748b",
-                  }}
-                >
-                  Tour
-                </p>
-                <strong style={{ color: "#0f172a" }}>
-                  {refundModalBooking.tour?.name || "--"}
-                </strong>
-              </div>
-
+            <div style={styles.refundModalHeader}>
               <div
                 style={{
-                  gridColumn: "1 / -1",
-                  borderTop: "1px dashed #cbd5e1",
-                  paddingTop: "12px",
-                  marginTop: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  color: "#2563eb",
+                  fontWeight: 800,
+                  marginBottom: "10px",
                 }}
               >
-                <p
+                <Info size={20} />
+                <span
                   style={{
-                    margin: "0 0 4px",
-                    fontSize: "13px",
-                    color: "#64748b",
+                    fontSize: "14px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
                   }}
                 >
-                  Số tiền đã thanh toán
-                </p>
-                <strong style={{ color: "#ef4444", fontSize: "20px" }}>
-                  {formatCurrency(refundModalBooking.finalAmount)}
-                </strong>
+                  Yêu cầu hoàn tiền
+                </span>
               </div>
+
+              <h2
+                style={{
+                  fontSize: "26px",
+                  lineHeight: 1.25,
+                  margin: "0 42px 12px 0",
+                  color: "#0f172a",
+                  fontWeight: 800,
+                }}
+              >
+                Xác nhận hủy và hoàn tour
+              </h2>
+
+              <p
+                style={{
+                  color: "#64748b",
+                  margin: 0,
+                  fontSize: "15px",
+                  lineHeight: 1.6,
+                }}
+              >
+                Admin sẽ xem xét yêu cầu của bạn. Nếu được duyệt, hệ thống sẽ
+                hoàn slot về tour và cập nhật trạng thái hoàn tiền tương ứng với
+                chính sách của chúng tôi.
+              </p>
             </div>
 
             <form
               onSubmit={submitRefund}
-              style={{ display: "flex", flexDirection: "column", gap: "20px" }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                minHeight: 0,
+                flex: 1,
+              }}
             >
-              <div>
-                <label style={styles.label}>
-                  Lý do hoàn tiền / Hủy chuyến{" "}
-                  <span style={{ color: "#ef4444" }}>*</span>
-                </label>
-                <textarea
+              <div style={styles.refundModalBody}>
+                <div
                   style={{
-                    ...styles.input,
-                    resize: "vertical",
-                    minHeight: "100px",
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "16px",
+                    padding: "20px",
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "16px",
+                    marginBottom: "22px",
                   }}
-                  value={refundForm.reason}
-                  onChange={(e) =>
-                    setRefundForm((p) => ({ ...p, reason: e.target.value }))
-                  }
-                  placeholder="Vui lòng cung cấp lý do cụ thể (VD: sức khỏe, công việc đột xuất...)"
-                  required
-                />
+                >
+                  <div>
+                    <p
+                      style={{
+                        margin: "0 0 4px",
+                        fontSize: "13px",
+                        color: "#64748b",
+                      }}
+                    >
+                      Mã đơn
+                    </p>
+                    <strong style={{ color: "#0f172a" }}>
+                      {refundModalBooking.bookingCode}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <p
+                      style={{
+                        margin: "0 0 4px",
+                        fontSize: "13px",
+                        color: "#64748b",
+                      }}
+                    >
+                      Ngày đi
+                    </p>
+                    <strong style={{ color: "#0f172a" }}>
+                      {formatDate(refundModalBooking.departure?.departureDate)}
+                    </strong>
+                  </div>
+
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <p
+                      style={{
+                        margin: "0 0 4px",
+                        fontSize: "13px",
+                        color: "#64748b",
+                      }}
+                    >
+                      Tour
+                    </p>
+                    <strong style={{ color: "#0f172a" }}>
+                      {refundModalBooking.tour?.name || "--"}
+                    </strong>
+                  </div>
+
+                  <div
+                    style={{
+                      gridColumn: "1 / -1",
+                      borderTop: "1px dashed #cbd5e1",
+                      paddingTop: "14px",
+                      marginTop: "4px",
+                    }}
+                  >
+                    <p
+                      style={{
+                        margin: "0 0 4px",
+                        fontSize: "13px",
+                        color: "#64748b",
+                      }}
+                    >
+                      Số tiền đã thanh toán
+                    </p>
+                    <strong style={{ color: "#ef4444", fontSize: "22px" }}>
+                      {formatCurrency(refundModalBooking.finalAmount)}
+                    </strong>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: "20px" }}>
+                  <label style={styles.label}>
+                    Lý do hoàn tiền / Hủy chuyến{" "}
+                    <span style={{ color: "#ef4444" }}>*</span>
+                  </label>
+                  <textarea
+                    style={{
+                      ...styles.input,
+                      resize: "vertical",
+                      minHeight: "112px",
+                      lineHeight: 1.5,
+                      marginTop: "8px",
+                    }}
+                    value={refundForm.reason}
+                    onChange={(e) =>
+                      setRefundForm((p) => ({ ...p, reason: e.target.value }))
+                    }
+                    placeholder="Vui lòng cung cấp lý do cụ thể, ví dụ: sức khỏe, công việc đột xuất..."
+                    required
+                  />
+                </div>
+
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "16px",
+                    padding: "20px",
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: "0 0 10px",
+                      fontSize: "18px",
+                      color: "#0f172a",
+                      fontWeight: 800,
+                    }}
+                  >
+                    Tài khoản nhận hoàn tiền
+                  </h3>
+
+                  <p
+                    style={{
+                      margin: "0 0 18px",
+                      color: "#64748b",
+                      fontSize: "14px",
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    Travela cần thông tin tài khoản ngân hàng để admin đối soát
+                    và chuyển khoản hoàn tiền. Mã QR ngân hàng chỉ là tùy chọn.
+                  </p>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(220px, 1fr))",
+                      gap: "16px",
+                    }}
+                  >
+                    <div>
+                      <label style={styles.label}>
+                        Ngân hàng <span style={{ color: "#ef4444" }}>*</span>
+                      </label>
+                      <input
+                        style={styles.input}
+                        value={refundForm.refundBankName}
+                        onChange={(e) =>
+                          setRefundForm((p) => ({
+                            ...p,
+                            refundBankName: e.target.value,
+                          }))
+                        }
+                        placeholder="VD: MBBank, Vietcombank..."
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={styles.label}>
+                        Số tài khoản <span style={{ color: "#ef4444" }}>*</span>
+                      </label>
+                      <input
+                        style={styles.input}
+                        value={refundForm.refundAccountNo}
+                        onChange={(e) =>
+                          setRefundForm((p) => ({
+                            ...p,
+                            refundAccountNo: e.target.value,
+                          }))
+                        }
+                        placeholder="Nhập số tài khoản nhận tiền"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={styles.label}>
+                        Tên chủ tài khoản{" "}
+                        <span style={{ color: "#ef4444" }}>*</span>
+                      </label>
+                      <input
+                        style={styles.input}
+                        value={refundForm.refundAccountName}
+                        onChange={(e) =>
+                          setRefundForm((p) => ({
+                            ...p,
+                            refundAccountName: e.target.value,
+                          }))
+                        }
+                        placeholder="VD: NGUYEN VAN A"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={styles.label}>
+                        Link QR ngân hàng nếu có
+                      </label>
+                      <input
+                        style={styles.input}
+                        value={refundForm.refundQrUrl}
+                        onChange={(e) =>
+                          setRefundForm((p) => ({
+                            ...p,
+                            refundQrUrl: e.target.value,
+                          }))
+                        }
+                        placeholder="Không bắt buộc"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  gap: "12px",
-                  marginTop: "8px",
-                }}
-              >
+              <div style={styles.refundModalFooter}>
                 <button
                   type="button"
                   onClick={closeRefundModal}
                   style={{
-                    padding: "12px 24px",
-                    borderRadius: "10px",
+                    minWidth: "120px",
+                    padding: "12px 22px",
+                    borderRadius: "12px",
                     background: "#f1f5f9",
                     color: "#334155",
-                    fontWeight: 600,
+                    fontWeight: 700,
                     border: "none",
                     cursor: "pointer",
                   }}
@@ -1855,16 +2040,19 @@ export default function ProfilePage() {
                 <button
                   type="submit"
                   style={{
-                    padding: "12px 24px",
-                    borderRadius: "10px",
-                    background: "#ef4444",
+                    minWidth: "140px",
+                    padding: "12px 22px",
+                    borderRadius: "12px",
+                    background: "linear-gradient(135deg, #ef4444, #f97316)",
                     color: "#fff",
-                    fontWeight: 600,
+                    fontWeight: 700,
                     border: "none",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
+                    justifyContent: "center",
                     gap: "8px",
+                    boxShadow: "0 12px 26px rgba(239, 68, 68, 0.25)",
                   }}
                 >
                   Gửi yêu cầu <ChevronRight size={18} />
@@ -1874,6 +2062,13 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+      <style jsx>{`
+        @media (max-width: 768px) {
+          :global(.refund-responsive-grid) {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </section>
   );
 }

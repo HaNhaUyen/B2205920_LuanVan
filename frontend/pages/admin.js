@@ -59,6 +59,8 @@ const initialReviewFilter = {
   pageSize: 10,
   search: "",
   tourId: "",
+  rating: "",
+  hasMedia: "",
   sortBy: "createdAt",
   sortOrder: "desc",
 };
@@ -844,43 +846,8 @@ export default function AdminPage({ initialTab = "overview" }) {
     setBookingsData(await apiFetch(`/admin/bookings?${buildQuery(filters)}`));
   }
   async function loadReviews(filters = reviewFilters) {
-    const query = { ...filters };
-    const selectedTourId = String(query.tourId || "");
-
-    // Nếu lọc theo tour mà backend cũ chưa hỗ trợ tourId,
-    // frontend sẽ lấy nhiều đánh giá hơn rồi tự lọc + phân trang lại.
-    if (selectedTourId) {
-      query.page = 1;
-      query.pageSize = 1000;
-      delete query.tourId;
-    }
-
-    const result = await apiFetch(`/admin/reviews?${buildQuery(query)}`);
-
-    if (!selectedTourId) {
-      setReviewsData(result || emptyPage);
-      return;
-    }
-
-    const filtered = (result?.items || []).filter(
-      (item) => String(item?.tour?.id || item?.tourId || "") === selectedTourId,
-    );
-    const page = Math.max(Number(filters.page || 1), 1);
-    const pageSize = Math.max(Number(filters.pageSize || 10), 1);
-    const total = filtered.length;
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const safePage = Math.min(page, totalPages);
-    const start = (safePage - 1) * pageSize;
-
-    setReviewsData({
-      items: filtered.slice(start, start + pageSize),
-      pagination: {
-        page: safePage,
-        pageSize,
-        total,
-        totalPages,
-      },
-    });
+    const result = await apiFetch(`/admin/reviews?${buildQuery(filters)}`);
+    setReviewsData(result || emptyPage);
   }
   async function loadContacts(filters = contactFilters) {
     setContactsData(await apiFetch(`/admin/contacts?${buildQuery(filters)}`));
@@ -924,6 +891,8 @@ export default function AdminPage({ initialTab = "overview" }) {
     reviewFilters.page,
     reviewFilters.search,
     reviewFilters.tourId,
+    reviewFilters.rating,
+    reviewFilters.hasMedia,
     reviewFilters.sortBy,
     reviewFilters.sortOrder,
   ]);
@@ -3271,6 +3240,38 @@ export default function AdminPage({ initialTab = "overview" }) {
                   </option>
                 ))}
               </select>
+              <select
+                style={{ width: "150px" }}
+                value={reviewFilters.rating}
+                onChange={(e) =>
+                  setReviewFilters((prev) => ({
+                    ...prev,
+                    rating: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="">Tất cả sao</option>
+                {[5, 4, 3, 2, 1].map((star) => (
+                  <option key={star} value={star}>
+                    {star} sao
+                  </option>
+                ))}
+              </select>
+              <select
+                style={{ width: "170px" }}
+                value={reviewFilters.hasMedia}
+                onChange={(e) =>
+                  setReviewFilters((prev) => ({
+                    ...prev,
+                    hasMedia: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="">Tất cả ảnh</option>
+                <option value="true">Có hình ảnh</option>
+              </select>
             </div>
             <StatusBadge>
               {formatNumber(reviewsData.pagination.total)} đánh giá
@@ -3312,8 +3313,33 @@ export default function AdminPage({ initialTab = "overview" }) {
                         ★ {item.rating}/5
                       </span>
                     </td>
-                    <td style={{ maxWidth: 300, color: "#475569" }}>
-                      {item.comment || "—"}
+                    <td style={{ maxWidth: 340, color: "#475569" }}>
+                      <div>{item.comment || "—"}</div>
+                      {Array.isArray(item.media) && item.media.length ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 6,
+                            flexWrap: "wrap",
+                            marginTop: 8,
+                          }}
+                        >
+                          {item.media.slice(0, 4).map((media) => (
+                            <img
+                              key={media.id || media.fileUrl}
+                              src={mapImageUrl(media.fileUrl, API_URL)}
+                              alt="Ảnh đánh giá"
+                              style={{
+                                width: 46,
+                                height: 46,
+                                objectFit: "cover",
+                                borderRadius: 8,
+                                border: "1px solid #e2e8f0",
+                              }}
+                            />
+                          ))}
+                        </div>
+                      ) : null}
                     </td>
                     <td>
                       <span

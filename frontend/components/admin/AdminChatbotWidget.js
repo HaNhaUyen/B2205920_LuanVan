@@ -2,15 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
 const STORAGE_KEY = "travela_admin_ai_conversation_id";
+const MESSAGE_STORAGE_KEY = "travela_admin_ai_messages";
 
 const QUICK_PROMPTS = [
   "Hôm nay có gì cần xử lý?",
   "Có booking nào chưa có hướng dẫn viên không?",
   "Booking nào sắp hết hạn giữ chỗ?",
-  "Doanh thu tháng này bao nhiêu?",
   "Có yêu cầu hoàn tiền nào đang chờ duyệt?",
-  "Tour nào sắp khởi hành trong 7 ngày?",
+  "Tour nào lượt xem cao nhưng ít người đặt?",
+  "Doanh thu tháng này thế nào?",
 ];
+
+const WELCOME_MESSAGE =
+  "Xin chào Admin! Mình là Travela Admin AI. Mình có thể phân tích dữ liệu vận hành, booking, doanh thu, refund, hướng dẫn viên, lịch khởi hành và đưa ra gợi ý xử lý theo thứ tự ưu tiên.";
 
 function nowText() {
   return new Intl.DateTimeFormat("vi-VN", {
@@ -20,30 +24,63 @@ function nowText() {
 }
 
 function normalizeConversationId(value) {
-  if (!value) return "";
-  return String(value);
+  return value ? String(value) : "";
+}
+
+function normalizeMessage(item) {
+  return {
+    role: item?.role || "assistant",
+    content: item?.content || "",
+    time: item?.time || nowText(),
+  };
+}
+
+function loadLocalMessages() {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(MESSAGE_STORAGE_KEY) || "null",
+    );
+    return Array.isArray(parsed) && parsed.length
+      ? parsed.map(normalizeMessage)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function AdminChatbotWidget({ user }) {
   const [open, setOpen] = useState(false);
   const [conversationId, setConversationId] = useState("");
+  const [conversationList, setConversationList] = useState([]);
   const [question, setQuestion] = useState("");
   const [sending, setSending] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content:
-        "Xin chào Admin! Mình là Travela Admin AI. Mình có thể tóm tắt booking cần xử lý, doanh thu, tour sắp khởi hành, yêu cầu hoàn tiền và các vấn đề vận hành.",
-      time: nowText(),
-    },
+    { role: "assistant", content: WELCOME_MESSAGE, time: nowText() },
   ]);
 
   const listRef = useRef(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) setConversationId(saved);
-  }, []);
+    if (!user || user.role !== "admin") return;
+
+    const saved = localStorage.getItem(STORAGE_KEY) || "";
+    const localMessages = loadLocalMessages();
+
+    if (localMessages) setMessages(localMessages);
+    if (saved) {
+      setConversationId(saved);
+      loadConversation(saved, { silent: true });
+    }
+
+    refreshConversations();
+  }, [user?.id, user?.role]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(MESSAGE_STORAGE_KEY, JSON.stringify(messages));
+  }, [messages]);
 
   useEffect(() => {
     if (listRef.current) {
@@ -55,6 +92,54 @@ export default function AdminChatbotWidget({ user }) {
     () => question.trim().length > 0 && !sending,
     [question, sending],
   );
+
+  async function refreshConversations() {
+    try {
+      const list = await apiFetch("/chatbot/conversations?scope=admin");
+      setConversationList(Array.isArray(list) ? list : []);
+    } catch {
+      setConversationList([]);
+    }
+  }
+
+  async function loadConversation(id, options = {}) {
+    if (!id) return;
+    setLoadingHistory(true);
+    try {
+      const detail = await apiFetch(
+        `/chatbot/conversations/${encodeURIComponent(id)}`,
+      );
+      const loadedMessages = Array.isArray(detail?.messages)
+        ? detail.messages.map(normalizeMessage)
+        : [];
+
+      setConversationId(String(detail?.conversationId || detail?.id || id));
+      setMessages(
+        loadedMessages.length
+          ? loadedMessages
+          : [{ role: "assistant", content: WELCOME_MESSAGE, time: nowText() }],
+      );
+      localStorage.setItem(
+        STORAGE_KEY,
+        String(detail?.conversationId || detail?.id || id),
+      );
+    } catch (error) {
+      if (!options.silent) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content:
+              error?.message ||
+              "Mình chưa tải lại được hội thoại admin này. Admin thử chọn lại sau.",
+            time: nowText(),
+          },
+        ]);
+      }
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
 
   const sendMessage = async (text) => {
     const clean = String(text || "").trim();
@@ -69,14 +154,12 @@ export default function AdminChatbotWidget({ user }) {
     ]);
 
     try {
-      const payload = {
-        conversationId: conversationId || undefined,
-        message: clean,
-      };
-
       const result = await apiFetch("/chatbot/message", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          conversationId: conversationId || undefined,
+          message: clean,
+        }),
       });
 
       if (result?.conversationId) {
@@ -91,10 +174,12 @@ export default function AdminChatbotWidget({ user }) {
           role: "assistant",
           content:
             result?.answer ||
-            "Mình chưa xử lý được câu này. Admin thử hỏi lại ngắn hơn nha.",
+            "Mình chưa đủ dữ liệu để kết luận. Admin có thể hỏi cụ thể hơn theo booking, refund, doanh thu, lịch khởi hành hoặc hướng dẫn viên.",
           time: nowText(),
         },
       ]);
+
+      setTimeout(refreshConversations, 200);
     } catch (error) {
       setMessages((prev) => [
         ...prev,
@@ -102,7 +187,7 @@ export default function AdminChatbotWidget({ user }) {
           role: "assistant",
           content:
             error?.message ||
-            "Không kết nối được Admin AI. Kiểm tra backend đang chạy chưa nha.",
+            "Không kết nối được Admin AI. Admin kiểm tra backend và quyền đăng nhập admin giúp mình.",
           time: nowText(),
         },
       ]);
@@ -120,12 +205,13 @@ export default function AdminChatbotWidget({ user }) {
 
   const clearConversation = () => {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(MESSAGE_STORAGE_KEY);
     setConversationId("");
     setMessages([
       {
         role: "assistant",
         content:
-          "Mình đã tạo cuộc hội thoại admin mới. Admin muốn xem vấn đề vận hành nào trước?",
+          "Mình đã tạo cuộc hội thoại admin mới. Admin muốn xem vấn đề vận hành nào trước: booking, refund, doanh thu, hướng dẫn viên hay tour sắp khởi hành?",
         time: nowText(),
       },
     ]);
@@ -150,7 +236,9 @@ export default function AdminChatbotWidget({ user }) {
           <header style={styles.header}>
             <div>
               <strong style={styles.title}>Travela Admin AI</strong>
-              <p style={styles.subtitle}>Hỏi nhanh dữ liệu vận hành hệ thống</p>
+              <p style={styles.subtitle}>
+                Phân tích nhanh dữ liệu vận hành hệ thống
+              </p>
             </div>
             <div style={styles.headerActions}>
               <button
@@ -169,6 +257,28 @@ export default function AdminChatbotWidget({ user }) {
               </button>
             </div>
           </header>
+
+          {conversationList.length ? (
+            <div style={styles.historyBox}>
+              {conversationList.slice(0, 8).map((item) => {
+                const active = String(item.id) === String(conversationId || "");
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => loadConversation(item.id)}
+                    disabled={loadingHistory}
+                    style={{
+                      ...styles.historyItem,
+                      ...(active ? styles.historyItemActive : {}),
+                    }}
+                  >
+                    {item.title || "Hội thoại admin"}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
 
           <div style={styles.quickBox}>
             {QUICK_PROMPTS.map((item) => (
@@ -277,8 +387,8 @@ const styles = {
     position: "fixed",
     right: 24,
     bottom: 88,
-    width: "min(420px, calc(100vw - 32px))",
-    height: "min(680px, calc(100vh - 120px))",
+    width: "min(440px, calc(100vw - 32px))",
+    height: "min(700px, calc(100vh - 120px))",
     background: "#ffffff",
     border: "1px solid #dbeafe",
     borderRadius: 22,
@@ -304,18 +414,44 @@ const styles = {
     background: "#fff",
     color: "#334155",
     borderRadius: 999,
-    padding: "6px 10px",
-    fontWeight: 700,
+    padding: "6px 12px",
+    fontWeight: 800,
   },
   closeBtn: {
     border: 0,
     background: "#0f172a",
     color: "#fff",
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: "50%",
     fontSize: 20,
     lineHeight: "30px",
+  },
+  historyBox: {
+    padding: "8px 12px",
+    display: "flex",
+    gap: 8,
+    overflowX: "auto",
+    borderBottom: "1px solid #e2e8f0",
+    background: "#fff",
+  },
+  historyItem: {
+    border: "1px solid #e2e8f0",
+    background: "#f8fafc",
+    color: "#475569",
+    borderRadius: 999,
+    padding: "6px 10px",
+    fontSize: 12,
+    whiteSpace: "nowrap",
+    maxWidth: 180,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  historyItemActive: {
+    border: "1px solid #2563eb",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    fontWeight: 800,
   },
   quickBox: {
     padding: "10px 12px",
@@ -340,12 +476,9 @@ const styles = {
     padding: 14,
     background: "#f8fafc",
   },
-  messageRow: {
-    display: "flex",
-    marginBottom: 10,
-  },
+  messageRow: { display: "flex", marginBottom: 10 },
   bubble: {
-    maxWidth: "86%",
+    maxWidth: "88%",
     borderRadius: 16,
     padding: "10px 12px",
     fontSize: 14,
@@ -357,17 +490,9 @@ const styles = {
     color: "#0f172a",
     border: "1px solid #e2e8f0",
   },
-  userBubble: {
-    background: "#2563eb",
-    color: "#fff",
-  },
+  userBubble: { background: "#2563eb", color: "#fff" },
   messageContent: { wordBreak: "break-word" },
-  time: {
-    marginTop: 6,
-    fontSize: 11,
-    opacity: 0.65,
-    textAlign: "right",
-  },
+  time: { marginTop: 6, fontSize: 11, opacity: 0.65, textAlign: "right" },
   inputWrap: {
     padding: 12,
     borderTop: "1px solid #e2e8f0",

@@ -19,6 +19,7 @@ import { VouchersModule } from "./modules/vouchers/vouchers.module";
 import { GuidesModule } from "./modules/guides/guides.module";
 import { RecommendationsModule } from "./modules/recommendations/recommendations.module";
 import { RedisModule } from "./redis/redis.module";
+import { GuidePortalModule } from "./modules/guide-portal/guide-portal.module";
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { RedisModule } from "./redis/redis.module";
     GuidesModule,
     RecommendationsModule,
     RedisModule,
+    GuidePortalModule,
   ],
 })
 export class AppModule {}

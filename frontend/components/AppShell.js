@@ -102,12 +102,19 @@ export default function AppShell({ children }) {
           ...(user.role === "admin"
             ? [{ href: "/admin", label: "Quản Trị" }]
             : []),
+          ...(user.role === "guide"
+            ? [{ href: "/guide", label: "Lịch HDV" }]
+            : []),
         ]
       : []),
   ];
 
   // Không render header/footer website trong admin và popup chatbot iframe.
-  if (currentPath.startsWith("/admin") || isAssistantEmbed) {
+  if (
+    currentPath.startsWith("/admin") ||
+    currentPath.startsWith("/guide") ||
+    isAssistantEmbed
+  ) {
     return <>{children}</>;
   }
 

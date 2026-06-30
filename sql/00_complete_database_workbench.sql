@@ -1923,3 +1923,184 @@ WHERE u.role = 'user'
   
 
 
+CREATE TABLE IF NOT EXISTS `recommendation_user_factors` (
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `vector` JSON NOT NULL,
+  `trained_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`user_id`),
+  CONSTRAINT `recommendation_user_factors_user_id_fkey`
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS `recommendation_tour_factors` (
+  `tour_id` BIGINT UNSIGNED NOT NULL,
+  `vector` JSON NOT NULL,
+  `trained_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`tour_id`),
+  CONSTRAINT `recommendation_tour_factors_tour_id_fkey`
+    FOREIGN KEY (`tour_id`) REFERENCES `tours`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS `tour_embeddings` (
+  `tour_id` BIGINT UNSIGNED NOT NULL,
+  `text_embedding` JSON NULL,
+  `image_embedding` JSON NULL,
+  `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`tour_id`),
+  CONSTRAINT `tour_embeddings_tour_id_fkey`
+    FOREIGN KEY (`tour_id`) REFERENCES `tours`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS `recommendation_metric_runs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `model_name` VARCHAR(100) NOT NULL,
+  `precision_at_10` DOUBLE NULL,
+  `recall_at_10` DOUBLE NULL,
+  `ndcg_at_10` DOUBLE NULL,
+  `coverage` DOUBLE NULL,
+  `diversity` DOUBLE NULL,
+  `novelty` DOUBLE NULL,
+  `map_at_10` DOUBLE NULL,
+  `meta` JSON NULL,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `recommendation_metric_runs_model_name_created_at_idx` (`model_name`, `created_at`)
+);
+
+SELECT JSON_ARRAYAGG(
+  JSON_OBJECT(
+    'modelName', model_name,
+    'precisionAt10', precision_at_10,
+    'recallAt10', recall_at_10,
+    'ndcgAt10', ndcg_at_10,
+    'coverage', coverage,
+    'diversity', diversity
+  )
+) AS metrics_json
+FROM (
+  SELECT *
+  FROM recommendation_metric_runs
+  ORDER BY created_at DESC
+  LIMIT 5
+) AS latest_metrics;
+
+
+ALTER TABLE chat_conversations
+  ADD COLUMN scope VARCHAR(20) NOT NULL DEFAULT 'user' AFTER user_id;
+
+CREATE INDEX idx_chat_conversations_user_scope_updated
+  ON chat_conversations(user_id, scope, updated_at);
+  
+SET SQL_SAFE_UPDATES = 0;
+UPDATE tour_media
+SET file_url = CASE 
+  WHEN tour_id % 8 = 0 THEN 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80'
+  WHEN tour_id % 8 = 1 THEN 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80'
+  WHEN tour_id % 8 = 2 THEN 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1200&q=80'
+  WHEN tour_id % 8 = 3 THEN 'https://images.unsplash.com/photo-1528127269322-539801943592?auto=format&fit=crop&w=1200&q=80'
+  WHEN tour_id % 8 = 4 THEN 'https://images.unsplash.com/photo-1510414842594-a61c69b5ae57?auto=format&fit=crop&w=1200&q=80'
+  WHEN tour_id % 8 = 5 THEN 'https://images.unsplash.com/photo-1528181304800-259b08848526?auto=format&fit=crop&w=1200&q=80'
+  WHEN tour_id % 8 = 6 THEN 'https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=1200&q=80'
+  ELSE 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=1200&q=80'
+END
+WHERE file_url LIKE 'https://picsum.photos/%';
+
+CREATE TABLE IF NOT EXISTS review_media (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  review_id BIGINT UNSIGNED NOT NULL,
+  file_url VARCHAR(500) NOT NULL,
+  media_type VARCHAR(30) NOT NULL DEFAULT 'image',
+  display_order INT UNSIGNED NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  INDEX idx_review_media_review_order (review_id, display_order),
+  CONSTRAINT fk_review_media_review
+    FOREIGN KEY (review_id) REFERENCES reviews(id)
+    ON DELETE CASCADE
+);
+
+ALTER TABLE users
+  MODIFY role ENUM('admin','user','guide') NOT NULL DEFAULT 'user';
+
+ALTER TABLE notifications
+  MODIFY target_role ENUM('all','admin','user','guide') NOT NULL DEFAULT 'user';
+  
+  ALTER TABLE refund_requests
+  ADD COLUMN refund_bank_name VARCHAR(100) NULL AFTER refund_amount,
+  ADD COLUMN refund_account_no VARCHAR(50) NULL AFTER refund_bank_name,
+  ADD COLUMN refund_account_name VARCHAR(150) NULL AFTER refund_account_no,
+  ADD COLUMN refund_qr_url VARCHAR(500) NULL AFTER refund_account_name;
+  CREATE INDEX refund_requests_refund_account_no_idx
+  ON refund_requests(refund_account_no);
+  
+  
+  SET SQL_SAFE_UPDATES = 1;
+  INSERT INTO users (
+  full_name,
+  email,
+  phone,
+  identity_number,
+  password_hash,
+  role,
+  status,
+  auth_provider,
+  member_points,
+  member_tier,
+  created_at,
+  updated_at
+)
+SELECT
+  g.full_name,
+  g.email,
+  g.phone,
+  g.identity_number,
+  '$2b$10$1J1M099OCjYoDHgVnQdtmukX0KvtIjlxey1e1eEEEK9AFAcR2wVvC',
+  'guide',
+  'active',
+  'local',
+  0,
+  'bronze',
+  NOW(),
+  NOW()
+FROM guides g
+WHERE g.email IS NOT NULL
+  AND g.user_id IS NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM users u
+    WHERE u.email = g.email
+  );
+
+-- 4. Nếu trước đó đã có user trùng email HDV thì cập nhật role thành guide
+UPDATE users u
+JOIN guides g ON g.email = u.email
+SET
+  u.full_name = g.full_name,
+  u.phone = g.phone,
+  u.identity_number = g.identity_number,
+  u.password_hash = '$2b$10$1J1M099OCjYoDHgVnQdtmukX0KvtIjlxey1e1eEEEK9AFAcR2wVvC',
+  u.role = 'guide',
+  u.status = 'active',
+  u.auth_provider = 'local',
+  u.updated_at = NOW()
+WHERE g.email IS NOT NULL;
+
+-- 5. Gắn guides.user_id với users.id
+UPDATE guides g
+JOIN users u ON u.email = g.email
+SET g.user_id = u.id
+WHERE g.email IS NOT NULL;
+
+-- 6. Kiểm tra kết quả
+SELECT
+  g.id AS guide_id,
+  g.full_name AS guide_name,
+  g.email AS guide_email,
+  g.user_id,
+  u.id AS user_id,
+  u.email AS login_email,
+  u.role,
+  u.status
+FROM guides g
+LEFT JOIN users u ON u.id = g.user_id
+ORDER BY g.id;

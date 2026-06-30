@@ -38,7 +38,7 @@ export class AuthRepository {
     email: string;
     phone?: string;
     passwordHash: string;
-    role?: "admin" | "user";
+    role?: "admin" | "user" | "guide";
     googleId?: string;
     authProvider?: string;
     avatarUrl?: string;
@@ -70,7 +70,7 @@ export class AuthRepository {
       googleId?: string | null;
       authProvider?: string;
       avatarUrl?: string | null;
-      role?: "admin" | "user";
+      role?: "admin" | "user" | "guide";
       status?: "active" | "inactive" | "blocked";
       identityNumber?: string | null;
       memberPoints?: number;
