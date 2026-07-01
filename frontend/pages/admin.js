@@ -74,7 +74,7 @@ const initialContactFilter = {
 };
 const initialTourFilter = {
   page: 1,
-  pageSize: 8,
+  pageSize: 9,
   search: "",
   destinationId: "",
   sortBy: "createdAt",
@@ -1968,9 +1968,11 @@ export default function AdminPage({ initialTab = "overview" }) {
           box-shadow: 0 12px 24px -8px rgba(0,0,0,0.1);
         }
         .tour-admin-cover {
-          height: 180px;
+          height: 220px;
           background-size: cover;
           background-position: center;
+          background-repeat: no-repeat;
+          image-rendering: auto;
           border-bottom: 1px solid #e2e8f0;
         }
         .tour-admin-body { padding: 20px; display: flex; flex-direction: column; flex: 1; }
