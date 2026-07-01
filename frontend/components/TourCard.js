@@ -14,7 +14,6 @@ import {
   Calendar,
   Sparkles,
   CheckCircle2,
-  Users,
   Flame,
 } from "lucide-react";
 
@@ -48,18 +47,9 @@ function getTourReviewCount(tour) {
   );
 }
 
-function getRemainingSlots(tour) {
-  if (typeof tour?.remainingSlots === "number") return tour.remainingSlots;
-
-  const dep = tour?.nextDeparture || tour?.departures?.[0];
-  if (!dep) return null;
-
-  return Math.max(
-    0,
-    Number(dep.totalSlots || 0) -
-      Number(dep.bookedSlots || 0) -
-      Number(dep.heldSlots || 0),
-  );
+function toNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 function getMatchPercent(tour) {
@@ -157,7 +147,6 @@ export default function TourCard({
   const firstDeparture = tour.nextDeparture || tour.departures?.[0];
   const currentUser = useMemo(() => getUser(), []);
 
-  const remainingSlots = getRemainingSlots(tour);
   const bookingCount = Number(tour.bookingCount || tour._count?.bookings || 0);
   const favoriteCount = Number(
     tour.favoriteCount || tour._count?.favorites || 0,
@@ -501,23 +490,6 @@ export default function TourCard({
             <span style={styles.chip}>
               <Calendar size={12} />
               {formatDate(firstDeparture.departureDate)}
-            </span>
-          )}
-
-          {remainingSlots !== null && (
-            <span
-              style={{
-                ...styles.chip,
-                background: remainingSlots <= 5 ? "#fff7ed" : "#f0fdf4",
-                color: remainingSlots <= 5 ? "#c2410c" : "#15803d",
-                border:
-                  remainingSlots <= 5
-                    ? "1px solid #fed7aa"
-                    : "1px solid #bbf7d0",
-              }}
-            >
-              <Users size={12} />
-              {remainingSlots > 0 ? `Còn ${remainingSlots} chỗ` : "Hết chỗ"}
             </span>
           )}
 

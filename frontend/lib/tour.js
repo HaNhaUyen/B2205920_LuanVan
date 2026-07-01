@@ -74,7 +74,37 @@ export function normalizeTour(tour = {}) {
       reviews.length
     : 4.8;
 
-  const departures = Array.isArray(tour.departures) ? tour.departures : [];
+const departures = (tour.departures || []).map((item) => {
+  const totalSlots = toNumber(item.totalSlots ?? item.total_slots ?? 0);
+  const bookedSlots = toNumber(item.bookedSlots ?? item.booked_slots ?? 0);
+  const heldSlots = toNumber(item.heldSlots ?? item.held_slots ?? 0);
+  const remainingSlots = Math.max(0, totalSlots - bookedSlots - heldSlots);
+
+  return {
+    ...item,
+    totalSlots,
+    bookedSlots,
+    heldSlots,
+    remainingSlots,
+  };
+});
+
+const nextDeparture =
+  tour.nextDeparture ||
+  departures.find(
+    (item) => String(item.status || "").toLowerCase() === "open",
+  ) ||
+  departures[0] ||
+  null;
+
+const remainingSlots = nextDeparture
+  ? nextDeparture.remainingSlots
+  : Math.max(
+      0,
+      toNumber(tour.totalSlots ?? tour.total_slots ?? 0) -
+        toNumber(tour.bookedSlots ?? tour.booked_slots ?? 0) -
+        toNumber(tour.heldSlots ?? tour.held_slots ?? 0),
+    );
 
   const departurePrices = departures
     .map((item) => toNumber(item.adultPrice || 0))
@@ -104,15 +134,27 @@ export function normalizeTour(tour = {}) {
     adultPrice: basePrice,
     price: minPrice,
     minPrice,
+    departures,
+    nextDeparture,
+    remainingSlots,
+    totalSlots:
+      nextDeparture?.totalSlots ??
+      toNumber(tour.totalSlots ?? tour.total_slots ?? 0),
+    bookedSlots:
+      nextDeparture?.bookedSlots ??
+      toNumber(tour.bookedSlots ?? tour.booked_slots ?? 0),
+    heldSlots:
+      nextDeparture?.heldSlots ??
+      toNumber(tour.heldSlots ?? tour.held_slots ?? 0),
   };
 }
 
 export function departureAvailability(item = {}) {
-  return (
-    toNumber(item.totalSlots || 0) -
-    toNumber(item.bookedSlots || 0) -
-    toNumber(item.heldSlots || 0)
-  );
+  const totalSlots = toNumber(item.totalSlots ?? item.total_slots ?? 0);
+  const bookedSlots = toNumber(item.bookedSlots ?? item.booked_slots ?? 0);
+  const heldSlots = toNumber(item.heldSlots ?? item.held_slots ?? 0);
+
+  return Math.max(0, totalSlots - bookedSlots - heldSlots);
 }
 
 export function createPseudoQrMarkup(text) {

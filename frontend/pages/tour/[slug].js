@@ -197,6 +197,20 @@ export default function TourDetailPage() {
         })
       : "Liên hệ";
 
+  const getDepartureRemainingSlots = (departure = {}) => {
+    const totalSlots = Number(
+      departure.totalSlots ?? departure.total_slots ?? 0,
+    );
+
+    const bookedSlots = Number(
+      departure.bookedSlots ?? departure.booked_slots ?? 0,
+    );
+
+    const heldSlots = Number(departure.heldSlots ?? departure.held_slots ?? 0);
+
+    return Math.max(0, totalSlots - bookedSlots - heldSlots);
+  };
+
   const normalizeVoucherRow = (row) => ({
     ...(row?.voucher || row || {}),
     userVoucherId: row?.id,
@@ -1542,12 +1556,22 @@ export default function TourDetailPage() {
                         className="input-modern"
                         onChange={handleDepartureChange}
                       >
-                        {(tour.departures || []).map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {formatDate(item.departureDate)} ·{" "}
-                            {formatCurrency(item.adultPrice)}
-                          </option>
-                        ))}
+                        {(tour.departures || []).map((item) => {
+                          const remaining = getDepartureRemainingSlots(item);
+                          const isSoldOut = remaining <= 0;
+
+                          return (
+                            <option
+                              key={item.id}
+                              value={item.id}
+                              disabled={isSoldOut}
+                            >
+                              {formatDate(item.departureDate)} ·{" "}
+                              {formatCurrency(item.adultPrice)} ·{" "}
+                              {isSoldOut ? "Hết chỗ" : `Còn ${remaining} chỗ`}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
