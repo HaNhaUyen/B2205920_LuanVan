@@ -184,14 +184,7 @@ export default function AdminInsightPanel({ insights }) {
             border: "1px solid #e2e8f0",
           }}
         >
-          <strong style={{ color: "#0f172a" }}>Gợi ý vận hành</strong>
-          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-            {suggestions.map((item, index) => (
-              <span key={index} style={{ color: "#475569", fontSize: 13 }}>
-                • {item}
-              </span>
-            ))}
-          </div>
+          
         </div>
       ) : null}
     </section>

@@ -146,27 +146,60 @@ export class DestinationsService {
 
   async update(id: number, dto: UpsertDestinationDto) {
     const destination = await this.prisma.destination.findUnique({
-      where: { id: BigInt(id) },
+      where: {
+        id: BigInt(id),
+      },
     });
-    if (!destination) throw new NotFoundException("Không tìm thấy điểm đến.");
+
+    if (!destination) {
+      throw new NotFoundException("Không tìm thấy điểm đến.");
+    }
 
     const name = dto.name.trim();
     const province = dto.province.trim();
+
     await this.ensureUniqueDestination(name, province, BigInt(id));
 
-    return this.prisma.destination.update({
-      where: { id: BigInt(id) },
+    let warning: string | null = null;
+
+    if (dto.status === "inactive" && destination.status !== "inactive") {
+      const summary = await this.getDestinationOperationSummary(BigInt(id));
+
+      if (summary.upcomingTourCount > 0 || summary.activeBookingCount > 0) {
+        warning =
+          `Điểm đến đã được tạm ẩn. ` +
+          `Hiện còn ${summary.upcomingTourCount} tour chưa kết thúc ` +
+          `và ${summary.activeBookingCount} booking còn hiệu lực. ` +
+          `Các booking này vẫn được giữ nguyên và tiếp tục vận hành.`;
+      }
+    }
+
+    const updated = await this.prisma.destination.update({
+      where: {
+        id: BigInt(id),
+      },
       data: {
         name,
         province,
-        country: dto.country?.trim() || "Vietnam",
-        description: dto.description?.trim() || null,
-        coverImage: dto.coverImage?.trim() || null,
-        status: dto.status || "active",
+        country: dto.country?.trim() || destination.country || "Vietnam",
+        description:
+          dto.description !== undefined
+            ? dto.description.trim() || null
+            : destination.description,
+        coverImage:
+          dto.coverImage !== undefined
+            ? dto.coverImage?.trim() || null
+            : destination.coverImage,
+        status: dto.status || destination.status,
       },
     });
-  }
 
+    return {
+      ...updated,
+      warning,
+    };
+  }
+  
   async remove(id: number) {
     const destinationId = BigInt(id);
 
@@ -215,5 +248,64 @@ export class DestinationsService {
         "Điểm đến này đã tồn tại trong cùng tỉnh/thành.",
       );
     }
+  }
+  private async getDestinationOperationSummary(destinationId: bigint) {
+    const now = new Date();
+
+    const upcomingTours = await this.prisma.tour.findMany({
+      where: {
+        destinationId,
+        departures: {
+          some: {
+            endDate: {
+              gte: now,
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        departures: {
+          where: {
+            endDate: {
+              gte: now,
+            },
+          },
+          select: {
+            id: true,
+            departureDate: true,
+            endDate: true,
+            bookings: {
+              where: {
+                bookingStatus: {
+                  in: ["pending_payment", "waiting_confirmation", "confirmed"],
+                },
+              },
+              select: {
+                id: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const activeBookingCount = upcomingTours.reduce(
+      (tourTotal, tour) =>
+        tourTotal +
+        tour.departures.reduce(
+          (departureTotal, departure) =>
+            departureTotal + departure.bookings.length,
+          0,
+        ),
+      0,
+    );
+
+    return {
+      upcomingTourCount: upcomingTours.length,
+      activeBookingCount,
+      upcomingTours,
+    };
   }
 }

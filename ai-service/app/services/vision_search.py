@@ -1,649 +1,1091 @@
+# ai-service/app/services/vision_search.py
 from __future__ import annotations
 
 import csv
 import hashlib
-import io
 import json
 import math
 import os
-import re
-import threading
+import time
 import unicodedata
-from collections import defaultdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Iterable, List, Optional
 
-try:
-    import torch
-except Exception as exc:  # pragma: no cover
-    torch = None
-    TORCH_IMPORT_ERROR = exc
-else:
-    TORCH_IMPORT_ERROR = None
-
-try:
-    from PIL import Image, ImageOps
-except Exception as exc:  # pragma: no cover
-    Image = None
-    ImageOps = None
-    PIL_IMPORT_ERROR = exc
-else:
-    PIL_IMPORT_ERROR = None
+import torch
+import torch.nn.functional as F
+from PIL import Image, ImageOps
 
 try:
     from transformers import CLIPModel, CLIPProcessor
-except Exception as exc:  # pragma: no cover
+except Exception:  # pragma: no cover
     CLIPModel = None
     CLIPProcessor = None
-    TRANSFORMERS_IMPORT_ERROR = exc
-else:
-    TRANSFORMERS_IMPORT_ERROR = None
 
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-DATASET_DIR = BASE_DIR / "dataset"
-DESTINATIONS_FILE = BASE_DIR / "destinations.json"
-MANIFEST_FILE = BASE_DIR / "image_manifest.csv"
-CACHE_DIR = BASE_DIR / ".cache"
-CACHE_FILE = CACHE_DIR / "clip_gallery_cache.pt"
+# ============================================================
+# CONFIG
+# ============================================================
 
-VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-DEFAULT_TOP_K = 5
-MAX_TOP_K = 10
-SOFTMAX_TEMPERATURE = 18.0
-DESTINATION_SCORE_WEIGHTS = [0.55, 0.20, 0.12, 0.08, 0.05]
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+DATASET_DIR = AI_SERVICE_ROOT / "dataset"
+MANIFEST_FILE = AI_SERVICE_ROOT / "image_manifest.csv"
+DESTINATIONS_FILE = AI_SERVICE_ROOT / "destinations.json"
 
-# Ngưỡng này giúp AI không trả lời quá chắc khi ảnh mờ/không liên quan du lịch.
-MIN_CONFIDENCE = float(os.getenv("VISION_MIN_CONFIDENCE", "0.35"))
-MIN_RAW_SCORE = float(os.getenv("VISION_MIN_RAW_SCORE", "0.18"))
-MIN_TOP_GAP = float(os.getenv("VISION_MIN_TOP_GAP", "0.015"))
-TEXT_QUERY_BOOST = float(os.getenv("VISION_TEXT_QUERY_BOOST", "0.035"))
+CACHE_DIR = AI_SERVICE_ROOT / ".cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+CACHE_FILE = CACHE_DIR / "clip_gallery_cache_v4.pt"
+
+MODEL_NAME = os.getenv("VISION_CLIP_MODEL", "openai/clip-vit-base-patch32")
+DEVICE = "cuda" if torch.cuda.is_available() and os.getenv("VISION_FORCE_CPU", "0") != "1" else "cpu"
+
+VALID_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".jfif"}
+
+CACHE_VERSION = "travela-vision-v4-image-text-prototype-rerank"
+
+# Ngưỡng này nên điều chỉnh theo dữ liệu thật.
+MIN_RAW_SCORE = float(os.getenv("VISION_MIN_RAW_SCORE", "0.22"))
+MIN_CONFIDENCE = float(os.getenv("VISION_MIN_CONFIDENCE", "0.32"))
+MIN_TOP_GAP = float(os.getenv("VISION_MIN_TOP_GAP", "0.012"))
+
+MAX_EVIDENCE_PER_DESTINATION = int(os.getenv("VISION_MAX_EVIDENCE_PER_DESTINATION", "6"))
+
+# Bật multi-view query giúp ảnh upload lệch/crop vẫn tìm tốt hơn, đổi lại chậm hơn một chút.
+ENABLE_QUERY_MULTIVIEW = os.getenv("VISION_QUERY_MULTIVIEW", "1") == "1"
+
+# Bật text rerank: so ảnh query với prompt tiếng Việt/Anh của từng điểm đến.
+ENABLE_TEXT_RERANK = os.getenv("VISION_TEXT_RERANK", "1") == "1"
+
+# Bật prototype rerank: so ảnh query với vector trung bình của từng điểm đến.
+ENABLE_PROTOTYPE_RERANK = os.getenv("VISION_PROTOTYPE_RERANK", "1") == "1"
 
 
-def strip_text(value: str) -> str:
-    value = unicodedata.normalize("NFD", value or "")
-    value = "".join(ch for ch in value if unicodedata.category(ch) != "Mn")
-    value = re.sub(r"[^a-zA-Z0-9]+", " ", value.lower())
-    return value.strip()
+# ============================================================
+# SCENE TAGS
+# ============================================================
+
+SCENE_PROMPTS = {
+    "beach": [
+        "a travel photo of a beautiful beach",
+        "biển xanh, bãi cát, du lịch biển Việt Nam",
+    ],
+    "island": [
+        "a travel photo of a tropical island",
+        "đảo du lịch, biển đảo, phong cảnh đảo Việt Nam",
+    ],
+    "mountain": [
+        "a travel photo of mountains and valleys",
+        "núi non, đèo, thung lũng, phong cảnh miền núi Việt Nam",
+    ],
+    "forest": [
+        "a travel photo of forest, pine trees, tea hills or green nature",
+        "rừng cây, đồi thông, đồi chè, thiên nhiên xanh",
+    ],
+    "river": [
+        "a travel photo of river, boat, floating market or waterway",
+        "sông nước, thuyền, chợ nổi, miền Tây Việt Nam",
+    ],
+    "city": [
+        "a travel photo of a city, bridge, street or modern urban landmark",
+        "thành phố, cây cầu, đường phố, công trình hiện đại",
+    ],
+    "heritage": [
+        "a travel photo of ancient town, imperial city, temple or heritage site",
+        "phố cổ, cố đô, đền chùa, di sản văn hóa Việt Nam",
+    ],
+    "cave": [
+        "a travel photo of cave, limestone mountains and boat tour",
+        "hang động, núi đá vôi, Tràng An, Hạ Long, Ninh Bình",
+    ],
+    "sand_dune": [
+        "a travel photo of sand dunes, desert like landscape and sunshine",
+        "đồi cát, cồn cát, Mũi Né, Bàu Trắng",
+    ],
+    "waterfall": [
+        "a travel photo of waterfall and highland nature",
+        "thác nước, núi rừng, Tây Nguyên",
+    ],
+}
+
+DESTINATION_TAG_RULES = {
+    "phu-quoc": ["beach", "island"],
+    "nha-trang": ["beach", "island", "city"],
+    "con-dao": ["beach", "island", "heritage"],
+    "vung-tau": ["beach", "city"],
+    "mui-ne": ["beach", "sand_dune"],
+    "quy-nhon": ["beach", "island", "heritage"],
+    "ha-long": ["beach", "island", "cave"],
+    "da-lat": ["mountain", "forest", "city"],
+    "sa-pa": ["mountain", "forest"],
+    "ha-giang": ["mountain"],
+    "moc-chau": ["mountain", "forest"],
+    "buon-ma-thuot": ["waterfall", "forest"],
+    "ninh-binh": ["cave", "river", "heritage"],
+    "hoi-an": ["heritage", "river", "city"],
+    "hue": ["heritage", "river", "city"],
+    "da-nang": ["beach", "city", "mountain"],
+    "can-tho": ["river", "city"],
+    "ca-mau": ["river", "forest"],
+    "an-giang": ["river", "mountain", "forest", "heritage"],
+    "tay-ninh": ["mountain", "heritage"],
+}
 
 
-def safe_float(value: Any, default: float = 0.0) -> float:
+# ============================================================
+# UTILS
+# ============================================================
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
-        return float(value)
+        if value is None:
+            return default
+        value = float(value)
+        if math.isnan(value) or math.isinf(value):
+            return default
+        return value
     except Exception:
         return default
 
 
-def clamp_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+def _remove_accents(text: str) -> str:
+    text = str(text or "").strip().lower()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    return text
+
+
+def normalize_slug(text: str) -> str:
+    text = _remove_accents(text)
+    text = text.replace("_", "-").replace(" ", "-")
+    keep = []
+    for ch in text:
+        if ch.isalnum() or ch == "-":
+            keep.append(ch)
+    slug = "".join(keep)
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug.strip("-")
+
+
+def _public_image_path(path: Path) -> str:
     try:
-        number = int(value)
+        return str(path.resolve().relative_to(AI_SERVICE_ROOT.resolve())).replace("\\", "/")
     except Exception:
-        number = default
-    return max(minimum, min(number, maximum))
+        return str(path).replace("\\", "/")
 
 
-def destination_text_matches(query: str | None, label: str, info: dict[str, Any] | None) -> bool:
-    normalized_query = strip_text(query or "")
-    if not normalized_query:
-        return False
-
-    info = info or {}
-    candidates = [label, info.get("name", ""), info.get("province", "")]
-    candidates.extend(info.get("aliases", []))
-    for candidate in candidates:
-        normalized_candidate = strip_text(str(candidate or ""))
-        if normalized_candidate and (normalized_candidate in normalized_query or normalized_query in normalized_candidate):
-            return True
-    return False
-
-
-class VisionSearchService:
-    """
-    CBIR service dùng CLIP để tìm kiếm điểm đến du lịch bằng hình ảnh.
-
-    Luồng chính:
-    1. Đọc destinations.json và image_manifest.csv.
-    2. Trích xuất embedding CLIP cho toàn bộ ảnh mẫu trong gallery.
-    3. Cache embedding để lần khởi động sau không phải encode lại toàn bộ dataset.
-    4. Khi người dùng upload ảnh, encode ảnh query -> cosine similarity -> gom điểm theo điểm đến -> Top-K.
-    """
-
-    def __init__(self) -> None:
-        self.model_name = os.getenv("VISION_MODEL_NAME", "openai/clip-vit-base-patch32")
-        self.device_preference = os.getenv("VISION_DEVICE", "auto")
-        self.use_cache = os.getenv("VISION_USE_CACHE", "1") != "0"
-
-        self._lock = threading.Lock()
-        self._model = None
-        self._processor = None
-        self._device = "cpu"
-        self._status = "not_loaded"
-        self._error: str | None = None
-
-        self._destinations: dict[str, dict[str, Any]] = {}
-        self._manifest_rows: list[dict[str, Any]] = []
-        self._gallery_embeddings = None
-        self._gallery_items: list[dict[str, Any]] = []
-        self._manifest_signature = ""
-        self._cache_used = False
-
-    def status_snapshot(self) -> dict[str, Any]:
-        return {
-            "engine": "clip_image_gallery_retrieval",
-            "model": self.model_name,
-            "device": self._device,
-            "status": self._status,
-            "destination_count": len(self._destinations),
-            "gallery_image_count": len(self._gallery_items),
-            "manifest_file": str(MANIFEST_FILE),
-            "dataset_dir": str(DATASET_DIR),
-            "cache_file": str(CACHE_FILE),
-            "cache_used": self._cache_used,
-            "error": self._error,
-        }
-
-    def _resolve_device(self) -> str:
-        if self.device_preference and self.device_preference != "auto":
-            return self.device_preference
-        if torch is not None and hasattr(torch, "cuda") and torch.cuda.is_available():
-            return "cuda"
-        return "cpu"
-
-    def _load_destinations(self) -> dict[str, dict[str, Any]]:
-        if not DESTINATIONS_FILE.exists():
-            raise FileNotFoundError(f"Không tìm thấy destinations.json tại: {DESTINATIONS_FILE}")
-
-        with open(DESTINATIONS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        result: dict[str, dict[str, Any]] = {}
-        for label, info in data.items():
-            result[label] = {
-                "label": label,
-                "destinationId": info.get("destinationId"),
-                "name": info.get("name") or label,
-                "province": info.get("province") or "",
-                "aliases": info.get("aliases", []),
-                "datasetFolder": info.get("datasetFolder") or label,
-            }
-        return result
-
-    def _load_manifest_from_csv(self) -> list[dict[str, Any]]:
-        if not MANIFEST_FILE.exists():
-            return []
-
-        rows: list[dict[str, Any]] = []
-        with open(MANIFEST_FILE, "r", encoding="utf-8-sig", newline="") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                label = row.get("label") or ""
-                relative_path = row.get("relative_path") or ""
-                if not label or not relative_path:
-                    continue
-
-                image_path = BASE_DIR / relative_path.replace("\\", "/")
-                if not image_path.exists() or image_path.suffix.lower() not in VALID_EXTENSIONS:
-                    continue
-
-                info = self._destinations.get(label, {})
-                rows.append(
-                    {
-                        "label": label,
-                        "destinationId": int(row.get("destination_id") or info.get("destinationId") or 0),
-                        "name": row.get("name") or info.get("name") or label,
-                        "province": row.get("province") or info.get("province") or "",
-                        "filename": row.get("filename") or image_path.name,
-                        "relative_path": relative_path.replace("\\", "/"),
-                        "absolute_path": str(image_path),
-                    }
-                )
-        return rows
-
-    def _scan_dataset_folder(self) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        for label, info in self._destinations.items():
-            folder_name = info.get("datasetFolder") or label
-            folder_path = DATASET_DIR / folder_name
-            if not folder_path.exists() or not folder_path.is_dir():
-                continue
-
-            for image_path in sorted(folder_path.iterdir()):
-                if image_path.suffix.lower() not in VALID_EXTENSIONS:
-                    continue
-                rows.append(
-                    {
-                        "label": label,
-                        "destinationId": int(info.get("destinationId") or 0),
-                        "name": info.get("name") or label,
-                        "province": info.get("province") or "",
-                        "filename": image_path.name,
-                        "relative_path": str(image_path.relative_to(BASE_DIR)).replace("\\", "/"),
-                        "absolute_path": str(image_path),
-                    }
-                )
-        return rows
-
-    def _load_manifest(self) -> list[dict[str, Any]]:
-        rows = self._load_manifest_from_csv()
-        return rows if rows else self._scan_dataset_folder()
-
-    def _make_manifest_signature(self) -> str:
-        payload = []
-        for row in self._manifest_rows:
-            path = Path(row["absolute_path"])
-            try:
-                stat = path.stat()
-                payload.append(
-                    {
-                        "label": row["label"],
-                        "path": row["relative_path"],
-                        "size": stat.st_size,
-                        "mtime": int(stat.st_mtime),
-                    }
-                )
-            except FileNotFoundError:
-                continue
-        raw = json.dumps(
-            {
-                "model": self.model_name,
-                "items": payload,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-    def _try_load_gallery_cache(self) -> bool:
-        if not self.use_cache or torch is None or not CACHE_FILE.exists():
-            return False
-        try:
-            cache = torch.load(CACHE_FILE, map_location="cpu")
-            if cache.get("signature") != self._manifest_signature:
-                return False
-            embeddings = cache.get("embeddings")
-            items = cache.get("items")
-            if embeddings is None or not items:
-                return False
-            self._gallery_embeddings = embeddings.to("cpu")
-            self._gallery_items = items
-            self._cache_used = True
-            return True
-        except Exception:
-            return False
-
-    def _save_gallery_cache(self) -> None:
-        if not self.use_cache or torch is None or self._gallery_embeddings is None:
-            return
-        try:
-            CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            torch.save(
-                {
-                    "signature": self._manifest_signature,
-                    "model": self.model_name,
-                    "embeddings": self._gallery_embeddings.cpu(),
-                    "items": self._gallery_items,
-                },
-                CACHE_FILE,
-            )
-        except Exception as exc:
-            print(f"[WARN] Không lưu được CLIP gallery cache: {exc}")
-
-    def _load_image(self, image_path: str) -> Image.Image:
-        image = Image.open(image_path)
-        image = ImageOps.exif_transpose(image)
-        return image.convert("RGB")
-
-    def _create_views(self, image: Image.Image) -> list[Image.Image]:
-        """Tạo nhiều view để giảm nhiễu nền: ảnh gốc + crop vuông trung tâm."""
-        views = [image]
-        width, height = image.size
-        square = min(width, height)
-        if square >= 256:
-            left = (width - square) // 2
-            top = (height - square) // 2
-            views.append(image.crop((left, top, left + square, top + square)))
-        return views
-
-    def _encode_pil_image(self, image: Image.Image):
-        views = self._create_views(image)
-        embeddings = []
-        for view in views:
-            inputs = self._processor(images=view, return_tensors="pt")
-            inputs = inputs.to(self._device)
-            with torch.inference_mode():
-                features = self._model.get_image_features(**inputs)
-            features = features / features.norm(dim=-1, keepdim=True).clamp(min=1e-12)
-            embeddings.append(features.cpu())
-        embedding = torch.mean(torch.stack(embeddings, dim=0), dim=0)
-        embedding = embedding / embedding.norm(dim=-1, keepdim=True).clamp(min=1e-12)
-        return embedding
-
-    def _encode_image_bytes(self, image_bytes: bytes):
-        image = Image.open(io.BytesIO(image_bytes))
-        image = ImageOps.exif_transpose(image)
-        image = image.convert("RGB")
-        return self._encode_pil_image(image)
-
-    def _build_gallery_embeddings(self) -> None:
-        if self._try_load_gallery_cache():
-            return
-
-        gallery_embeddings = []
-        gallery_items = []
-        for row in self._manifest_rows:
-            image_path = row.get("absolute_path")
-            if not image_path or not os.path.exists(image_path):
-                continue
-            try:
-                image = self._load_image(image_path)
-                embedding = self._encode_pil_image(image)
-            except Exception as exc:
-                print(f"[WARN] Bỏ qua ảnh lỗi {image_path}: {exc}")
-                continue
-            gallery_embeddings.append(embedding)
-            gallery_items.append(row)
-
-        if not gallery_embeddings:
-            raise RuntimeError("Không build được gallery embedding. Kiểm tra dataset/image_manifest.csv.")
-
-        self._gallery_embeddings = torch.cat(gallery_embeddings, dim=0)
-        self._gallery_items = gallery_items
-        self._cache_used = False
-        self._save_gallery_cache()
-
-    def ensure_loaded(self) -> bool:
-        if self._model is not None and self._processor is not None and self._gallery_embeddings is not None and self._gallery_items:
-            return True
-
-        with self._lock:
-            if self._model is not None and self._processor is not None and self._gallery_embeddings is not None and self._gallery_items:
-                return True
-
-            self._destinations = self._load_destinations() if DESTINATIONS_FILE.exists() else {}
-
-            if torch is None:
-                self._status = "fallback"
-                self._error = f"Thiếu torch: {TORCH_IMPORT_ERROR}"
-                return False
-            if Image is None or ImageOps is None:
-                self._status = "fallback"
-                self._error = f"Thiếu pillow: {PIL_IMPORT_ERROR}"
-                return False
-            if CLIPModel is None or CLIPProcessor is None:
-                self._status = "fallback"
-                self._error = f"Thiếu transformers: {TRANSFORMERS_IMPORT_ERROR}"
-                return False
-
-            try:
-                self._status = "loading"
-                self._error = None
-                self._device = self._resolve_device()
-
-                self._destinations = self._load_destinations()
-                self._manifest_rows = self._load_manifest()
-                if not self._manifest_rows:
-                    raise RuntimeError("Không tìm thấy ảnh trong image_manifest.csv hoặc dataset.")
-
-                self._manifest_signature = self._make_manifest_signature()
-
-                self._processor = CLIPProcessor.from_pretrained(self.model_name)
-                self._model = CLIPModel.from_pretrained(self.model_name)
-                self._model.to(self._device)
-                self._model.eval()
-
-                self._build_gallery_embeddings()
-                self._status = "ready"
-                self._error = None
-                return True
-            except Exception as exc:
-                self._status = "fallback"
-                self._error = str(exc)
-                self._model = None
-                self._processor = None
-                self._gallery_embeddings = None
-                self._gallery_items = []
-                return False
-
-    def _filename_fallback(
-        self,
-        filename: str | None,
-        top_k: int = DEFAULT_TOP_K,
-        text_query: str | None = None,
-    ) -> dict[str, Any]:
-        normalized = strip_text(filename or "")
-        for label, info in self._destinations.items():
-            candidates = [label, info.get("name", ""), info.get("province", "")]
-            candidates.extend(info.get("aliases", []))
-            for candidate in candidates:
-                if candidate and strip_text(candidate) in normalized:
-                    confidence = 0.45
-                    return {
-                        "engine": "filename_fallback",
-                        "model": self.model_name,
-                        "device": self._device,
-                        "fallback": True,
-                        "file_name": filename,
-            "text_query": text_query,
-                        "detected": {
-                            "label": label,
-                            "destination": info.get("name") or label,
-                            "destinationId": info.get("destinationId"),
-                            "province": info.get("province"),
-                            "landmark": info.get("name") or label,
-                            "confidence": confidence,
-                            "confidence_percent": int(confidence * 100),
-                            "certainty": "fallback",
-                            "matched_prompt": f"Tên file khớp: {candidate}",
-                            "matched_image": "",
-                            "best_image_score": 0.0,
-                        },
-                        "top_matches": [
-                            {
-                                "rank": 1,
-                                "label": label,
-                                "destination": info.get("name") or label,
-                                "destinationId": info.get("destinationId"),
-                                "province": info.get("province"),
-                                "confidence": confidence,
-                                "confidence_percent": int(confidence * 100),
-                                "raw_score": 0.0,
-                                "matched_image": "",
-                                "best_image_score": 0.0,
-                            }
-                        ][:top_k],
-                        "summary": f"AI vision chưa sẵn sàng nên hệ thống tạm suy luận từ tên file: {info.get('name') or label}.",
-                        "message": "Fallback completed.",
-                        "vision_status": self.status_snapshot(),
-                    }
-
-        return {
-            "engine": "filename_fallback",
-            "model": self.model_name,
-            "device": self._device,
-            "fallback": True,
-            "file_name": filename,
-            "text_query": text_query,
-            "detected": {
-                "label": "",
-                "destination": "",
-                "destinationId": None,
-                "province": "",
-                "landmark": "Không nhận ra rõ",
-                "confidence": 0.0,
-                "confidence_percent": 0,
-                "certainty": "unknown",
-                "matched_prompt": "",
-                "matched_image": "",
-                "best_image_score": 0.0,
-            },
-            "top_matches": [],
-            "summary": "Chưa nhận diện được điểm đến từ ảnh.",
-            "message": "Fallback completed.",
-            "vision_status": self.status_snapshot(),
-        }
-
-    def _filename_boost_label(self, filename: str | None) -> str | None:
-        normalized = strip_text(filename or "")
-        for label, info in self._destinations.items():
-            candidates = [label, info.get("name", ""), info.get("province", "")]
-            candidates.extend(info.get("aliases", []))
-            for candidate in candidates:
-                if candidate and strip_text(candidate) in normalized:
-                    return label
+def _resolve_image_path(value: str) -> Optional[Path]:
+    if not value:
         return None
 
-    def detect_from_image_bytes(
-        self,
-        image_bytes: bytes,
-        filename: str | None = None,
-        top_k: int = DEFAULT_TOP_K,
-        text_query: str | None = None,
-    ) -> dict[str, Any]:
-        if not image_bytes:
-            raise ValueError("Ảnh tải lên đang rỗng.")
+    raw = str(value).strip().replace("\\", "/")
 
-        top_k = clamp_int(top_k, DEFAULT_TOP_K, 1, MAX_TOP_K)
+    candidates = [
+        AI_SERVICE_ROOT / raw,
+        DATASET_DIR / raw,
+        Path(raw),
+    ]
 
-        if not self.ensure_loaded():
-            return self._filename_fallback(filename, top_k=top_k, text_query=text_query)
+    for p in candidates:
+        if p.exists():
+            return p
+
+    return None
+
+
+def _is_valid_image(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    if path.suffix.lower() not in VALID_IMAGE_EXTS:
+        return False
+
+    try:
+        with Image.open(path) as img:
+            img.verify()
+        return True
+    except Exception:
+        return False
+
+
+def _sha1_for_files(paths: Iterable[Path]) -> str:
+    h = hashlib.sha1()
+    for p in sorted(paths, key=lambda x: str(x).lower()):
+        try:
+            stat = p.stat()
+            h.update(str(p.resolve()).encode("utf-8", errors="ignore"))
+            h.update(str(stat.st_mtime_ns).encode("utf-8"))
+            h.update(str(stat.st_size).encode("utf-8"))
+        except Exception:
+            continue
+    return h.hexdigest()
+
+
+def _load_json(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _mean_pool(vectors: List[torch.Tensor]) -> Optional[torch.Tensor]:
+    if not vectors:
+        return None
+    x = torch.stack(vectors).float()
+    x = F.normalize(x, dim=-1)
+    return F.normalize(x.mean(dim=0), dim=-1)
+
+
+def _resize_for_crop(image: Image.Image, size: int = 256) -> Image.Image:
+    image = image.convert("RGB")
+    return ImageOps.fit(image, (size, size), method=Image.Resampling.BICUBIC, centering=(0.5, 0.5))
+
+
+def _make_query_views(image: Image.Image) -> List[Image.Image]:
+    """
+    Tạo nhiều view cho ảnh upload.
+    Mục tiêu: ảnh user crop lệch/zoom gần vẫn có embedding ổn hơn.
+    """
+    image = image.convert("RGB")
+
+    if not ENABLE_QUERY_MULTIVIEW:
+        return [image]
+
+    w, h = image.size
+    views = [image]
+
+    # Center square crop
+    side = min(w, h)
+    left = max(0, (w - side) // 2)
+    top = max(0, (h - side) // 2)
+    views.append(image.crop((left, top, left + side, top + side)))
+
+    # 80% center crop
+    side80 = int(side * 0.82)
+    left80 = max(0, (w - side80) // 2)
+    top80 = max(0, (h - side80) // 2)
+    views.append(image.crop((left80, top80, left80 + side80, top80 + side80)))
+
+    # Nếu ảnh ngang, crop trái/phải nhẹ để bắt landmark lệch
+    if w > h * 1.25:
+        crop_w = int(w * 0.72)
+        views.append(image.crop((0, 0, crop_w, h)))
+        views.append(image.crop((w - crop_w, 0, w, h)))
+
+    # Nếu ảnh dọc, crop trên/dưới nhẹ
+    if h > w * 1.25:
+        crop_h = int(h * 0.72)
+        views.append(image.crop((0, 0, w, crop_h)))
+        views.append(image.crop((0, h - crop_h, w, h)))
+
+    return views
+
+
+# ============================================================
+# DATA STRUCTURES
+# ============================================================
+
+@dataclass
+class GalleryImage:
+    image_id: str
+    image_path: str
+    public_path: str
+    destination_slug: str
+    destination_name: str
+    province: Optional[str] = None
+    filename: Optional[str] = None
+    source: str = "folder"
+    caption: Optional[str] = None
+
+
+@dataclass
+class VisionStatus:
+    engine: str
+    model: str
+    device: str
+    status: str
+    destination_count: int
+    gallery_image_count: int
+    manifest_file: str
+    destinations_file: str
+    dataset_dir: str
+    cache_file: str
+    cache_used: bool
+    cache_version: str
+    dataset_fingerprint: Optional[str] = None
+    has_text_embeddings: bool = False
+    has_destination_prototypes: bool = False
+    error: Optional[str] = None
+
+
+# ============================================================
+# ENGINE
+# ============================================================
+
+class VisionSearchEngine:
+    def __init__(self) -> None:
+        self.model_name = MODEL_NAME
+        self.device = DEVICE
+
+        self.model = None
+        self.processor = None
+
+        self.gallery_images: List[GalleryImage] = []
+        self.gallery_embeddings: Optional[torch.Tensor] = None
+
+        self.destinations: Dict[str, Dict[str, Any]] = {}
+        self.destination_prototypes: Dict[str, torch.Tensor] = {}
+        self.destination_text_embeddings: Dict[str, torch.Tensor] = {}
+        self.scene_text_embeddings: Dict[str, torch.Tensor] = {}
+
+        self.cache_used = False
+        self.loaded = False
+        self.error: Optional[str] = None
+        self.dataset_fingerprint: Optional[str] = None
+
+    # ------------------------------------------------------------
+    # Model
+    # ------------------------------------------------------------
+
+    def _load_model(self) -> None:
+        if self.model is not None and self.processor is not None:
+            return
+
+        if CLIPModel is None or CLIPProcessor is None:
+            raise RuntimeError("Thiếu transformers hoặc torch. Hãy cài: pip install transformers torch pillow")
+
+        self.processor = CLIPProcessor.from_pretrained(self.model_name)
+        self.model = CLIPModel.from_pretrained(self.model_name)
+        self.model.to(self.device)
+        self.model.eval()
+
+    @torch.no_grad()
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        self._load_model()
+
+        image = image.convert("RGB")
+        inputs = self.processor(images=image, return_tensors="pt")
+        pixel_values = inputs["pixel_values"].to(self.device)
+
+        # Cách lấy image feature ổn định giữa các version transformers.
+        vision_outputs = self.model.vision_model(pixel_values=pixel_values)
+        pooled_output = vision_outputs.pooler_output
+        image_features = self.model.visual_projection(pooled_output)
+        image_features = F.normalize(image_features, dim=-1)
+
+        return image_features.squeeze(0).detach().cpu()
+
+    @torch.no_grad()
+    def encode_query_image(self, image: Image.Image) -> torch.Tensor:
+        views = _make_query_views(image)
+        vectors = []
+
+        for view in views:
+            try:
+                vectors.append(self.encode_pil_image(view))
+            except Exception:
+                continue
+
+        if not vectors:
+            raise RuntimeError("Không encode được ảnh truy vấn.")
+
+        query = _mean_pool(vectors)
+        if query is None:
+            raise RuntimeError("Không tạo được vector ảnh truy vấn.")
+
+        return query.float()
+
+    @torch.no_grad()
+    def encode_texts(self, texts: List[str]) -> torch.Tensor:
+        self._load_model()
+
+        clean_texts = [str(t).strip() for t in texts if str(t).strip()]
+        if not clean_texts:
+            clean_texts = ["a travel photo"]
+
+        inputs = self.processor(text=clean_texts, return_tensors="pt", padding=True, truncation=True)
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+        text_features = self.model.get_text_features(**inputs)
+        text_features = F.normalize(text_features, dim=-1)
+
+        return text_features.detach().cpu()
+
+    def encode_image_file(self, image_path: Path) -> torch.Tensor:
+        with Image.open(image_path) as img:
+            return self.encode_pil_image(img.convert("RGB"))
+
+    # ------------------------------------------------------------
+    # Destination metadata
+    # ------------------------------------------------------------
+
+    def _load_destinations(self) -> Dict[str, Dict[str, Any]]:
+        raw = _load_json(DESTINATIONS_FILE)
+        result: Dict[str, Dict[str, Any]] = {}
+
+        for key, item in raw.items():
+            if not isinstance(item, dict):
+                continue
+
+            slug = normalize_slug(item.get("datasetFolder") or item.get("slug") or key)
+            tags = item.get("scene_tags") or item.get("sceneTags") or DESTINATION_TAG_RULES.get(slug, [])
+
+            result[slug] = {
+                **item,
+                "slug": slug,
+                "name": item.get("name") or slug.replace("-", " ").title(),
+                "province": item.get("province"),
+                "datasetFolder": item.get("datasetFolder") or slug,
+                "aliases": item.get("aliases") or [],
+                "scene_tags": tags,
+            }
+
+        # Nếu destinations.json thiếu destination nào nhưng folder có, vẫn tạo metadata.
+        if DATASET_DIR.exists():
+            for folder in DATASET_DIR.iterdir():
+                if folder.is_dir():
+                    slug = normalize_slug(folder.name)
+                    if slug not in result:
+                        result[slug] = {
+                            "slug": slug,
+                            "name": slug.replace("-", " ").title(),
+                            "province": None,
+                            "datasetFolder": slug,
+                            "aliases": [],
+                            "scene_tags": DESTINATION_TAG_RULES.get(slug, []),
+                        }
+
+        return result
+
+    def _destination_prompts(self, slug: str, meta: Dict[str, Any]) -> List[str]:
+        name = meta.get("name") or slug.replace("-", " ").title()
+        province = meta.get("province") or ""
+        aliases = meta.get("aliases") or []
+        tags = meta.get("scene_tags") or DESTINATION_TAG_RULES.get(slug, [])
+
+        prompts = [
+            f"a travel photo of {name}, Vietnam",
+            f"tourist destination {name} in Vietnam",
+            f"ảnh du lịch {name}",
+            f"địa điểm du lịch {name}",
+        ]
+
+        if province:
+            prompts.extend([
+                f"a travel photo of {name}, {province}, Vietnam",
+                f"ảnh du lịch {name}, {province}",
+            ])
+
+        for alias in aliases[:6]:
+            prompts.append(f"a travel photo of {alias}")
+            prompts.append(f"ảnh du lịch {alias}")
+
+        for tag in tags:
+            for scene_prompt in SCENE_PROMPTS.get(tag, [])[:1]:
+                prompts.append(f"{scene_prompt}, {name}")
+
+        return list(dict.fromkeys([p for p in prompts if p]))
+
+    # ------------------------------------------------------------
+    # Gallery scan
+    # ------------------------------------------------------------
+
+    def _scan_manifest(self, destinations: Dict[str, Dict[str, Any]]) -> List[GalleryImage]:
+        items: List[GalleryImage] = []
+
+        if not MANIFEST_FILE.exists():
+            return items
 
         try:
-            query_embedding = self._encode_image_bytes(image_bytes)
-            similarities = torch.matmul(query_embedding, self._gallery_embeddings.T).squeeze(0)
+            with open(MANIFEST_FILE, "r", encoding="utf-8-sig", newline="") as f:
+                reader = csv.DictReader(f)
+
+                for row in reader:
+                    path_value = (
+                        row.get("path")
+                        or row.get("relative_path")
+                        or row.get("image_path")
+                        or row.get("file_path")
+                    )
+
+                    img_path = _resolve_image_path(path_value or "")
+                    if not img_path or not _is_valid_image(img_path):
+                        continue
+
+                    slug = normalize_slug(row.get("destination_slug") or row.get("label") or img_path.parent.name)
+                    meta = destinations.get(slug, {})
+
+                    image_id = hashlib.sha1(str(img_path.resolve()).encode("utf-8")).hexdigest()
+
+                    items.append(
+                        GalleryImage(
+                            image_id=image_id,
+                            image_path=str(img_path.resolve()),
+                            public_path=_public_image_path(img_path),
+                            destination_slug=slug,
+                            destination_name=row.get("destination_name") or meta.get("name") or slug,
+                            province=row.get("province") or meta.get("province"),
+                            filename=row.get("filename") or img_path.name,
+                            source="manifest",
+                            caption=row.get("caption") or row.get("description"),
+                        )
+                    )
         except Exception as exc:
-            self._error = str(exc)
-            return self._filename_fallback(filename, top_k=top_k, text_query=text_query)
+            print("[VisionSearch] Cannot read manifest:", exc)
 
-        filename_label = self._filename_boost_label(filename)
-        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        return items
 
-        for index, item in enumerate(self._gallery_items):
-            label = item["label"]
-            score = safe_float(similarities[index].item())
-            if filename_label and filename_label == label:
-                score += 0.03
-            if destination_text_matches(text_query, label, self._destinations.get(label)):
-                score += TEXT_QUERY_BOOST
-            grouped[label].append({"score": score, "item": item})
+    def _scan_dataset_folder(self, destinations: Dict[str, Dict[str, Any]]) -> List[GalleryImage]:
+        items: List[GalleryImage] = []
 
-        destination_scores = []
-        for label, matches in grouped.items():
-            matches = sorted(matches, key=lambda x: x["score"], reverse=True)
-            top_scores = [m["score"] for m in matches[: len(DESTINATION_SCORE_WEIGHTS)]]
-            while len(top_scores) < len(DESTINATION_SCORE_WEIGHTS):
-                top_scores.append(top_scores[-1] if top_scores else 0.0)
+        if not DATASET_DIR.exists():
+            return items
 
-            aggregate = sum(score * weight for score, weight in zip(top_scores, DESTINATION_SCORE_WEIGHTS))
-            best_match = matches[0]["item"]
-            destination_scores.append(
+        for img_path in sorted(DATASET_DIR.rglob("*")):
+            if not _is_valid_image(img_path):
+                continue
+
+            try:
+                rel = img_path.resolve().relative_to(DATASET_DIR.resolve())
+                folder = rel.parts[0] if len(rel.parts) > 1 else img_path.parent.name
+            except Exception:
+                folder = img_path.parent.name
+
+            slug = normalize_slug(folder)
+            meta = destinations.get(slug, {})
+
+            image_id = hashlib.sha1(str(img_path.resolve()).encode("utf-8")).hexdigest()
+
+            items.append(
+                GalleryImage(
+                    image_id=image_id,
+                    image_path=str(img_path.resolve()),
+                    public_path=_public_image_path(img_path),
+                    destination_slug=slug,
+                    destination_name=meta.get("name") or slug.replace("-", " ").title(),
+                    province=meta.get("province"),
+                    filename=img_path.name,
+                    source="folder",
+                    caption=None,
+                )
+            )
+
+        return items
+
+    def _build_gallery_index(self) -> List[GalleryImage]:
+        destinations = self._load_destinations()
+        self.destinations = destinations
+
+        manifest_items = self._scan_manifest(destinations)
+        folder_items = self._scan_dataset_folder(destinations)
+
+        merged: Dict[str, GalleryImage] = {}
+
+        for item in manifest_items:
+            merged[item.image_id] = item
+
+        for item in folder_items:
+            if item.image_id not in merged:
+                merged[item.image_id] = item
+
+        items = list(merged.values())
+        items.sort(key=lambda x: (x.destination_slug, x.filename or x.public_path))
+
+        return items
+
+    def _current_dataset_fingerprint(self, images: List[GalleryImage]) -> str:
+        paths = [Path(item.image_path) for item in images]
+        h = hashlib.sha1()
+        h.update(CACHE_VERSION.encode("utf-8"))
+        h.update(self.model_name.encode("utf-8"))
+        h.update(str(ENABLE_QUERY_MULTIVIEW).encode("utf-8"))
+        h.update(str(ENABLE_TEXT_RERANK).encode("utf-8"))
+        h.update(str(ENABLE_PROTOTYPE_RERANK).encode("utf-8"))
+        h.update(_sha1_for_files(paths).encode("utf-8"))
+
+        if DESTINATIONS_FILE.exists():
+            h.update(_sha1_for_files([DESTINATIONS_FILE]).encode("utf-8"))
+        if MANIFEST_FILE.exists():
+            h.update(_sha1_for_files([MANIFEST_FILE]).encode("utf-8"))
+
+        return h.hexdigest()
+
+    # ------------------------------------------------------------
+    # Cache
+    # ------------------------------------------------------------
+
+    def _load_cache(self, fingerprint: str) -> bool:
+        if not CACHE_FILE.exists():
+            return False
+
+        try:
+            payload = torch.load(CACHE_FILE, map_location="cpu")
+
+            if payload.get("cache_version") != CACHE_VERSION:
+                return False
+            if payload.get("model_name") != self.model_name:
+                return False
+            if payload.get("dataset_fingerprint") != fingerprint:
+                return False
+
+            images_data = payload.get("gallery_images") or []
+            embeddings = payload.get("gallery_embeddings")
+
+            if embeddings is None or not images_data:
+                return False
+
+            self.gallery_images = [GalleryImage(**item) for item in images_data]
+            self.gallery_embeddings = F.normalize(embeddings.float(), dim=-1)
+
+            raw_prototypes = payload.get("destination_prototypes") or {}
+            self.destination_prototypes = {
+                slug: F.normalize(vec.float(), dim=-1)
+                for slug, vec in raw_prototypes.items()
+            }
+
+            raw_text = payload.get("destination_text_embeddings") or {}
+            self.destination_text_embeddings = {
+                slug: F.normalize(vec.float(), dim=-1)
+                for slug, vec in raw_text.items()
+            }
+
+            raw_scene = payload.get("scene_text_embeddings") or {}
+            self.scene_text_embeddings = {
+                tag: F.normalize(vec.float(), dim=-1)
+                for tag, vec in raw_scene.items()
+            }
+
+            self.dataset_fingerprint = fingerprint
+            self.cache_used = True
+            return True
+
+        except Exception as exc:
+            print("[VisionSearch] Cannot load cache:", exc)
+            return False
+
+    def _save_cache(self, fingerprint: str) -> None:
+        if self.gallery_embeddings is None:
+            return
+
+        try:
+            payload = {
+                "cache_version": CACHE_VERSION,
+                "model_name": self.model_name,
+                "dataset_fingerprint": fingerprint,
+                "created_at": time.time(),
+                "gallery_images": [asdict(item) for item in self.gallery_images],
+                "gallery_embeddings": self.gallery_embeddings.cpu(),
+                "destination_prototypes": {
+                    slug: vec.cpu()
+                    for slug, vec in self.destination_prototypes.items()
+                },
+                "destination_text_embeddings": {
+                    slug: vec.cpu()
+                    for slug, vec in self.destination_text_embeddings.items()
+                },
+                "scene_text_embeddings": {
+                    tag: vec.cpu()
+                    for tag, vec in self.scene_text_embeddings.items()
+                },
+            }
+            torch.save(payload, CACHE_FILE)
+        except Exception as exc:
+            print("[VisionSearch] Cannot save cache:", exc)
+
+    # ------------------------------------------------------------
+    # Build extra rerank data
+    # ------------------------------------------------------------
+
+    def _build_destination_prototypes(self) -> None:
+        self.destination_prototypes = {}
+
+        if self.gallery_embeddings is None:
+            return
+
+        by_slug: Dict[str, List[torch.Tensor]] = {}
+
+        for idx, item in enumerate(self.gallery_images):
+            by_slug.setdefault(item.destination_slug, []).append(self.gallery_embeddings[idx])
+
+        for slug, vectors in by_slug.items():
+            proto = _mean_pool(vectors)
+            if proto is not None:
+                self.destination_prototypes[slug] = proto.float()
+
+    def _build_destination_text_embeddings(self) -> None:
+        self.destination_text_embeddings = {}
+
+        if not ENABLE_TEXT_RERANK:
+            return
+
+        self._load_model()
+
+        for slug, meta in self.destinations.items():
+            prompts = self._destination_prompts(slug, meta)
+            try:
+                text_vectors = self.encode_texts(prompts)
+                proto = _mean_pool([v for v in text_vectors])
+                if proto is not None:
+                    self.destination_text_embeddings[slug] = proto.float()
+            except Exception as exc:
+                print(f"[VisionSearch] Cannot encode text prompts for {slug}: {exc}")
+
+    def _build_scene_text_embeddings(self) -> None:
+        self.scene_text_embeddings = {}
+
+        if not ENABLE_TEXT_RERANK:
+            return
+
+        for tag, prompts in SCENE_PROMPTS.items():
+            try:
+                text_vectors = self.encode_texts(prompts)
+                proto = _mean_pool([v for v in text_vectors])
+                if proto is not None:
+                    self.scene_text_embeddings[tag] = proto.float()
+            except Exception:
+                continue
+
+    # ------------------------------------------------------------
+    # Load / reload
+    # ------------------------------------------------------------
+
+    def load(self, force_rebuild_cache: bool = False) -> VisionStatus:
+        try:
+            self.error = None
+            self.cache_used = False
+
+            gallery_items = self._build_gallery_index()
+            fingerprint = self._current_dataset_fingerprint(gallery_items)
+            self.dataset_fingerprint = fingerprint
+
+            if not force_rebuild_cache and self._load_cache(fingerprint):
+                self.loaded = True
+                return self.status()
+
+            self._load_model()
+
+            if not gallery_items:
+                raise RuntimeError(f"Không tìm thấy ảnh trong dataset: {DATASET_DIR}")
+
+            embeddings: List[torch.Tensor] = []
+            valid_images: List[GalleryImage] = []
+
+            for item in gallery_items:
+                try:
+                    emb = self.encode_image_file(Path(item.image_path))
+                    embeddings.append(emb.cpu())
+                    valid_images.append(item)
+                except Exception as exc:
+                    print(f"[VisionSearch] Skip invalid image {item.image_path}: {exc}")
+
+            if not embeddings:
+                raise RuntimeError("Không encode được ảnh nào trong gallery.")
+
+            self.gallery_images = valid_images
+            self.gallery_embeddings = F.normalize(torch.stack(embeddings).float(), dim=-1)
+
+            self._build_destination_prototypes()
+            self._build_destination_text_embeddings()
+            self._build_scene_text_embeddings()
+
+            self._save_cache(fingerprint)
+
+            self.loaded = True
+            return self.status()
+
+        except Exception as exc:
+            self.error = str(exc)
+            self.loaded = False
+            return self.status()
+
+    def reload(self, force_rebuild_cache: bool = True) -> VisionStatus:
+        self.loaded = False
+        self.gallery_images = []
+        self.gallery_embeddings = None
+        self.destination_prototypes = {}
+        self.destination_text_embeddings = {}
+        self.scene_text_embeddings = {}
+        self.cache_used = False
+
+        if force_rebuild_cache and CACHE_FILE.exists():
+            try:
+                CACHE_FILE.unlink()
+            except Exception:
+                pass
+
+        return self.load(force_rebuild_cache=force_rebuild_cache)
+
+    def _ensure_loaded(self) -> None:
+        if not self.loaded or self.gallery_embeddings is None or not self.gallery_images:
+            self.load(force_rebuild_cache=False)
+
+        if not self.loaded or self.gallery_embeddings is None or not self.gallery_images:
+            raise RuntimeError(self.error or "Vision gallery chưa sẵn sàng.")
+
+    # ------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------
+
+    def search_pil_image(self, image: Image.Image, top_k: int = 5) -> Dict[str, Any]:
+        self._ensure_loaded()
+
+        query = self.encode_query_image(image).float()
+        query = F.normalize(query, dim=-1)
+
+        scores = torch.matmul(self.gallery_embeddings, query)
+
+        # Lấy nhiều ảnh raw hơn để ranking theo destination ổn định hơn.
+        top_n = min(max(top_k * 12, 80), len(self.gallery_images))
+        top_scores, top_indices = torch.topk(scores, k=top_n)
+
+        raw_matches: List[Dict[str, Any]] = []
+        for score, idx in zip(top_scores.tolist(), top_indices.tolist()):
+            item = self.gallery_images[int(idx)]
+            raw_matches.append(
                 {
-                    "label": label,
-                    "destinationId": best_match.get("destinationId"),
-                    "destination": best_match.get("name") or label,
-                    "province": best_match.get("province") or "",
-                    "raw_score": aggregate,
-                    "best_image_score": matches[0]["score"],
-                    "matched_image": best_match.get("relative_path") or best_match.get("filename"),
-                    "matched_filename": best_match.get("filename"),
-                    "evidence_images": [
-                        {
-                            "image": m["item"].get("relative_path") or m["item"].get("filename"),
-                            "filename": m["item"].get("filename"),
-                            "score": round(safe_float(m["score"]), 4),
-                        }
-                        for m in matches[:3]
-                    ],
+                    "score": float(score),
+                    "image_id": item.image_id,
+                    "image_path": item.public_path,
+                    "filename": item.filename,
+                    "destination_slug": item.destination_slug,
+                    "destination_name": item.destination_name,
+                    "province": item.province,
+                    "source": item.source,
+                    "caption": item.caption,
                 }
             )
 
-        destination_scores.sort(key=lambda x: x["raw_score"], reverse=True)
-        if not destination_scores:
-            return self._filename_fallback(filename, top_k=top_k, text_query=text_query)
+        scene_scores = self._detect_scene_scores(query)
+        ranked = self._rank_destinations(raw_matches, query=query, scene_scores=scene_scores, top_k=top_k)
 
-        raw_values = [x["raw_score"] for x in destination_scores]
-        max_raw = max(raw_values)
-        exp_values = [math.exp((v - max_raw) * SOFTMAX_TEMPERATURE) for v in raw_values]
-        total_exp = sum(exp_values) or 1.0
+        detected = ranked[0] if ranked else None
+        final_score = float(detected["score"]) if detected else 0.0
+        confidence = float(detected["confidence"]) if detected else 0.0
+        second_score = float(ranked[1]["score"]) if len(ranked) > 1 else 0.0
+        top_gap = final_score - second_score
 
-        for item, exp_value in zip(destination_scores, exp_values):
-            confidence = exp_value / total_exp
-            item["confidence"] = round(confidence, 4)
-            item["confidence_percent"] = int(round(confidence * 100))
-
-        top = destination_scores[0]
-        second = destination_scores[1] if len(destination_scores) > 1 else None
-        top_gap = safe_float(top["raw_score"]) - safe_float(second["raw_score"] if second else 0.0)
-        is_confident = (
-            safe_float(top["confidence"]) >= MIN_CONFIDENCE
-            and safe_float(top["raw_score"]) >= MIN_RAW_SCORE
-            and (second is None or top_gap >= MIN_TOP_GAP)
+        low_confidence = (
+            not detected
+            or float(detected.get("best_image_score", 0.0)) < MIN_RAW_SCORE
+            or confidence < MIN_CONFIDENCE
+            or (len(ranked) > 1 and top_gap < MIN_TOP_GAP)
         )
 
-        if not is_confident:
-            certainty = "chưa đủ chắc"
-        elif top["confidence"] >= 0.60:
-            certainty = "khá chắc"
-        elif top["confidence"] >= 0.35:
-            certainty = "mức tin cậy vừa"
-        else:
-            certainty = "mức tin cậy thấp"
-
-        top_matches = destination_scores[:top_k]
         return {
-            "engine": "clip_image_gallery_retrieval",
+            "engine": "clip_image_gallery_retrieval_v4",
             "model": self.model_name,
-            "device": self._device,
+            "device": self.device,
             "fallback": False,
-            "file_name": filename,
-            "text_query": text_query,
-            "detected": {
-                "label": top["label"],
-                "destination": top["destination"],
-                "destinationId": top["destinationId"],
-                "province": top["province"],
-                "landmark": top["destination"],
-                "confidence": top["confidence"],
-                "confidence_percent": top["confidence_percent"],
-                "certainty": certainty,
-                "is_confident": is_confident,
-                "matched_prompt": f"So khớp ảnh mẫu: {top['matched_image']}",
-                "matched_image": top["matched_image"],
-                "best_image_score": round(top["best_image_score"], 4),
-                "raw_score": round(top["raw_score"], 4),
-            },
-            "top_matches": [
-                {
-                    "rank": index + 1,
-                    "label": item["label"],
-                    "destination": item["destination"],
-                    "destinationId": item["destinationId"],
-                    "province": item["province"],
-                    "confidence": item["confidence"],
-                    "confidence_percent": item["confidence_percent"],
-                    "raw_score": round(item["raw_score"], 4),
-                    "matched_image": item["matched_image"],
-                    "best_image_score": round(item["best_image_score"], 4),
-                    "evidence_images": item["evidence_images"],
-                    "is_confident": bool(
-                        item["confidence"] >= MIN_CONFIDENCE
-                        and item["raw_score"] >= MIN_RAW_SCORE
-                    ),
-                }
-                for index, item in enumerate(top_matches)
-            ],
-            "summary": (
-                f"AI đã trích xuất embedding ảnh bằng CLIP và so sánh với thư viện {len(self._gallery_items)} ảnh mẫu. "
-                + (
-                    f"Kết quả gợi ý: {top['destination']} ({top['confidence_percent']}%, {certainty}). "
-                    if is_confident
-                    else "Ảnh chưa đủ chắc để kết luận một điểm đến duy nhất; hệ thống trả về Top gợi ý gần nhất để người dùng chọn. "
-                )
-                + f"Ảnh mẫu gần nhất: {top['matched_image']}."
+            "low_confidence": low_confidence,
+            "message": (
+                "Tìm thấy các điểm đến có hình ảnh tương đồng."
+                if not low_confidence
+                else "Ảnh chưa đủ rõ để xác định chắc chắn; dưới đây là các gợi ý gần giống nhất."
             ),
-            "warning": None if is_confident else "LOW_CONFIDENCE_IMAGE_MATCH",
-            "message": "Vision gallery search completed.",
-            "vision_status": self.status_snapshot(),
+            "detected": detected,
+            "top_matches": ranked,
+            "raw_matches": raw_matches[: min(30, len(raw_matches))],
+            "scene_scores": scene_scores[:5],
+            "vision_status": asdict(self.status()),
         }
 
+    def search_image_file(self, image_path: Path, top_k: int = 5) -> Dict[str, Any]:
+        with Image.open(image_path) as img:
+            return self.search_pil_image(img.convert("RGB"), top_k=top_k)
 
-vision_search_service = VisionSearchService()
+    def _detect_scene_scores(self, query: torch.Tensor) -> List[Dict[str, Any]]:
+        if not self.scene_text_embeddings:
+            return []
+
+        rows = []
+        for tag, vec in self.scene_text_embeddings.items():
+            score = float(torch.dot(query, vec))
+            rows.append({"tag": tag, "score": round(score, 4)})
+
+        rows.sort(key=lambda x: x["score"], reverse=True)
+        return rows
+
+    def _scene_bonus_for_destination(self, slug: str, scene_scores: List[Dict[str, Any]]) -> float:
+        meta = self.destinations.get(slug, {})
+        tags = meta.get("scene_tags") or DESTINATION_TAG_RULES.get(slug, [])
+
+        if not tags or not scene_scores:
+            return 0.0
+
+        score_map = {row["tag"]: float(row["score"]) for row in scene_scores}
+
+        matched_scores = [score_map[tag] for tag in tags if tag in score_map]
+        if not matched_scores:
+            return 0.0
+
+        # scene CLIP text score thường khoảng 0.18-0.35.
+        best = max(matched_scores)
+        return max(0.0, min(0.035, (best - 0.18) * 0.12))
+
+    def _rank_destinations(
+        self,
+        raw_matches: List[Dict[str, Any]],
+        query: torch.Tensor,
+        scene_scores: List[Dict[str, Any]],
+        top_k: int,
+    ) -> List[Dict[str, Any]]:
+        by_dest: Dict[str, Dict[str, Any]] = {}
+
+        for match in raw_matches:
+            slug = match["destination_slug"]
+            score = _safe_float(match["score"])
+
+            if slug not in by_dest:
+                by_dest[slug] = {
+                    "destination_slug": slug,
+                    "destination_name": match.get("destination_name") or slug,
+                    "province": match.get("province"),
+                    "image_scores": [],
+                    "evidence_images": [],
+                }
+
+            bucket = by_dest[slug]
+            bucket["image_scores"].append(score)
+
+            if len(bucket["evidence_images"]) < MAX_EVIDENCE_PER_DESTINATION:
+                bucket["evidence_images"].append(
+                    {
+                        "image_path": match.get("image_path"),
+                        "filename": match.get("filename"),
+                        "score": round(score, 4),
+                        "caption": match.get("caption"),
+                    }
+                )
+
+        ranked: List[Dict[str, Any]] = []
+
+        # Bổ sung destination chưa xuất hiện trong raw top nếu prototype/text rất mạnh.
+        candidate_slugs = set(by_dest.keys())
+        candidate_slugs.update(self.destination_prototypes.keys())
+        candidate_slugs.update(self.destination_text_embeddings.keys())
+
+        for slug in candidate_slugs:
+            item = by_dest.get(
+                slug,
+                {
+                    "destination_slug": slug,
+                    "destination_name": self.destinations.get(slug, {}).get("name") or slug,
+                    "province": self.destinations.get(slug, {}).get("province"),
+                    "image_scores": [],
+                    "evidence_images": [],
+                },
+            )
+
+            image_scores = sorted(item["image_scores"], reverse=True)
+
+            best_image = image_scores[0] if image_scores else 0.0
+            top3_avg = sum(image_scores[:3]) / min(3, len(image_scores)) if image_scores else 0.0
+            top5_avg = sum(image_scores[:5]) / min(5, len(image_scores)) if image_scores else 0.0
+            hit_count = len(image_scores)
+
+            prototype_score = 0.0
+            if ENABLE_PROTOTYPE_RERANK and slug in self.destination_prototypes:
+                prototype_score = float(torch.dot(query, self.destination_prototypes[slug]))
+
+            text_score = 0.0
+            if ENABLE_TEXT_RERANK and slug in self.destination_text_embeddings:
+                text_score = float(torch.dot(query, self.destination_text_embeddings[slug]))
+
+            hit_bonus = min(hit_count / 18.0, 1.0) * 0.035
+            scene_bonus = self._scene_bonus_for_destination(slug, scene_scores)
+
+            # Công thức ưu tiên image retrieval, text/prototype chỉ rerank nhẹ.
+            final_score = (
+                0.50 * best_image
+                + 0.22 * top3_avg
+                + 0.08 * top5_avg
+                + 0.12 * prototype_score
+                + 0.05 * text_score
+                + hit_bonus
+                + scene_bonus
+            )
+
+            # Nếu destination không xuất hiện trong raw top, chỉ cho vào nếu prototype/text khá mạnh.
+            if hit_count == 0 and final_score < 0.25:
+                continue
+
+            confidence = max(0.0, min(1.0, (final_score - 0.17) / 0.36))
+
+            ranked.append(
+                {
+                    "destination_slug": slug,
+                    "destination_name": item["destination_name"],
+                    "province": item.get("province"),
+                    "score": round(float(final_score), 4),
+                    "confidence": round(float(confidence), 4),
+                    "confidence_percent": round(float(confidence) * 100, 1),
+                    "best_image_score": round(float(best_image), 4),
+                    "top3_avg_image_score": round(float(top3_avg), 4),
+                    "prototype_score": round(float(prototype_score), 4),
+                    "text_score": round(float(text_score), 4),
+                    "scene_bonus": round(float(scene_bonus), 4),
+                    "hit_count": hit_count,
+                    "evidence_images": item["evidence_images"],
+                    "matched_scene_tags": self.destinations.get(slug, {}).get("scene_tags")
+                    or DESTINATION_TAG_RULES.get(slug, []),
+                }
+            )
+
+        ranked.sort(key=lambda x: x["score"], reverse=True)
+        return ranked[:top_k]
+
+    # ------------------------------------------------------------
+    # Status
+    # ------------------------------------------------------------
+
+    def status(self) -> VisionStatus:
+        destination_count = len({img.destination_slug for img in self.gallery_images})
+        gallery_count = len(self.gallery_images)
+
+        status = "ready" if self.loaded and gallery_count > 0 and self.error is None else "not_ready"
+
+        return VisionStatus(
+            engine="clip_image_gallery_retrieval_v4",
+            model=self.model_name,
+            device=self.device,
+            status=status,
+            destination_count=destination_count,
+            gallery_image_count=gallery_count,
+            manifest_file=str(MANIFEST_FILE),
+            destinations_file=str(DESTINATIONS_FILE),
+            dataset_dir=str(DATASET_DIR),
+            cache_file=str(CACHE_FILE),
+            cache_used=self.cache_used,
+            cache_version=CACHE_VERSION,
+            dataset_fingerprint=self.dataset_fingerprint,
+            has_text_embeddings=bool(self.destination_text_embeddings),
+            has_destination_prototypes=bool(self.destination_prototypes),
+            error=self.error,
+        )
+
+
+vision_search_engine = VisionSearchEngine()
+vision_search_service = vision_search_engine
+
+
+def get_vision_status(load: bool = False) -> Dict[str, Any]:
+    if load:
+        return asdict(vision_search_engine.load(force_rebuild_cache=False))
+    return asdict(vision_search_engine.status())
+
+
+def reload_vision_gallery(force_rebuild_cache: bool = True) -> Dict[str, Any]:
+    return asdict(vision_search_engine.reload(force_rebuild_cache=force_rebuild_cache))
+
+
+def search_similar_destinations_from_pil(image: Image.Image, top_k: int = 5) -> Dict[str, Any]:
+    return vision_search_engine.search_pil_image(image, top_k=top_k)
+
+
+def search_similar_destinations_from_file(image_path: Path, top_k: int = 5) -> Dict[str, Any]:
+    return vision_search_engine.search_image_file(image_path, top_k=top_k)
+

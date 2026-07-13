@@ -92,6 +92,13 @@ export class NotificationsController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("admin")
+  @Post("admin/notifications/run-automation")
+  runAutomation() {
+    return this.notificationsService.runAutomaticNotifications();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @Post("admin/notifications/bulk-send")
   bulkSend(@Body() dto: any, @CurrentUser() user: { userId: bigint }) {
     return this.notificationsService.bulkSend(dto, user.userId);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import AdminLayout from "@/components/admin/AdminLayout";
 import Modal from "@/components/Modal";
 import Loading from "@/components/Loading";
@@ -161,7 +162,7 @@ export default function AdminGuidesPage() {
   });
 
   const [assignForm, setAssignForm] = useState({
-    bookingId: "",
+    departureId: "",
     guideId: "",
     note: "",
   });
@@ -365,18 +366,65 @@ export default function AdminGuidesPage() {
     }
   };
 
-  const onSelectBooking = async (bookingId) => {
-    const booking = bookings.find(
-      (item) => String(item.id) === String(bookingId),
+  const departureOptions = useMemo(() => {
+    const map = new Map();
+
+    for (const booking of bookings) {
+      const departureId =
+        booking.departureId || booking.departure?.id || booking.departure_id;
+
+      if (!departureId) continue;
+
+      const key = String(departureId);
+      const current = map.get(key);
+      const guestCount =
+        Number(booking.adultCount || 0) + Number(booking.childCount || 0);
+
+      if (!current) {
+        map.set(key, {
+          departureId: key,
+          representativeBookingId: String(booking.id),
+          tourName:
+            booking.tour?.name || booking.tourName || "Tour chưa cập nhật",
+          tourCode: booking.tour?.code || booking.tourCode || "",
+          departureDate:
+            booking.departureDate || booking.departure?.departureDate,
+          endDate: booking.endDate || booking.departure?.endDate,
+          destinationName:
+            booking.tour?.destination?.name ||
+            booking.destinationName ||
+            booking.tour?.destinationName ||
+            "Chưa cập nhật",
+          bookingCount: 1,
+          guestCount,
+          bookings: [booking],
+        });
+      } else {
+        current.bookingCount += 1;
+        current.guestCount += guestCount;
+        current.bookings.push(booking);
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(a.departureDate) - new Date(b.departureDate),
     );
+  }, [bookings]);
+
+  const onSelectDeparture = async (departureId) => {
+    const option = departureOptions.find(
+      (item) => String(item.departureId) === String(departureId),
+    );
+
+    const representativeBooking = option?.bookings?.[0] || null;
 
     setAssignForm((prev) => ({
       ...prev,
-      bookingId,
+      departureId: String(departureId || ""),
       guideId: "",
     }));
 
-    await loadAvailableGuidesForBooking(booking);
+    await loadAvailableGuidesForBooking(representativeBooking);
   };
 
   const openReassignIssue = async (guide, assignment) => {
@@ -430,8 +478,15 @@ export default function AdminGuidesPage() {
 
     setAssignOpen(true);
 
+    const departureId =
+      normalizedBooking?.departureId ||
+      normalizedBooking?.departure?.id ||
+      assignment?.booking?.departureId ||
+      assignment?.booking?.departure?.id ||
+      "";
+
     setAssignForm({
-      bookingId: String(bookingId || ""),
+      departureId: String(departureId || ""),
       guideId: "",
       note: `Phân công lại do HDV ${guide.fullName} báo sự cố cho ${tourName}: ${
         assignment.note || "Chưa có ghi chú"
@@ -453,7 +508,7 @@ export default function AdminGuidesPage() {
 
       setAssignOpen(false);
       setAssignForm({
-        bookingId: "",
+        departureId: "",
         guideId: "",
         note: "",
       });
@@ -512,16 +567,23 @@ export default function AdminGuidesPage() {
     }
   };
 
-  const selectedBooking = useMemo(
+  const selectedDeparture = useMemo(
     () =>
-      bookings.find((item) => String(item.id) === String(assignForm.bookingId)),
-    [bookings, assignForm.bookingId],
+      departureOptions.find(
+        (item) => String(item.departureId) === String(assignForm.departureId),
+      ) || null,
+    [departureOptions, assignForm.departureId],
   );
 
-  const currentGuide = useMemo(
-    () => getCurrentGuide(selectedBooking),
-    [selectedBooking],
-  );
+  const selectedBooking = selectedDeparture?.bookings?.[0] || null;
+
+  const currentGuide = useMemo(() => {
+    for (const booking of selectedDeparture?.bookings || []) {
+      const guide = getCurrentGuide(booking);
+      if (guide) return guide;
+    }
+    return null;
+  }, [selectedDeparture]);
 
   const availableForReplacement = useMemo(() => {
     const issueGuideId = reassignContext?.guide?.id || currentGuide?.id || null;
@@ -533,13 +595,22 @@ export default function AdminGuidesPage() {
   }, [available, currentGuide, reassignContext]);
 
   const activeAssignments = calendarModal?.guide?.assignments || [];
+  const guideUnavailability =
+    calendarModal?.guide?.unavailability ||
+    calendarModal?.guide?.unavailabilities ||
+    calendarModal?.guide?.busySchedules ||
+    [];
 
   const dayMap = useMemo(() => {
     const map = new Map();
 
-    activeAssignments.forEach((assignment) => {
-      const start = new Date(assignment.startDate);
-      const end = new Date(assignment.endDate);
+    const addToMap = (startValue, endValue, payload) => {
+      const start = new Date(startValue);
+      const end = new Date(endValue || startValue);
+
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return;
+      }
 
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const key = toDateInput(d);
@@ -548,24 +619,37 @@ export default function AdminGuidesPage() {
           map.set(key, []);
         }
 
-        map.get(key).push(assignment);
+        map.get(key).push(payload);
       }
+    };
+
+    activeAssignments.forEach((assignment) => {
+      addToMap(
+        assignment.startDate ||
+          assignment.departureDate ||
+          assignment.departure?.departureDate,
+        assignment.endDate ||
+          assignment.departure?.endDate ||
+          assignment.startDate,
+        {
+          ...assignment,
+          calendarType: "assignment",
+        },
+      );
+    });
+
+    guideUnavailability.forEach((busyItem) => {
+      addToMap(busyItem.startDate, busyItem.endDate || busyItem.startDate, {
+        ...busyItem,
+        calendarType: "unavailability",
+      });
     });
 
     return map;
-  }, [activeAssignments]);
+  }, [activeAssignments, guideUnavailability]);
 
   const days = buildMonthDays(
     calendarModal?.month || new Date().toISOString().slice(0, 7),
-  );
-
-  const totalIssueAssignments = useMemo(
-    () =>
-      data.items.reduce(
-        (sum, guide) => sum + getIssueAssignments(guide).length,
-        0,
-      ),
-    [data.items],
   );
 
   const filterTabs = [
@@ -585,10 +669,6 @@ export default function AdminGuidesPage() {
       id: "locked",
       label: "Đã khóa",
     },
-    {
-      id: "issue",
-      label: "Có sự cố",
-    },
   ];
 
   if (loading && data.items.length === 0) {
@@ -596,7 +676,11 @@ export default function AdminGuidesPage() {
   }
 
   return (
-    <AdminLayout current="/admin/guides" title="Quản lý Hướng dẫn viên">
+    <AdminLayout
+      current="/admin/guides"
+      title="Quản lý Hướng dẫn viên"
+      subtitle="Thông tin hồ sơ, chuyên môn, trạng thái và lịch làm việc của hướng dẫn viên"
+    >
       <style
         dangerouslySetInnerHTML={{
           __html: `
@@ -628,6 +712,65 @@ export default function AdminGuidesPage() {
             .guide-btn:disabled {
               opacity: 0.6;
               cursor: not-allowed;
+            }
+
+            .guide-management-switch {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 14px;
+              padding: 16px 18px;
+              border: 1px solid #dbeafe;
+              border-radius: 16px;
+              background: linear-gradient(135deg, #eff6ff, #f8fafc);
+            }
+            .guide-management-switch > div { display: grid; gap: 4px; }
+            .guide-management-switch span { color: #64748b; font-size: .9rem; }
+            .guide-review-link {
+              text-decoration: none;
+              background: #2563eb;
+              color: #fff;
+              padding: 11px 15px;
+              border-radius: 11px;
+              font-weight: 800;
+              white-space: nowrap;
+            }
+
+
+
+            .guide-management-tabs {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 10px;
+              padding: 8px;
+              background: #ffffff;
+              border: 1px solid #e2e8f0;
+              border-radius: 16px;
+              box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+            }
+
+            .guide-management-tab {
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              min-height: 42px;
+              padding: 0 16px;
+              border-radius: 11px;
+              color: #475569;
+              font-weight: 800;
+              text-decoration: none;
+              transition: all .2s ease;
+            }
+
+            .guide-management-tab:hover {
+              background: #f8fafc;
+              color: #1d4ed8;
+            }
+
+            .guide-management-tab.active {
+              background: #2563eb;
+              color: #ffffff;
+              box-shadow: 0 6px 16px rgba(37, 99, 235, .22);
             }
 
             .guide-table-wrap {
@@ -723,6 +866,27 @@ export default function AdminGuidesPage() {
       />
 
       <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+        <div className="guide-management-tabs">
+          <Link href="/admin/guides" className="guide-management-tab active">
+            Tổng quan HDV
+          </Link>
+          <Link
+            href="/admin/guide-competencies"
+            className="guide-management-tab"
+          >
+            Duyệt chứng chỉ
+          </Link>
+          <Link href="/admin/incidents" className="guide-management-tab">
+            Duyệt sự cố
+          </Link>
+          <Link
+            href="/admin/guide-availabilities"
+            className="guide-management-tab"
+          >
+            Duyệt lịch bận
+          </Link>
+        </div>
+
         <div
           className="guide-toolbar"
           style={{
@@ -792,27 +956,6 @@ export default function AdminGuidesPage() {
             <button
               type="button"
               className="guide-btn"
-              onClick={() => {
-                setReassignContext(null);
-                setAssignForm({
-                  bookingId: "",
-                  guideId: "",
-                  note: "",
-                });
-                setAvailable([]);
-                setAssignOpen(true);
-              }}
-              style={{
-                background: "#dcfce7",
-                color: "#166534",
-              }}
-            >
-              Phân công / Đổi HDV
-            </button>
-
-            <button
-              type="button"
-              className="guide-btn"
               onClick={openCreate}
               style={{
                 background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
@@ -824,51 +967,6 @@ export default function AdminGuidesPage() {
           </div>
         </div>
 
-        {totalIssueAssignments > 0 && (
-          <div
-            style={{
-              padding: "16px 18px",
-              borderRadius: 16,
-              background: "#fef2f2",
-              border: "1px solid #fecaca",
-              color: "#991b1b",
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <div>
-              <strong style={{ display: "block", marginBottom: 4 }}>
-                Có {totalIssueAssignments} tour đang có sự cố từ hướng dẫn viên
-              </strong>
-              <span style={{ fontSize: "0.92rem" }}>
-                Admin cần kiểm tra và phân công lại HDV cho các tour này.
-              </span>
-            </div>
-
-            <button
-              type="button"
-              className="guide-btn"
-              onClick={() =>
-                setFilters((prev) => ({
-                  ...prev,
-                  status: "issue",
-                  page: 1,
-                }))
-              }
-              style={{
-                background: "#fff",
-                color: "#b91c1c",
-                border: "1px solid #fecaca",
-              }}
-            >
-              Xem tour có sự cố
-            </button>
-          </div>
-        )}
-
         <div className="guide-table-wrap">
           <table className="guide-table">
             <thead>
@@ -877,8 +975,7 @@ export default function AdminGuidesPage() {
                 <th>Liên hệ</th>
                 <th>Chuyên môn</th>
                 <th>Trạng thái</th>
-                <th>Tour có sự cố</th>
-                <th style={{ textAlign: "center" }}>Lịch trình</th>
+                <th style={{ textAlign: "center" }}>Lịch làm việc</th>
                 <th style={{ textAlign: "right" }}>Thao tác</th>
               </tr>
             </thead>
@@ -887,7 +984,7 @@ export default function AdminGuidesPage() {
               {data.items.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="7"
+                    colSpan="6"
                     style={{
                       textAlign: "center",
                       padding: "48px 20px",
@@ -899,9 +996,6 @@ export default function AdminGuidesPage() {
                 </tr>
               ) : (
                 data.items.map((guide) => {
-                  const issues = getIssueAssignments(guide);
-                  const firstIssue = issues[0];
-
                   return (
                     <tr key={String(guide.id)}>
                       <td>
@@ -947,23 +1041,6 @@ export default function AdminGuidesPage() {
                             >
                               CCCD: {guide.identityNumber || "--"}
                             </div>
-
-                            {issues.length > 0 && (
-                              <span
-                                style={{
-                                  display: "inline-flex",
-                                  marginTop: 6,
-                                  padding: "5px 10px",
-                                  borderRadius: 999,
-                                  background: "#fee2e2",
-                                  color: "#b91c1c",
-                                  fontSize: "0.78rem",
-                                  fontWeight: 800,
-                                }}
-                              >
-                                {issues.length} tour có sự cố
-                              </span>
-                            )}
                           </div>
                         </div>
                       </td>
@@ -1015,72 +1092,6 @@ export default function AdminGuidesPage() {
                         <GuideStatusBadge status={guide.status} />
                       </td>
 
-                      <td>
-                        {issues.length === 0 ? (
-                          <span style={{ color: "#94a3b8" }}>Không có</span>
-                        ) : (
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 8,
-                              maxWidth: 280,
-                            }}
-                          >
-                            {issues.slice(0, 2).map((issue) => (
-                              <div
-                                key={String(issue.id)}
-                                style={{
-                                  padding: "10px 12px",
-                                  borderRadius: 12,
-                                  background: "#fff7ed",
-                                  border: "1px solid #fed7aa",
-                                  color: "#9a3412",
-                                }}
-                              >
-                                <strong
-                                  style={{
-                                    display: "block",
-                                    color: "#9a3412",
-                                    marginBottom: 4,
-                                  }}
-                                >
-                                  {issue.tour?.name ||
-                                    issue.booking?.tourName ||
-                                    "Tour có sự cố"}
-                                </strong>
-
-                                <div
-                                  style={{
-                                    fontSize: "0.82rem",
-                                    lineHeight: 1.45,
-                                  }}
-                                >
-                                  Booking:{" "}
-                                  {issue.booking?.bookingCode ||
-                                    issue.bookingCode ||
-                                    "--"}
-                                  <br />
-                                  Ghi chú: {issue.note || "HDV báo sự cố"}
-                                </div>
-                              </div>
-                            ))}
-
-                            {issues.length > 2 && (
-                              <span
-                                style={{
-                                  fontSize: "0.82rem",
-                                  color: "#b45309",
-                                  fontWeight: 700,
-                                }}
-                              >
-                                +{issues.length - 2} sự cố khác
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-
                       <td style={{ textAlign: "center" }}>
                         <button
                           type="button"
@@ -1110,24 +1121,6 @@ export default function AdminGuidesPage() {
                             flexWrap: "wrap",
                           }}
                         >
-                          {firstIssue && (
-                            <button
-                              type="button"
-                              className="guide-btn"
-                              onClick={() =>
-                                openReassignIssue(guide, firstIssue)
-                              }
-                              disabled={submitting}
-                              style={{
-                                background: "#fef2f2",
-                                color: "#b91c1c",
-                                border: "1px solid #fecaca",
-                              }}
-                            >
-                              Phân công lại
-                            </button>
-                          )}
-
                           <button
                             type="button"
                             className="guide-btn"
@@ -1231,6 +1224,61 @@ export default function AdminGuidesPage() {
             />
           </div>
 
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+              fontSize: "0.85rem",
+              color: "#475569",
+            }}
+          >
+            <span
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                background: "#dcfce7",
+                color: "#166534",
+                fontWeight: 800,
+              }}
+            >
+              Xanh: Có tour
+            </span>
+            <span
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                background: "#fee2e2",
+                color: "#991b1b",
+                fontWeight: 800,
+              }}
+            >
+              Đỏ: Lịch bận đã duyệt
+            </span>
+            <span
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                background: "#fef3c7",
+                color: "#92400e",
+                fontWeight: 800,
+              }}
+            >
+              Vàng: Lịch bận chờ duyệt
+            </span>
+            <span
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                background: "#fff",
+                border: "1px solid #e2e8f0",
+                fontWeight: 800,
+              }}
+            >
+              Trắng: Trống lịch
+            </span>
+          </div>
+
           <div className="calendar-grid">
             {["CN", "T2", "T3", "T4", "T5", "T6", "T7"].map((day) => (
               <div key={day} className="calendar-head">
@@ -1241,8 +1289,29 @@ export default function AdminGuidesPage() {
             {days.map((day, index) => {
               const key = day ? toDateInput(day) : `blank-${index}`;
               const busy = day ? dayMap.get(key) || [] : [];
-              const hasIssue = busy.some(
-                (item) => String(item.status).toLowerCase() === "issue",
+
+              const hasApprovedBusy = busy.some(
+                (item) =>
+                  item.calendarType === "unavailability" &&
+                  ["approved", "verified"].includes(
+                    String(
+                      item.reviewStatus ||
+                        item.approvalStatus ||
+                        item.status ||
+                        "",
+                    ).toLowerCase(),
+                  ),
+              );
+
+              const hasPendingBusy = busy.some(
+                (item) =>
+                  item.calendarType === "unavailability" &&
+                  String(
+                    item.reviewStatus ||
+                      item.approvalStatus ||
+                      item.status ||
+                      "",
+                  ).toLowerCase() === "pending",
               );
 
               return (
@@ -1255,11 +1324,13 @@ export default function AdminGuidesPage() {
                     border: day ? "1px solid #e2e8f0" : "none",
                     background: !day
                       ? "transparent"
-                      : hasIssue
-                        ? "#fef2f2"
-                        : busy.length
-                          ? "#dcfce7"
-                          : "#fff",
+                      : hasApprovedBusy
+                        ? "#fee2e2"
+                        : hasPendingBusy
+                          ? "#fef3c7"
+                          : busy.length
+                            ? "#dcfce7"
+                            : "#fff",
                   }}
                 >
                   {day && (
@@ -1268,11 +1339,13 @@ export default function AdminGuidesPage() {
                         style={{
                           display: "block",
                           textAlign: "right",
-                          color: hasIssue
+                          color: hasApprovedBusy
                             ? "#b91c1c"
-                            : busy.length
-                              ? "#166534"
-                              : "#475569",
+                            : hasPendingBusy
+                              ? "#92400e"
+                              : busy.length
+                                ? "#166534"
+                                : "#475569",
                         }}
                       >
                         {day.getDate()}
@@ -1286,32 +1359,69 @@ export default function AdminGuidesPage() {
                           marginTop: 6,
                         }}
                       >
-                        {busy.slice(0, 2).map((assignment) => (
-                          <div
-                            key={String(assignment.id)}
-                            title={assignment.tour?.name}
-                            style={{
-                              fontSize: "0.72rem",
-                              padding: "4px 6px",
-                              borderRadius: 6,
-                              background:
-                                assignment.status === "issue"
-                                  ? "#fecaca"
-                                  : "#bbf7d0",
-                              color:
-                                assignment.status === "issue"
-                                  ? "#991b1b"
-                                  : "#14532d",
-                              fontWeight: 800,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {assignment.status === "issue" ? "Sự cố - " : ""}
-                            {assignment.tour?.name || "Đang có tour"}
-                          </div>
-                        ))}
+                        {busy.slice(0, 3).map((item) => {
+                          const isUnavailability =
+                            item.calendarType === "unavailability";
+
+                          const reviewStatus = String(
+                            item.reviewStatus ||
+                              item.approvalStatus ||
+                              item.status ||
+                              "",
+                          ).toLowerCase();
+
+                          let background = "#bbf7d0";
+                          let color = "#14532d";
+
+                          if (isUnavailability && reviewStatus === "pending") {
+                            background = "#fde68a";
+                            color = "#92400e";
+                          } else if (
+                            isUnavailability &&
+                            ["approved", "verified"].includes(reviewStatus)
+                          ) {
+                            background = "#fecaca";
+                            color = "#991b1b";
+                          } else if (
+                            isUnavailability &&
+                            reviewStatus === "rejected"
+                          ) {
+                            background = "#e2e8f0";
+                            color = "#475569";
+                          }
+
+                          const label = isUnavailability
+                            ? reviewStatus === "pending"
+                              ? `Chờ duyệt: ${item.reason || "Lịch bận"}`
+                              : reviewStatus === "rejected"
+                                ? `Đã từ chối: ${item.reason || "Lịch bận"}`
+                                : `Lịch bận: ${item.reason || "Không thể nhận tour"}`
+                            : `${
+                                item.tour?.name ||
+                                item.booking?.tour?.name ||
+                                "Đang có tour"
+                              }`;
+
+                          return (
+                            <div
+                              key={`${item.calendarType}-${item.id}`}
+                              title={label}
+                              style={{
+                                fontSize: "0.72rem",
+                                padding: "4px 6px",
+                                borderRadius: 6,
+                                background,
+                                color,
+                                fontWeight: 800,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {label}
+                            </div>
+                          );
+                        })}
 
                         {busy.length > 2 && (
                           <span
@@ -1610,7 +1720,7 @@ export default function AdminGuidesPage() {
           setAssignOpen(false);
           setReassignContext(null);
         }}
-        title="Phân công / Đổi HDV cho Tour"
+        title="Phân công HDV theo lịch khởi hành"
         size="lg"
       >
         <form
@@ -1638,8 +1748,8 @@ export default function AdminGuidesPage() {
               }}
             >
               {reassignContext
-                ? "Bước 1: Tour cần phân công lại"
-                : "Bước 1: Chọn booking đã xác nhận"}
+                ? "Bước 1: Chuyến cần phân công lại"
+                : "Bước 1: Chọn lịch khởi hành"}
             </h4>
 
             {reassignContext ? (
@@ -1695,52 +1805,28 @@ export default function AdminGuidesPage() {
                     fontWeight: 700,
                   }}
                 >
-                  Tour này đã được chọn sẵn. Admin chỉ cần chọn HDV mới bên
-                  dưới.
+                  Lịch khởi hành này đã được chọn sẵn. Admin chỉ cần chọn HDV
+                  mới bên dưới.
                 </p>
               </div>
             ) : (
               <>
                 <select
                   className="guide-input"
-                  value={assignForm.bookingId}
-                  onChange={(e) => onSelectBooking(e.target.value)}
+                  value={assignForm.departureId}
+                  onChange={(event) => onSelectDeparture(event.target.value)}
                   required
                 >
-                  <option value="">-- Chọn booking --</option>
-
-                  {bookings.map((booking) => {
-                    const guide = getCurrentGuide(booking);
-                    const issueAssignment = getBookingIssueAssignment(booking);
-
-                    return (
-                      <option
-                        key={String(booking.id)}
-                        value={String(booking.id)}
-                      >
-                        [{booking.bookingCode}]{" "}
-                        {booking.tour?.name || booking.tourName} -{" "}
-                        {issueAssignment
-                          ? `CÓ SỰ CỐ - cần phân công lại từ HDV: ${
-                              issueAssignment.guide?.fullName ||
-                              guide?.fullName ||
-                              "--"
-                            }`
-                          : guide?.fullName
-                            ? `Đang có HDV: ${guide.fullName}`
-                            : "Chưa có HDV"}{" "}
-                        (
-                        {formatDate(
-                          booking.departureDate ||
-                            booking.departure?.departureDate,
-                        )}
-                        )
-                      </option>
-                    );
-                  })}
+                  <option value="">-- Chọn lịch khởi hành --</option>
+                  {departureOptions.map((item) => (
+                    <option key={item.departureId} value={item.departureId}>
+                      {item.tourName} · {formatDate(item.departureDate)} ·{" "}
+                      {item.bookingCount} booking · {item.guestCount} khách
+                    </option>
+                  ))}
                 </select>
 
-                {selectedBooking && (
+                {selectedDeparture && (
                   <div
                     style={{
                       marginTop: 12,
@@ -1765,7 +1851,7 @@ export default function AdminGuidesPage() {
                         {currentGuide.email || "--"}
                       </div>
                     ) : (
-                      <span>Booking này chưa có HDV.</span>
+                      <span>Chuyến này chưa có HDV.</span>
                     )}
                   </div>
                 )}
@@ -1795,12 +1881,12 @@ export default function AdminGuidesPage() {
                 }))
               }
               required
-              disabled={!assignForm.bookingId}
+              disabled={!assignForm.departureId}
             >
               <option value="">
-                {assignForm.bookingId
+                {assignForm.departureId
                   ? "-- Chọn HDV mới --"
-                  : "Vui lòng chọn booking trước"}
+                  : "Vui lòng chọn lịch khởi hành trước"}
               </option>
 
               {availableForReplacement.map((guide) => (
@@ -1810,7 +1896,7 @@ export default function AdminGuidesPage() {
               ))}
             </select>
 
-            {assignForm.bookingId && availableForReplacement.length === 0 && (
+            {assignForm.departureId && availableForReplacement.length === 0 && (
               <p
                 style={{
                   margin: "8px 0 0",
@@ -1870,7 +1956,7 @@ export default function AdminGuidesPage() {
               type="submit"
               className="guide-btn"
               disabled={
-                submitting || !assignForm.bookingId || !assignForm.guideId
+                submitting || !assignForm.departureId || !assignForm.guideId
               }
               style={{
                 background: "#16a34a",

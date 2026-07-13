@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
 import {
   CalendarDays,
-  CheckCircle2,
   Clock,
   Eye,
   Info,
@@ -17,12 +17,21 @@ import {
   Users,
   ClipboardList,
   ChevronRight,
-  AlertTriangle,
   CheckCircle,
+  LockKeyhole,
+  BadgeCheck,
+  Ban,
+  FilePlus2,
+  Trash2,
+  BellRing,
 } from "lucide-react";
 import Loading from "@/components/Loading";
 import Pagination from "@/components/Pagination";
 import { useToast } from "@/components/ToastContext";
+import NotificationBell from "@/components/NotificationBell";
+import GuideOperationsPanel from "@/components/guide/GuideOperationsPanel";
+import GuideCompetenciesPanel from "@/components/guide/GuideCompetenciesPanel";
+import GuideNotificationsPanel from "@/components/guide/GuideNotificationsPanel";
 import { apiFetch } from "@/lib/api";
 import { getToken, getUser, clearSession } from "@/lib/storage";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -35,13 +44,17 @@ const statusLabels = {
   in_progress: "Đang dẫn tour",
   completed: "Đã hoàn thành",
   issue: "Có sự cố",
+  pending: "Chờ duyệt",
+  active: "Đã duyệt",
+  rejected: "Bị từ chối",
+  cancelled: "Đã hủy",
 };
 
 const statusOptions = [
   { value: "all", label: "Tất cả trạng thái" },
   { value: "assigned", label: "Đã phân công" },
+  { value: "accepted", label: "Đã nhận tour" },
   { value: "completed", label: "Đã hoàn thành" },
-  { value: "issue", label: "Có sự cố" },
 ];
 
 const statusTones = {
@@ -132,6 +145,7 @@ function SectionHeader({ eyebrow, title, description }) {
 }
 
 export default function GuidePage() {
+  const router = useRouter();
   const { showToast } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -151,11 +165,18 @@ export default function GuidePage() {
   const [profileForm, setProfileForm] = useState({
     email: "",
     phone: "",
-    languages: "",
+    identityNumber: "",
     note: "",
   });
 
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+
   const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
 
   const currentUser = useMemo(() => getUser(), []);
@@ -163,7 +184,9 @@ export default function GuidePage() {
   const tabs = [
     { key: "dashboard", label: "Tổng quan", icon: ClipboardList },
     { key: "calendar", label: "Lịch trình tour", icon: CalendarDays },
+    { key: "operations", label: "Điều hành chuyến đi", icon: ShieldAlert },
     { key: "assignments", label: "Danh sách phân công", icon: ListFilter },
+    { key: "notifications", label: "Thông báo", icon: BellRing },
     { key: "profile", label: "Hồ sơ cá nhân", icon: User },
   ];
 
@@ -176,7 +199,7 @@ export default function GuidePage() {
     setProfileForm({
       email: data.guide?.email || "",
       phone: data.guide?.phone || "",
-      languages: data.guide?.languages || "",
+      identityNumber: data.guide?.identityNumber || "",
       note: data.guide?.note || "",
     });
   };
@@ -215,6 +238,24 @@ export default function GuidePage() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+
+    const requestedTab = String(router.query.tab || "");
+    const validTabs = [
+      "dashboard",
+      "calendar",
+      "operations",
+      "assignments",
+      "notifications",
+      "profile",
+    ];
+
+    if (validTabs.includes(requestedTab)) {
+      setActiveTab(requestedTab);
+    }
+  }, [router.isReady, router.query.tab]);
 
   useEffect(() => {
     setPage(1);
@@ -294,7 +335,7 @@ export default function GuidePage() {
         body: JSON.stringify({
           email: profileForm.email,
           phone: profileForm.phone,
-          languages: profileForm.languages,
+          identityNumber: profileForm.identityNumber,
           note: profileForm.note,
         }),
       });
@@ -305,6 +346,41 @@ export default function GuidePage() {
       showToast(error.message || "Cập nhật thông tin thất bại.", "error");
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const changePassword = async (event) => {
+    event.preventDefault();
+
+    if (passwordForm.newPassword.length < 6) {
+      showToast("Mật khẩu mới phải có ít nhất 6 ký tự.", "error");
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      showToast("Xác nhận mật khẩu mới không khớp.", "error");
+      return;
+    }
+
+    try {
+      setSavingPassword(true);
+      await apiFetch("/auth/me/password", {
+        method: "PATCH",
+        body: JSON.stringify({
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword,
+        }),
+      });
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+      showToast("Đã đổi mật khẩu.", "success");
+    } catch (error) {
+      showToast(error.message || "Đổi mật khẩu thất bại.", "error");
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -351,12 +427,7 @@ export default function GuidePage() {
 
       await loadDashboard();
 
-      showToast(
-        nextStatus === "issue"
-          ? "Đã báo sự cố cho ban điều hành."
-          : "Đã cập nhật trạng thái tour.",
-        "success",
-      );
+      showToast("Đã xác nhận nhận tour.", "success");
     } catch (error) {
       showToast(error.message || "Không cập nhật được trạng thái.", "error");
     } finally {
@@ -365,14 +436,35 @@ export default function GuidePage() {
   };
 
   const quickStatus = async (assignmentId, nextStatus) => {
-    let note = "";
+    if (nextStatus !== "accepted") return;
+    await updateAssignmentStatus(assignmentId, "accepted", "");
+  };
 
-    if (nextStatus === "issue") {
-      note = window.prompt("Nhập nội dung sự cố cần admin hỗ trợ:");
-      if (!note) return;
+  const reportUnavailable = async (assignmentId) => {
+    const reason = window.prompt(
+      "Nhập lý do bạn không thể nhận tour này (bận lịch, sức khỏe, việc cá nhân...):",
+    );
+    if (!reason?.trim()) return;
+
+    try {
+      setSavingStatus(true);
+      await apiFetch(`/guide-portal/assignments/${assignmentId}/unavailable`, {
+        method: "POST",
+        body: JSON.stringify({
+          availabilityType: "unavailable",
+          reason: reason.trim(),
+        }),
+      });
+      showToast(
+        "Đã gửi yêu cầu không thể nhận tour. Admin sẽ xem và phân công HDV thay thế.",
+        "success",
+      );
+      await loadAll();
+    } catch (error) {
+      showToast(error.message || "Không gửi được yêu cầu.", "error");
+    } finally {
+      setSavingStatus(false);
     }
-
-    await updateAssignmentStatus(assignmentId, nextStatus, note);
   };
 
   if (loading) return <Loading text="Đang tải hệ thống hướng dẫn viên..." />;
@@ -414,7 +506,17 @@ export default function GuidePage() {
                 key={tab.key}
                 type="button"
                 className={active ? "active" : ""}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  router.replace(
+                    {
+                      pathname: "/guide",
+                      query: tab.key === "dashboard" ? {} : { tab: tab.key },
+                    },
+                    undefined,
+                    { shallow: true },
+                  );
+                }}
               >
                 <Icon size={20} strokeWidth={active ? 2.5 : 2} />
                 {tab.label}
@@ -445,6 +547,7 @@ export default function GuidePage() {
           </div>
 
           <div className="topbar-user">
+            <NotificationBell user={currentUser} />
             <div className="topbar-details">
               <strong>{guide?.fullName || currentUser?.fullName}</strong>
               <span>HDV Chính</span>
@@ -512,6 +615,7 @@ export default function GuidePage() {
                       item={dashboard.nextAssignment}
                       onViewDetail={openAssignmentDetail}
                       onQuickStatus={quickStatus}
+                      onReportUnavailable={reportUnavailable}
                       featured
                     />
                   ) : (
@@ -583,6 +687,7 @@ export default function GuidePage() {
                         item={item}
                         onViewDetail={openAssignmentDetail}
                         onQuickStatus={quickStatus}
+                        onReportUnavailable={reportUnavailable}
                       />
                     ))}
                   </div>
@@ -655,6 +760,7 @@ export default function GuidePage() {
                       item={item}
                       onViewDetail={openAssignmentDetail}
                       onQuickStatus={quickStatus}
+                      onReportUnavailable={reportUnavailable}
                     />
                   ))}
                 </div>
@@ -738,6 +844,7 @@ export default function GuidePage() {
                     items={pagedAssignments}
                     onViewDetail={openAssignmentDetail}
                     onQuickStatus={quickStatus}
+                    onReportUnavailable={reportUnavailable}
                   />
                 )}
 
@@ -754,118 +861,179 @@ export default function GuidePage() {
             </div>
           )}
 
+          {activeTab === "operations" && (
+            <div className="fade-in">
+              <GuideOperationsPanel guide={guide} />
+            </div>
+          )}
+
+          {activeTab === "notifications" && (
+            <GuideNotificationsPanel
+              notificationId={router.query.notificationId || null}
+            />
+          )}
+
           {activeTab === "profile" && (
-            <div className="profile-container fade-in">
-              <div className="admin-card card-left">
-                <SectionHeader
-                  title="Thông tin cơ bản"
-                  description="Dữ liệu do ban điều hành quản lý."
-                />
-
-                <div className="profile-static">
-                  <div className="avatar-large">
-                    {guide?.fullName?.charAt(0)?.toUpperCase() || "G"}
+            <div className="profile-page fade-in">
+              <div className="profile-container">
+                <div className="admin-card card-left">
+                  <SectionHeader
+                    title="Thông tin cơ bản"
+                    description="Thông tin định danh của hướng dẫn viên."
+                  />
+                  <div className="profile-static">
+                    <div className="avatar-large">
+                      {guide?.fullName?.charAt(0)?.toUpperCase() || "G"}
+                    </div>
+                    <h3>{guide?.fullName}</h3>
+                    <span className="badge-role">
+                      CCCD: {guide?.identityNumber || "Chưa cập nhật"}
+                    </span>
+                    <div className="mt-6 info-stacked">
+                      <InfoBox
+                        label="Kinh nghiệm"
+                        value={`${guide?.experienceYears || 0} năm`}
+                      />
+                      <InfoBox
+                        label="Trạng thái HĐ"
+                        value={
+                          guide?.status === "active"
+                            ? "Đang hoạt động"
+                            : guide?.status
+                        }
+                      />
+                    </div>
                   </div>
+                </div>
 
-                  <h3>{guide?.fullName}</h3>
-
-                  <span className="badge-role">
-                    Thẻ HDV: {guide?.identityNumber || "Đang cập nhật"}
-                  </span>
-
-                  <div className="mt-6 info-stacked">
-                    <InfoBox
-                      label="Kinh nghiệm"
-                      value={`${guide?.experienceYears || 0} năm`}
-                    />
-
-                    <InfoBox
-                      label="Trạng thái HĐ"
-                      value={
-                        guide?.status === "active"
-                          ? "Đang hoạt động"
-                          : guide?.status
-                      }
-                    />
-                  </div>
+                <div className="admin-card card-right">
+                  <SectionHeader
+                    title="Cập nhật hồ sơ"
+                    description="Chỉ cập nhật thông tin liên hệ, CCCD và phần giới thiệu."
+                  />
+                  <form onSubmit={saveProfile} className="profile-form">
+                    <div className="input-group">
+                      <label>Địa chỉ Email</label>
+                      <input
+                        type="email"
+                        value={profileForm.email}
+                        onChange={(e) =>
+                          setProfileForm((p) => ({
+                            ...p,
+                            email: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>Số điện thoại</label>
+                      <input
+                        type="tel"
+                        value={profileForm.phone}
+                        onChange={(e) =>
+                          setProfileForm((p) => ({
+                            ...p,
+                            phone: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="input-group full">
+                      <label>Số CCCD/CMND</label>
+                      <input
+                        inputMode="numeric"
+                        maxLength={12}
+                        value={profileForm.identityNumber}
+                        onChange={(e) =>
+                          setProfileForm((p) => ({
+                            ...p,
+                            identityNumber: e.target.value.replace(/\D/g, ""),
+                          }))
+                        }
+                        placeholder="Nhập 9 hoặc 12 chữ số"
+                      />
+                    </div>
+                    <div className="input-group full">
+                      <label>Giới thiệu / Ghi chú điều hành</label>
+                      <textarea
+                        value={profileForm.note}
+                        onChange={(e) =>
+                          setProfileForm((p) => ({
+                            ...p,
+                            note: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="form-actions">
+                      <button
+                        type="submit"
+                        className="btn-primary"
+                        disabled={savingProfile}
+                      >
+                        <Save size={18} />
+                        {savingProfile ? "Đang lưu..." : "Lưu thay đổi"}
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </div>
 
-              <div className="admin-card card-right">
+              <GuideCompetenciesPanel />
+
+              <div className="admin-card profile-wide-card">
                 <SectionHeader
-                  title="Cập nhật hồ sơ"
-                  description="Cập nhật thông tin liên hệ và chuyên môn để nhận lịch tốt hơn."
+                  title="Đổi mật khẩu"
+                  description="Mật khẩu mới phải có ít nhất 6 ký tự."
                 />
-
-                <form onSubmit={saveProfile} className="profile-form">
+                <form onSubmit={changePassword} className="password-grid">
                   <div className="input-group">
-                    <label>Địa chỉ Email</label>
+                    <label>Mật khẩu hiện tại</label>
                     <input
-                      type="email"
-                      value={profileForm.email}
-                      onChange={(event) =>
-                        setProfileForm((prev) => ({
-                          ...prev,
-                          email: event.target.value,
+                      type="password"
+                      value={passwordForm.currentPassword}
+                      onChange={(e) =>
+                        setPasswordForm((p) => ({
+                          ...p,
+                          currentPassword: e.target.value,
                         }))
                       }
-                      placeholder="VD: hdv.nguyenvana@gmail.com"
                     />
                   </div>
-
                   <div className="input-group">
-                    <label>Số điện thoại</label>
+                    <label>Mật khẩu mới</label>
                     <input
-                      type="tel"
-                      value={profileForm.phone}
-                      onChange={(event) =>
-                        setProfileForm((prev) => ({
-                          ...prev,
-                          phone: event.target.value,
+                      type="password"
+                      value={passwordForm.newPassword}
+                      onChange={(e) =>
+                        setPasswordForm((p) => ({
+                          ...p,
+                          newPassword: e.target.value,
                         }))
                       }
-                      placeholder="VD: 0912 345 678"
                     />
                   </div>
-
-                  <div className="input-group full">
-                    <label>Ngoại ngữ & Kỹ năng</label>
+                  <div className="input-group">
+                    <label>Xác nhận mật khẩu mới</label>
                     <input
-                      value={profileForm.languages}
-                      onChange={(event) =>
-                        setProfileForm((prev) => ({
-                          ...prev,
-                          languages: event.target.value,
+                      type="password"
+                      value={passwordForm.confirmPassword}
+                      onChange={(e) =>
+                        setPasswordForm((p) => ({
+                          ...p,
+                          confirmPassword: e.target.value,
                         }))
                       }
-                      placeholder="VD: Tiếng Anh, Tiếng Trung, Tiếng Nhật"
                     />
                   </div>
-
-                  <div className="input-group full">
-                    <label>Giới thiệu / Ghi chú điều hành</label>
-                    <textarea
-                      value={profileForm.note}
-                      onChange={(event) =>
-                        setProfileForm((prev) => ({
-                          ...prev,
-                          note: event.target.value,
-                        }))
-                      }
-                      placeholder="Thêm thông tin về tuyến đường thế mạnh, sở thích dẫn tour..."
-                    />
-                  </div>
-
-                  <div className="form-actions">
-                    <button
-                      type="submit"
-                      className="btn-primary"
-                      disabled={savingProfile}
-                    >
-                      <Save size={18} />
-                      {savingProfile ? "Đang lưu..." : "Lưu thay đổi"}
-                    </button>
-                  </div>
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    disabled={savingPassword}
+                  >
+                    <LockKeyhole size={18} />
+                    {savingPassword ? "Đang đổi..." : "Đổi mật khẩu"}
+                  </button>
                 </form>
               </div>
             </div>
@@ -877,8 +1045,6 @@ export default function GuidePage() {
         <AssignmentDetailModal
           assignment={selectedAssignment}
           onClose={() => setSelectedAssignment(null)}
-          onUpdateStatus={updateAssignmentStatus}
-          savingStatus={savingStatus}
         />
       )}
 
@@ -1318,16 +1484,20 @@ export default function GuidePage() {
           display: flex;
           flex-direction: column;
           gap: 0;
+          overflow: visible;
+          position: relative;
         }
 
         .assignments-sticky-toolbar {
-          position: sticky;
-          top: 72px;
-          z-index: 80;
-          background: rgba(244, 247, 251, 0.98);
-          backdrop-filter: blur(14px);
-          padding: 0 0 18px;
+          position: static !important;
+          top: auto !important;
+          z-index: auto;
+          width: 100%;
+          background: transparent;
+          backdrop-filter: none;
+          padding: 0;
           margin-bottom: 18px;
+          align-self: stretch;
         }
 
         .assignment-title-row {
@@ -2073,13 +2243,6 @@ export default function GuidePage() {
           line-height: 1.6;
         }
 
-        .modal-status-form {
-          display: grid;
-          grid-template-columns: 200px 1fr auto;
-          gap: 16px;
-          align-items: end;
-        }
-
         @media (max-width: 1200px) {
           .stat-grid,
           .calendar-summary {
@@ -2116,10 +2279,6 @@ export default function GuidePage() {
           .modal-grid-4 {
             grid-template-columns: repeat(2, 1fr);
           }
-
-          .assignments-sticky-toolbar {
-            top: 0;
-          }
         }
 
         @media (max-width: 768px) {
@@ -2134,7 +2293,6 @@ export default function GuidePage() {
 
           .filter-panel,
           .modal-grid-2,
-          .modal-status-form,
           .profile-form {
             grid-template-columns: 1fr;
           }
@@ -2147,12 +2305,143 @@ export default function GuidePage() {
             grid-template-columns: 1fr;
           }
         }
+
+        .profile-page {
+          display: grid;
+          gap: 24px;
+        }
+        .profile-wide-card {
+          padding: 28px;
+        }
+        .credential-grid {
+          display: grid;
+          grid-template-columns: 1.2fr 0.8fr;
+          gap: 28px;
+        }
+        .credential-form {
+          display: grid;
+          gap: 14px;
+          align-content: start;
+        }
+        .credential-list {
+          display: grid;
+          gap: 12px;
+        }
+        .credential-item {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 14px 16px;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          background: #fff;
+        }
+        .credential-item strong,
+        .credential-item span {
+          display: block;
+        }
+        .credential-item span {
+          margin-top: 4px;
+          color: #64748b;
+          font-size: 13px;
+        }
+        .credential-item.approved {
+          background: #f0fdf4;
+          border-color: #bbf7d0;
+        }
+        .credential-item.pending {
+          background: #fffbeb;
+          border-color: #fde68a;
+        }
+        .credential-item.rejected {
+          background: #fef2f2;
+          border-color: #fecaca;
+        }
+        .sub-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: 0 0 14px;
+        }
+        .icon-danger {
+          border: 0;
+          background: #fee2e2;
+          color: #b91c1c;
+          width: 36px;
+          height: 36px;
+          border-radius: 10px;
+          display: grid;
+          place-items: center;
+          cursor: pointer;
+        }
+        .password-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+          gap: 16px;
+          align-items: end;
+        }
+        .availability-form {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 18px;
+        }
+        .availability-list {
+          display: grid;
+          gap: 12px;
+        }
+        .availability-item {
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          align-items: center;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 16px 18px;
+          background: #fff;
+        }
+        .availability-item strong,
+        .availability-item span {
+          display: block;
+        }
+        .availability-item span {
+          color: #475569;
+          margin-top: 6px;
+          font-size: 13px;
+        }
+        .availability-item p {
+          margin: 7px 0 0;
+          color: #64748b;
+        }
+        .availability-side {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .input-group select {
+          width: 100%;
+          border: 1px solid #cbd5e1;
+          border-radius: 12px;
+          padding: 12px 16px;
+          background: #fff;
+        }
+        @media (max-width: 1000px) {
+          .credential-grid,
+          .password-grid,
+          .availability-form {
+            grid-template-columns: 1fr;
+          }
+        }
       `}</style>
     </section>
   );
 }
 
-function AssignmentTable({ items, onViewDetail, onQuickStatus }) {
+function AssignmentTable({
+  items,
+  onViewDetail,
+  onQuickStatus,
+  onReportUnavailable,
+}) {
   return (
     <div className="table-responsive">
       <table className="assignment-table">
@@ -2254,37 +2543,23 @@ function AssignmentTable({ items, onViewDetail, onQuickStatus }) {
                       </button>
                     )}
 
-                    {item.status !== "completed" && (
-                      <button
-                        type="button"
-                        className="table-status-btn"
-                        style={{
-                          background: "#f0fdfa",
-                          color: "#0f766e",
-                          borderColor: "#ccfbf1",
-                        }}
-                        onClick={() => onQuickStatus(item.id, "completed")}
-                      >
-                        <CheckCircle2 size={15} />
-                        Hoàn thành
-                      </button>
-                    )}
-
-                    {item.status !== "issue" && (
-                      <button
-                        type="button"
-                        className="table-status-btn"
-                        style={{
-                          background: "#fef2f2",
-                          color: "#b91c1c",
-                          borderColor: "#fecaca",
-                        }}
-                        onClick={() => onQuickStatus(item.id, "issue")}
-                      >
-                        <AlertTriangle size={15} />
-                        Báo sự cố
-                      </button>
-                    )}
+                    {["assigned", "accepted"].includes(item.status) &&
+                      new Date(item.endDate).getTime() >=
+                        new Date(new Date().setHours(0, 0, 0, 0)).getTime() && (
+                        <button
+                          type="button"
+                          className="table-status-btn"
+                          style={{
+                            background: "#fff7ed",
+                            color: "#c2410c",
+                            borderColor: "#fed7aa",
+                          }}
+                          onClick={() => onReportUnavailable(item.id)}
+                        >
+                          <Ban size={15} />
+                          Không thể nhận
+                        </button>
+                      )}
                   </div>
                 </td>
               </tr>
@@ -2300,6 +2575,7 @@ function AssignmentCard({
   item,
   onViewDetail,
   onQuickStatus,
+  onReportUnavailable,
   featured = false,
 }) {
   const booking = item.booking || {};
@@ -2381,33 +2657,21 @@ function AssignmentCard({
             </button>
           )}
 
-          {item.status !== "completed" && (
-            <button
-              type="button"
-              style={{
-                background: "#f0fdfa",
-                color: "#0f766e",
-                borderColor: "#ccfbf1",
-              }}
-              onClick={() => onQuickStatus(item.id, "completed")}
-            >
-              Hoàn thành
-            </button>
-          )}
-
-          {item.status !== "issue" && (
-            <button
-              type="button"
-              style={{
-                background: "#fef2f2",
-                color: "#b91c1c",
-                borderColor: "#fecaca",
-              }}
-              onClick={() => onQuickStatus(item.id, "issue")}
-            >
-              Báo sự cố
-            </button>
-          )}
+          {["assigned", "accepted"].includes(item.status) &&
+            new Date(item.endDate).getTime() >=
+              new Date(new Date().setHours(0, 0, 0, 0)).getTime() && (
+              <button
+                type="button"
+                style={{
+                  background: "#fff7ed",
+                  color: "#c2410c",
+                  borderColor: "#fed7aa",
+                }}
+                onClick={() => onReportUnavailable(item.id)}
+              >
+                Không thể nhận
+              </button>
+            )}
         </div>
       </div>
     </div>
@@ -2439,7 +2703,12 @@ function DayScheduleItem({ item, onViewDetail }) {
   );
 }
 
-function TimelineItem({ item, onViewDetail, onQuickStatus }) {
+function TimelineItem({
+  item,
+  onViewDetail,
+  onQuickStatus,
+  onReportUnavailable,
+}) {
   const booking = item.booking || {};
   const pickupTime = booking.pickupTime
     ? new Date(booking.pickupTime).toLocaleTimeString("vi-VN", {
@@ -2456,6 +2725,7 @@ function TimelineItem({ item, onViewDetail, onQuickStatus }) {
         item={item}
         onViewDetail={onViewDetail}
         onQuickStatus={onQuickStatus}
+        onReportUnavailable={onReportUnavailable}
       />
     </div>
   );
@@ -2484,22 +2754,10 @@ function EmptyState({ text, icon: Icon = Info }) {
   );
 }
 
-function AssignmentDetailModal({
-  assignment,
-  onClose,
-  onUpdateStatus,
-  savingStatus,
-}) {
-  const [status, setStatus] = useState(assignment.status || "assigned");
-  const [note, setNote] = useState(assignment.note || "");
-
+function AssignmentDetailModal({ assignment, onClose }) {
   const booking = assignment.booking || {};
   const tour = assignment.tour || {};
   const destination = tour.destination || {};
-
-  const submitStatus = async () => {
-    await onUpdateStatus(assignment.id, status, note);
-  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -2631,44 +2889,16 @@ function AssignmentDetailModal({
             )}
           </DetailBlock>
 
-          <DetailBlock title="Báo cáo & Trạng thái">
-            <div className="modal-status-form">
-              <div className="input-group">
-                <label>Trạng thái thực tế</label>
-
-                <select
-                  className="filter-select"
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value)}
-                  style={{ width: "100%" }}
-                >
-                  <option value="assigned">Đã phân công</option>
-                  <option value="accepted">Đã nhận tour</option>
-                  <option value="completed">Đã hoàn thành</option>
-                  <option value="issue">Có sự cố</option>
-                </select>
-              </div>
-
-              <div className="input-group">
-                <label>Ghi chú / Báo cáo sự cố</label>
-
-                <input
-                  type="text"
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                  placeholder="Điền ghi chú nếu có phát sinh"
-                />
-              </div>
-
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={submitStatus}
-                disabled={savingStatus}
-              >
-                <CheckCircle2 size={18} />
-                {savingStatus ? "Đang xử lý..." : "Cập nhật"}
-              </button>
+          <DetailBlock title="Trạng thái phân công">
+            <div className="modal-grid-2">
+              <InfoBox
+                label="Trạng thái hiện tại"
+                value={statusLabels[assignment.status] || assignment.status}
+              />
+              <InfoBox
+                label="Ghi chú"
+                value={assignment.note || "Không có ghi chú"}
+              />
             </div>
           </DetailBlock>
         </div>

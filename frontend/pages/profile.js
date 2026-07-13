@@ -11,6 +11,7 @@ import {
   clearSession,
   updateStoredUser,
 } from "@/lib/storage";
+import SessionManager from "@/components/profile/SessionManager";
 import { mapImageUrl } from "@/lib/tour";
 import {
   User,
@@ -23,12 +24,18 @@ import {
   X,
   ChevronRight,
   Info,
+  UsersRound,
+  Plus,
+  Pencil,
+  Trash2,
+  Save,
 } from "lucide-react";
 
 const tabs = [
   { key: "info", label: "Thông tin cá nhân", icon: User },
   { key: "favorites", label: "Tour yêu thích", icon: Heart },
   { key: "bookings", label: "Tour đã đặt", icon: ShoppingBag },
+  { key: "travelers", label: "Hành khách thường dùng", icon: UsersRound },
   { key: "refunds", label: "Hoàn tiền", icon: RotateCcw },
   { key: "vouchers", label: "Voucher của tôi", icon: Ticket },
   { key: "security", label: "Bảo mật", icon: Shield },
@@ -45,6 +52,7 @@ const FAVORITE_PAGE_SIZE = 4;
 const BOOKING_PAGE_SIZE = 5;
 const REFUND_PAGE_SIZE = 5;
 const VOUCHER_PAGE_SIZE = 6;
+const TRAVELER_PAGE_SIZE = 4;
 
 function StatusPill({ children, tone = "default" }) {
   const colors = {
@@ -306,11 +314,30 @@ export default function ProfilePage() {
   const [bookings, setBookings] = useState([]);
   const [refunds, setRefunds] = useState([]);
   const [vouchers, setVouchers] = useState([]);
+  const [travelers, setTravelers] = useState([]);
+  const [editingTravelerId, setEditingTravelerId] = useState(null);
+  const [savingTraveler, setSavingTraveler] = useState(false);
+  const emptyTravelerForm = {
+    fullName: "",
+    relationship: "",
+    dateOfBirth: "",
+    gender: "",
+    guestType: "adult",
+    idType: "cccd",
+    idNumber: "",
+    nationality: "Việt Nam",
+    phone: "",
+    dietaryNotes: "",
+    healthNotes: "",
+    isDefault: false,
+  };
+  const [travelerForm, setTravelerForm] = useState(emptyTravelerForm);
 
   const [favoritePage, setFavoritePage] = useState(1);
   const [bookingPage, setBookingPage] = useState(1);
   const [refundPage, setRefundPage] = useState(1);
   const [voucherPage, setVoucherPage] = useState(1);
+  const [travelerPage, setTravelerPage] = useState(1);
 
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
@@ -332,6 +359,8 @@ export default function ProfilePage() {
     phone: "",
     identityNumber: "",
     birthDate: "",
+    dietaryNotes: "",
+    healthNotes: "",
   });
 
   const [passwordForm, setPasswordForm] = useState({
@@ -365,6 +394,11 @@ export default function ProfilePage() {
     Math.ceil(vouchers.length / VOUCHER_PAGE_SIZE),
   );
 
+  const travelerTotalPages = Math.max(
+    1,
+    Math.ceil(travelers.length / TRAVELER_PAGE_SIZE),
+  );
+
   const pagedFavorites = useMemo(() => {
     const start = (favoritePage - 1) * FAVORITE_PAGE_SIZE;
     return favorites.slice(start, start + FAVORITE_PAGE_SIZE);
@@ -385,11 +419,17 @@ export default function ProfilePage() {
     return vouchers.slice(start, start + VOUCHER_PAGE_SIZE);
   }, [vouchers, voucherPage]);
 
+  const pagedTravelers = useMemo(() => {
+    const start = (travelerPage - 1) * TRAVELER_PAGE_SIZE;
+    return travelers.slice(start, start + TRAVELER_PAGE_SIZE);
+  }, [travelers, travelerPage]);
+
   useEffect(() => {
     if (favoritePage > favoriteTotalPages) setFavoritePage(favoriteTotalPages);
     if (bookingPage > bookingTotalPages) setBookingPage(bookingTotalPages);
     if (refundPage > refundTotalPages) setRefundPage(refundTotalPages);
     if (voucherPage > voucherTotalPages) setVoucherPage(voucherTotalPages);
+    if (travelerPage > travelerTotalPages) setTravelerPage(travelerTotalPages);
   }, [
     favoritePage,
     favoriteTotalPages,
@@ -399,6 +439,8 @@ export default function ProfilePage() {
     refundTotalPages,
     voucherPage,
     voucherTotalPages,
+    travelerPage,
+    travelerTotalPages,
   ]);
 
   useEffect(() => {
@@ -406,6 +448,7 @@ export default function ProfilePage() {
     if (activeTab === "bookings") setBookingPage(1);
     if (activeTab === "refunds") setRefundPage(1);
     if (activeTab === "vouchers") setVoucherPage(1);
+    if (activeTab === "travelers") setTravelerPage(1);
   }, [activeTab]);
 
   const syncUser = (nextUser) => {
@@ -418,24 +461,29 @@ export default function ProfilePage() {
       birthDate: nextUser.birthDate
         ? String(nextUser.birthDate).slice(0, 10)
         : "",
+      dietaryNotes: nextUser.dietaryNotes || "",
+      healthNotes: nextUser.healthNotes || "",
     });
     updateStoredUser(nextUser);
   };
 
   const loadAll = async () => {
-    const [me, fav, myBookings, myRefunds, myVouchers] = await Promise.all([
-      apiFetch("/auth/me"),
-      apiFetch("/favorites/me").catch(() => []),
-      apiFetch("/bookings/me").catch(() => []),
-      apiFetch("/refunds/me").catch(() => []),
-      apiFetch("/vouchers/me").catch(() => []),
-    ]);
+    const [me, fav, myBookings, myRefunds, myVouchers, myTravelers] =
+      await Promise.all([
+        apiFetch("/auth/me"),
+        apiFetch("/favorites/me").catch(() => []),
+        apiFetch("/bookings/me").catch(() => []),
+        apiFetch("/refunds/me").catch(() => []),
+        apiFetch("/vouchers/me").catch(() => []),
+        apiFetch("/travel-companions").catch(() => []),
+      ]);
 
     syncUser(me);
     setFavorites(fav || []);
     setBookings(myBookings || []);
     setRefunds(myRefunds || []);
     setVouchers(myVouchers || []);
+    setTravelers(myTravelers || []);
   };
 
   useEffect(() => {
@@ -476,6 +524,8 @@ export default function ProfilePage() {
           phone: profileForm.phone,
           identityNumber: profileForm.identityNumber,
           birthDate: profileForm.birthDate || null,
+          dietaryNotes: profileForm.dietaryNotes.trim() || null,
+          healthNotes: profileForm.healthNotes.trim() || null,
         }),
       });
 
@@ -595,6 +645,83 @@ export default function ProfilePage() {
       await loadAll();
       setActiveTab("refunds");
       showToast("Đã gửi yêu cầu hoàn tiền đến admin.", "success");
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  };
+
+  const resetTravelerForm = () => {
+    setEditingTravelerId(null);
+    setTravelerForm(emptyTravelerForm);
+  };
+
+  const editTraveler = (traveler) => {
+    setEditingTravelerId(traveler.id);
+    setTravelerForm({
+      fullName: traveler.fullName || "",
+      relationship: traveler.relationship || "",
+      dateOfBirth: traveler.dateOfBirth || "",
+      gender: traveler.gender || "",
+      guestType: traveler.guestType || "adult",
+      idType: traveler.idType || "cccd",
+      idNumber: traveler.idNumber || "",
+      nationality: traveler.nationality || "Việt Nam",
+      phone: traveler.phone || "",
+      dietaryNotes: traveler.dietaryNotes || "",
+      healthNotes: traveler.healthNotes || "",
+      isDefault: Boolean(traveler.isDefault),
+    });
+    setActiveTab("travelers");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const saveTraveler = async (event) => {
+    event.preventDefault();
+    if (!travelerForm.fullName.trim()) {
+      return showToast("Vui lòng nhập họ tên hành khách.", "error");
+    }
+    setSavingTraveler(true);
+    try {
+      await apiFetch(
+        editingTravelerId
+          ? `/travel-companions/${editingTravelerId}`
+          : "/travel-companions",
+        {
+          method: editingTravelerId ? "PATCH" : "POST",
+          body: JSON.stringify(travelerForm),
+        },
+      );
+      const nextTravelers = await apiFetch("/travel-companions");
+      setTravelers(nextTravelers || []);
+      resetTravelerForm();
+      showToast(
+        editingTravelerId
+          ? "Đã cập nhật hành khách thường dùng."
+          : "Đã lưu hành khách thường dùng.",
+        "success",
+      );
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setSavingTraveler(false);
+    }
+  };
+
+  const removeTraveler = async (traveler) => {
+    if (
+      !window.confirm(`Xóa ${traveler.fullName} khỏi danh sách thường dùng?`)
+    ) {
+      return;
+    }
+    try {
+      await apiFetch(`/travel-companions/${traveler.id}`, { method: "DELETE" });
+      setTravelers((items) =>
+        items.filter((item) => String(item.id) !== String(traveler.id)),
+      );
+      if (String(editingTravelerId) === String(traveler.id)) {
+        resetTravelerForm();
+      }
+      showToast("Đã xóa hành khách thường dùng.", "success");
     } catch (error) {
       showToast(error.message, "error");
     }
@@ -854,6 +981,90 @@ export default function ProfilePage() {
                       }))
                     }
                   />
+                </div>
+
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    marginTop: "4px",
+                    padding: "20px",
+                    borderRadius: "16px",
+                    background: "#f8fbff",
+                    border: "1px solid #dbeafe",
+                  }}
+                >
+                  <div style={{ marginBottom: "16px" }}>
+                    <h3
+                      style={{
+                        margin: "0 0 6px",
+                        color: "#0f172a",
+                        fontSize: "18px",
+                        fontWeight: 800,
+                      }}
+                    >
+                      Thông tin hỗ trợ trong chuyến đi
+                    </h3>
+                    <p
+                      style={{
+                        margin: 0,
+                        color: "#64748b",
+                        fontSize: "14px",
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      Các ghi chú này giúp Travela và hướng dẫn viên chuẩn bị
+                      dịch vụ phù hợp hơn cho bạn. Đây là thông tin không bắt
+                      buộc.
+                    </p>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: "18px",
+                    }}
+                  >
+                    <div>
+                      <label style={styles.label}>Ghi chú ăn uống</label>
+                      <textarea
+                        style={{
+                          ...styles.input,
+                          minHeight: "100px",
+                          resize: "vertical",
+                          lineHeight: 1.55,
+                        }}
+                        value={profileForm.dietaryNotes}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            dietaryNotes: e.target.value,
+                          }))
+                        }
+                        placeholder="Ví dụ: ăn chay, dị ứng hải sản, không dùng sữa..."
+                      />
+                    </div>
+
+                    <div>
+                      <label style={styles.label}>Ghi chú sức khỏe</label>
+                      <textarea
+                        style={{
+                          ...styles.input,
+                          minHeight: "100px",
+                          resize: "vertical",
+                          lineHeight: 1.55,
+                        }}
+                        value={profileForm.healthNotes}
+                        onChange={(e) =>
+                          setProfileForm((prev) => ({
+                            ...prev,
+                            healthNotes: e.target.value,
+                          }))
+                        }
+                        placeholder="Ví dụ: say xe, cao huyết áp, cần hỗ trợ di chuyển..."
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div
@@ -1484,6 +1695,520 @@ export default function ProfilePage() {
             </div>
           )}
 
+          {activeTab === "travelers" && (
+            <div style={{ display: "grid", gap: "22px" }}>
+              <div style={styles.card}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "18px",
+                    marginBottom: "24px",
+                  }}
+                >
+                  <div>
+                    <p
+                      style={{
+                        margin: "0 0 6px",
+                        color: "#2563eb",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                        letterSpacing: "0.7px",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Hồ sơ hành khách
+                    </p>
+                    <h2
+                      style={{
+                        margin: "0 0 8px",
+                        color: "#0f172a",
+                        fontSize: "24px",
+                        fontWeight: 800,
+                      }}
+                    >
+                      {editingTravelerId
+                        ? "Cập nhật hành khách"
+                        : "Thêm hành khách thường dùng"}
+                    </h2>
+                    <p style={{ margin: 0, color: "#64748b", lineHeight: 1.6 }}>
+                      Lưu thông tin người thân để chọn nhanh khi đặt tour tiếp
+                      theo.
+                    </p>
+                  </div>
+                  {editingTravelerId && (
+                    <button
+                      type="button"
+                      onClick={resetTravelerForm}
+                      style={{
+                        border: "1px solid #cbd5e1",
+                        background: "#fff",
+                        color: "#475569",
+                        borderRadius: "10px",
+                        padding: "10px 14px",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Hủy chỉnh sửa
+                    </button>
+                  )}
+                </div>
+
+                <form
+                  onSubmit={saveTraveler}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    gap: "18px",
+                  }}
+                >
+                  <div>
+                    <label style={styles.label}>Họ và tên *</label>
+                    <input
+                      style={styles.input}
+                      value={travelerForm.fullName}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          fullName: e.target.value,
+                        }))
+                      }
+                      placeholder="Nguyễn Văn A"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Mối quan hệ</label>
+                    <input
+                      style={styles.input}
+                      value={travelerForm.relationship}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          relationship: e.target.value,
+                        }))
+                      }
+                      placeholder="Cha, mẹ, vợ/chồng, con..."
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Ngày sinh</label>
+                    <input
+                      type="date"
+                      style={styles.input}
+                      value={travelerForm.dateOfBirth}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          dateOfBirth: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Giới tính</label>
+                    <select
+                      style={styles.input}
+                      value={travelerForm.gender}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          gender: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Chưa chọn</option>
+                      <option value="male">Nam</option>
+                      <option value="female">Nữ</option>
+                      <option value="other">Khác</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Loại hành khách</label>
+                    <select
+                      style={styles.input}
+                      value={travelerForm.guestType}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          guestType: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="adult">Người lớn</option>
+                      <option value="child">Trẻ em</option>
+                      <option value="infant">Em bé</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Quốc tịch</label>
+                    <input
+                      style={styles.input}
+                      value={travelerForm.nationality}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          nationality: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Loại giấy tờ</label>
+                    <select
+                      style={styles.input}
+                      value={travelerForm.idType}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          idType: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="cccd">CCCD</option>
+                      <option value="passport">Hộ chiếu</option>
+                      <option value="birth_certificate">Giấy khai sinh</option>
+                      <option value="other">Khác</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Số giấy tờ</label>
+                    <input
+                      style={styles.input}
+                      value={travelerForm.idNumber}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          idNumber: e.target.value,
+                        }))
+                      }
+                      placeholder="Số CCCD hoặc hộ chiếu"
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Số điện thoại</label>
+                    <input
+                      style={styles.input}
+                      value={travelerForm.phone}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          phone: e.target.value,
+                        }))
+                      }
+                      placeholder="09xxxxxxxx"
+                    />
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-end",
+                      paddingBottom: "10px",
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        color: "#334155",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={travelerForm.isDefault}
+                        onChange={(e) =>
+                          setTravelerForm((p) => ({
+                            ...p,
+                            isDefault: e.target.checked,
+                          }))
+                        }
+                        style={{ width: "18px", height: "18px" }}
+                      />
+                      Đặt làm hành khách mặc định
+                    </label>
+                  </div>
+                  <div>
+                    <label style={styles.label}>Ghi chú ăn uống</label>
+                    <textarea
+                      style={{
+                        ...styles.input,
+                        minHeight: "95px",
+                        resize: "vertical",
+                      }}
+                      value={travelerForm.dietaryNotes}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          dietaryNotes: e.target.value,
+                        }))
+                      }
+                      placeholder="Ăn chay, dị ứng thực phẩm..."
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>Ghi chú sức khỏe</label>
+                    <textarea
+                      style={{
+                        ...styles.input,
+                        minHeight: "95px",
+                        resize: "vertical",
+                      }}
+                      value={travelerForm.healthNotes}
+                      onChange={(e) =>
+                        setTravelerForm((p) => ({
+                          ...p,
+                          healthNotes: e.target.value,
+                        }))
+                      }
+                      placeholder="Say xe, bệnh nền, nhu cầu hỗ trợ..."
+                    />
+                  </div>
+                  <div
+                    style={{
+                      gridColumn: "1 / -1",
+                      position: "sticky",
+                      bottom: 0,
+                      zIndex: 4,
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      gap: "12px",
+                      padding: "16px 0 4px",
+                      marginTop: "2px",
+                      background:
+                        "linear-gradient(180deg, rgba(255,255,255,0), #fff 28%)",
+                      borderTop: "1px solid #eef2f7",
+                    }}
+                  >
+                    <button
+                      type="submit"
+                      disabled={savingTraveler}
+                      style={{
+                        minWidth: "190px",
+                        padding: "13px 22px",
+                        border: 0,
+                        borderRadius: "12px",
+                        background: "linear-gradient(135deg, #2563eb, #3b82f6)",
+                        color: "#fff",
+                        fontWeight: 800,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "8px",
+                        cursor: "pointer",
+                        boxShadow: "0 12px 24px rgba(37,99,235,.22)",
+                      }}
+                    >
+                      {editingTravelerId ? (
+                        <Save size={18} />
+                      ) : (
+                        <Plus size={18} />
+                      )}
+                      {savingTraveler
+                        ? "Đang lưu..."
+                        : editingTravelerId
+                          ? "Lưu thông tin hành khách"
+                          : "Lưu hành khách"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div style={styles.card}>
+                <div style={{ marginBottom: "20px" }}>
+                  <h2
+                    style={{
+                      margin: "0 0 7px",
+                      fontSize: "22px",
+                      color: "#0f172a",
+                    }}
+                  >
+                    Danh sách đã lưu
+                  </h2>
+                  <p style={{ margin: 0, color: "#64748b" }}>
+                    {travelers.length} hành khách thường dùng trong tài khoản.
+                  </p>
+                </div>
+
+                {!travelers.length ? (
+                  <div style={styles.emptyState}>
+                    <UsersRound
+                      size={48}
+                      color="#cbd5e1"
+                      style={{ margin: "0 auto 16px" }}
+                    />
+                    <p>Bạn chưa lưu hành khách thường dùng nào.</p>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(290px, 1fr))",
+                      gap: "16px",
+                    }}
+                  >
+                    {pagedTravelers.map((traveler) => (
+                      <article
+                        key={String(traveler.id)}
+                        style={{
+                          border: "1px solid #e2e8f0",
+                          borderRadius: "16px",
+                          padding: "18px",
+                          background: traveler.isDefault ? "#f5f9ff" : "#fff",
+                          boxShadow: traveler.isDefault
+                            ? "0 10px 24px rgba(37,99,235,.08)"
+                            : "none",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            alignItems: "flex-start",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: "46px",
+                              height: "46px",
+                              borderRadius: "14px",
+                              background: "#eaf2ff",
+                              color: "#2563eb",
+                              display: "grid",
+                              placeItems: "center",
+                              fontWeight: 900,
+                              fontSize: "18px",
+                            }}
+                          >
+                            {traveler.fullName?.charAt(0)?.toUpperCase() || "H"}
+                          </div>
+                          {traveler.isDefault ? (
+                            <StatusPill tone="info">Mặc định</StatusPill>
+                          ) : null}
+                        </div>
+                        <h3
+                          style={{
+                            margin: "14px 0 5px",
+                            color: "#0f172a",
+                            fontSize: "17px",
+                          }}
+                        >
+                          {traveler.fullName}
+                        </h3>
+                        <p
+                          style={{
+                            margin: "0 0 12px",
+                            color: "#64748b",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {traveler.relationship || "Người đi cùng"} ·{" "}
+                          {traveler.guestType === "child"
+                            ? "Trẻ em"
+                            : traveler.guestType === "infant"
+                              ? "Em bé"
+                              : "Người lớn"}
+                        </p>
+                        <div
+                          style={{
+                            display: "grid",
+                            gap: "7px",
+                            color: "#475569",
+                            fontSize: "13px",
+                          }}
+                        >
+                          <span>
+                            Ngày sinh:{" "}
+                            {traveler.dateOfBirth
+                              ? formatDate(traveler.dateOfBirth)
+                              : "--"}
+                          </span>
+                          <span>Giấy tờ: {traveler.idNumber || "--"}</span>
+                          <span>Điện thoại: {traveler.phone || "--"}</span>
+                        </div>
+                        {(traveler.dietaryNotes || traveler.healthNotes) && (
+                          <div
+                            style={{
+                              marginTop: "13px",
+                              padding: "11px 12px",
+                              borderRadius: "11px",
+                              background: "#f8fafc",
+                              color: "#64748b",
+                              fontSize: "12px",
+                              lineHeight: 1.55,
+                            }}
+                          >
+                            {traveler.dietaryNotes && (
+                              <div>Ăn uống: {traveler.dietaryNotes}</div>
+                            )}
+                            {traveler.healthNotes && (
+                              <div>Sức khỏe: {traveler.healthNotes}</div>
+                            )}
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "9px",
+                            marginTop: "16px",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => editTraveler(traveler)}
+                            style={{
+                              flex: 1,
+                              padding: "10px",
+                              border: "1px solid #bfdbfe",
+                              borderRadius: "10px",
+                              background: "#eff6ff",
+                              color: "#1d4ed8",
+                              fontWeight: 750,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "7px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <Pencil size={16} /> Sửa
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeTraveler(traveler)}
+                            style={{
+                              padding: "10px 13px",
+                              border: "1px solid #fecaca",
+                              borderRadius: "10px",
+                              background: "#fef2f2",
+                              color: "#dc2626",
+                              cursor: "pointer",
+                            }}
+                            title="Xóa hành khách"
+                          >
+                            <Trash2 size={17} />
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+
+                <PaginationBar
+                  page={travelerPage}
+                  totalPages={travelerTotalPages}
+                  onPageChange={setTravelerPage}
+                />
+              </div>
+            </div>
+          )}
+
           {activeTab === "security" && (
             <div
               style={{
@@ -1709,6 +2434,7 @@ export default function ProfilePage() {
                   </form>
                 </div>
               </div>
+              <SessionManager />
             </div>
           )}
         </main>

@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
   NotFoundException,
 } from "@nestjs/common";
 import { NotificationTargetRole } from "@prisma/client";
@@ -64,26 +66,108 @@ function normalizeIdList(value: any): bigint[] {
 }
 
 @Injectable()
-export class NotificationsService {
+export class NotificationsService implements OnModuleInit, OnModuleDestroy {
+  private automationStartupTimer?: NodeJS.Timeout;
+  private automationInterval?: NodeJS.Timeout;
+  private automationRunning = false;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
   ) {}
 
-  private buildTargetRoleWhere(role: "admin" | "user") {
+  onModuleInit() {
+    /*
+     * Chạy lần đầu sau 10 giây để chờ database và toàn bộ module khởi động.
+     */
+    this.automationStartupTimer = setTimeout(() => {
+      void this.safeRunAutomaticNotifications();
+
+      /*
+       * Sau đó kiểm tra mỗi 5 phút.
+       * Không cần Admin mở giao diện hoặc bấm nút.
+       */
+      this.automationInterval = setInterval(
+        () => {
+          void this.safeRunAutomaticNotifications();
+        },
+        5 * 60 * 1000,
+      );
+    }, 10_000);
+  }
+
+  onModuleDestroy() {
+    if (this.automationStartupTimer) {
+      clearTimeout(this.automationStartupTimer);
+    }
+
+    if (this.automationInterval) {
+      clearInterval(this.automationInterval);
+    }
+  }
+
+  private async safeRunAutomaticNotifications() {
+    if (this.automationRunning) {
+      console.log(
+        "[Notifications] Bỏ qua vì tác vụ tự động trước vẫn đang chạy.",
+      );
+      return;
+    }
+
+    this.automationRunning = true;
+
+    try {
+      const result = await this.runAutomaticNotifications();
+
+      console.log(
+        "[Notifications] Đã chạy thông báo tự động:",
+        JSON.stringify(result),
+      );
+    } catch (error: any) {
+      console.error(
+        "[Notifications] Lỗi chạy thông báo tự động:",
+        error?.stack || error?.message || error,
+      );
+    } finally {
+      this.automationRunning = false;
+    }
+  }
+
+  private buildTargetRoleWhere(role: "admin" | "user" | "guide") {
     const roles: NotificationTargetRole[] = ["all", role];
     return { in: roles };
   }
 
-  private buildUserVisibleWhere(userId: bigint, role: "admin" | "user") {
+  private buildUserVisibleWhere(
+    userId: bigint,
+    role: "admin" | "user" | "guide",
+  ) {
     return {
       isPublished: true,
-      targetRole: this.buildTargetRoleWhere(role),
-      OR: [{ targetUserId: null }, { targetUserId: userId }],
+      OR: [
+        /*
+         * Thông báo gửi riêng cho đúng tài khoản.
+         */
+        {
+          targetUserId: userId,
+        },
+
+        /*
+         * Thông báo gửi chung theo vai trò.
+         */
+        {
+          targetUserId: null,
+          targetRole: this.buildTargetRoleWhere(role),
+        },
+      ],
     };
   }
 
-  async listForUser(userId: bigint, role: "admin" | "user", limit?: number) {
+  async listForUser(
+    userId: bigint,
+    role: "admin" | "user" | "guide",
+    limit?: number,
+  ) {
     const take = limit ? Math.min(Math.max(Number(limit), 1), 50) : undefined;
     const items: any[] = await this.prisma.notification.findMany({
       where: this.buildUserVisibleWhere(userId, role),
@@ -94,7 +178,9 @@ export class NotificationsService {
           take: 1,
         },
         createdByUser: { select: { id: true, fullName: true, email: true } },
-        targetUser: { select: { id: true, fullName: true, email: true } },
+        targetUser: {
+          select: { id: true, fullName: true, email: true, role: true },
+        },
       },
       orderBy: [{ createdAt: "desc" }],
       ...(take ? { take } : {}),
@@ -106,7 +192,7 @@ export class NotificationsService {
     }));
   }
 
-  async unreadCount(userId: bigint, role: "admin" | "user") {
+  async unreadCount(userId: bigint, role: "admin" | "user" | "guide") {
     const total = await this.prisma.notification.count({
       where: {
         ...this.buildUserVisibleWhere(userId, role),
@@ -116,7 +202,11 @@ export class NotificationsService {
     return { total };
   }
 
-  async markAsRead(id: number, userId: bigint, role: "admin" | "user") {
+  async markAsRead(
+    id: number,
+    userId: bigint,
+    role: "admin" | "user" | "guide",
+  ) {
     const notification = await this.prisma.notification.findFirst({
       where: { id: BigInt(id), ...this.buildUserVisibleWhere(userId, role) },
     });
@@ -165,7 +255,9 @@ export class NotificationsService {
         orderBy: { createdAt: "desc" },
         include: {
           createdByUser: { select: { id: true, fullName: true, email: true } },
-          targetUser: { select: { id: true, fullName: true, email: true } },
+          targetUser: {
+            select: { id: true, fullName: true, email: true, role: true },
+          },
           _count: { select: { reads: true } },
         },
       }),
@@ -188,7 +280,9 @@ export class NotificationsService {
       where: { id: BigInt(id) },
       include: {
         createdByUser: { select: { id: true, fullName: true, email: true } },
-        targetUser: { select: { id: true, fullName: true, email: true } },
+        targetUser: {
+          select: { id: true, fullName: true, email: true, role: true },
+        },
         reads: {
           include: {
             user: { select: { id: true, fullName: true, email: true } },
@@ -225,7 +319,9 @@ export class NotificationsService {
       },
       include: {
         createdByUser: { select: { id: true, fullName: true, email: true } },
-        targetUser: { select: { id: true, fullName: true, email: true } },
+        targetUser: {
+          select: { id: true, fullName: true, email: true, role: true },
+        },
         _count: { select: { reads: true } },
       },
     });
@@ -249,7 +345,9 @@ export class NotificationsService {
       },
       include: {
         createdByUser: { select: { id: true, fullName: true, email: true } },
-        targetUser: { select: { id: true, fullName: true, email: true } },
+        targetUser: {
+          select: { id: true, fullName: true, email: true, role: true },
+        },
         _count: { select: { reads: true } },
       },
     });
@@ -644,6 +742,490 @@ export class NotificationsService {
         emailFailed,
       },
       emailErrors,
+    };
+  }
+  /**
+   * Tạo thông báo web cho đúng khách thuộc chuyến khi HDV gửi thông báo đoàn.
+   * Gọi hàm này ngay sau khi TripBroadcast đã được tạo.
+   */
+  async createTripBroadcastWebNotifications(input: {
+    tripOperationId: bigint;
+    broadcastId: bigint;
+    senderUserId?: bigint | null;
+    title: string;
+    content: string;
+    pickupPointId?: bigint | null;
+  }) {
+    const trip = await this.prisma.tripOperation.findUnique({
+      where: { id: input.tripOperationId },
+      include: {
+        departure: {
+          include: {
+            tour: true,
+            bookings: {
+              where: {
+                bookingStatus: {
+                  in: ["waiting_confirmation", "confirmed", "completed"],
+                },
+                userId: { not: null },
+                ...(input.pickupPointId
+                  ? { pickupPointId: input.pickupPointId }
+                  : {}),
+              },
+              select: {
+                id: true,
+                userId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!trip) {
+      throw new NotFoundException("Không tìm thấy chuyến vận hành.");
+    }
+
+    const recipients = (trip.departure?.bookings || []).filter(
+      (booking: any) => booking.userId,
+    );
+
+    if (!recipients.length) {
+      return {
+        success: true,
+        recipientCount: 0,
+        notificationCount: 0,
+      };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tripBroadcastRecipient.createMany({
+        data: recipients.map((booking: any) => ({
+          tripBroadcastId: input.broadcastId,
+          userId: booking.userId,
+          bookingId: booking.id,
+          deliveryStatus: "sent",
+          errorMessage: null,
+        })),
+        skipDuplicates: true,
+      });
+
+      await tx.notification.createMany({
+        data: recipients.map((booking: any) => ({
+          title: input.title.trim(),
+          message: input.content.trim().slice(0, 500),
+          content: input.content.trim(),
+          targetRole: "user",
+          targetUserId: booking.userId,
+          isPublished: true,
+          createdBy: input.senderUserId || null,
+        })),
+      });
+    });
+
+    return {
+      success: true,
+      recipientCount: recipients.length,
+      notificationCount: recipients.length,
+    };
+  }
+
+  private calculateMemberTier(points: number) {
+    if (points >= 15000) return "diamond";
+    if (points >= 5000) return "gold";
+    if (points >= 1000) return "silver";
+    return "bronze";
+  }
+
+  private async createNotificationOnce(input: {
+    title: string;
+    message: string;
+    content: string;
+    targetRole: "user" | "guide";
+    targetUserId: bigint;
+  }) {
+    const existed = await this.prisma.notification.findFirst({
+      where: {
+        title: input.title,
+        targetRole: input.targetRole,
+        targetUserId: input.targetUserId,
+        isPublished: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existed) {
+      return false;
+    }
+
+    await this.prisma.notification.create({
+      data: {
+        title: input.title.trim(),
+        message: input.message.trim(),
+        content: input.content.trim(),
+        targetRole: input.targetRole,
+        targetUserId: input.targetUserId,
+        isPublished: true,
+        createdBy: null,
+      },
+    });
+
+    return true;
+  }
+
+  /**
+   * Tự động gửi:
+   * - Trước tour 2 ngày và 1 ngày: nhắc HDV + khách hàng.
+   * - Sau khi tour kết thúc: nhắc HDV làm báo cáo + mời khách đánh giá.
+   * Hàm có chống gửi trùng bằng title + targetUserId.
+   */
+  async runAutomaticNotifications() {
+    const now = new Date();
+
+    const result = {
+      departureReminders: {
+        customers: 0,
+        guides: 0,
+      },
+      completedTours: {
+        guideReports: 0,
+        customerReviews: 0,
+      },
+      executedAt: new Date().toISOString(),
+    };
+
+    /*
+     * =========================================================
+     * 1. NHẮC TRƯỚC TOUR ĐÚNG 1 NGÀY
+     * =========================================================
+     */
+    const tomorrow = addDays(now, 1);
+    const targetStart = startOfDay(tomorrow);
+    const targetEnd = endOfDay(tomorrow);
+
+    const upcomingDepartures = await this.prisma.tourDeparture.findMany({
+      where: {
+        departureDate: {
+          gte: targetStart,
+          lte: targetEnd,
+        },
+        status: {
+          in: ["open", "full", "closed"] as any,
+        },
+      },
+      include: {
+        tour: {
+          include: {
+            destination: true,
+          },
+        },
+        bookings: {
+          where: {
+            bookingStatus: {
+              in: ["waiting_confirmation", "confirmed"] as any,
+            },
+            userId: {
+              not: null,
+            },
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+              },
+            },
+            guideAssignments: {
+              where: {
+                status: {
+                  in: ["assigned", "accepted", "in_progress"] as any,
+                },
+              },
+              include: {
+                guide: {
+                  select: {
+                    id: true,
+                    userId: true,
+                    fullName: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        departureDate: "asc",
+      },
+    });
+
+    for (const departure of upcomingDepartures) {
+      const tourName = departure.tour?.name || "tour Travela";
+
+      const destination = departure.tour?.destination?.name || "điểm đến";
+
+      const departureDateText = toDateText(departure.departureDate);
+
+      const endDateText = toDateText(departure.endDate);
+
+      /*
+       * Một khách có thể có nhiều booking trong cùng chuyến.
+       * Dùng Set để mỗi tài khoản chỉ nhận một thông báo.
+       */
+      const customerIds = new Set<string>();
+      const guideIds = new Set<string>();
+
+      for (const booking of departure.bookings || []) {
+        if (booking.userId && !customerIds.has(String(booking.userId))) {
+          customerIds.add(String(booking.userId));
+
+          const customerName =
+            booking.user?.fullName || booking.contactName || "Quý khách";
+
+          const pickupName =
+            booking.pickupName || "Travela sẽ liên hệ xác nhận";
+
+          const pickupAddress = booking.pickupAddress || "đang cập nhật";
+
+          const pickupTime = toTimeText(booking.pickupTime);
+
+          const created = await this.createNotificationOnce({
+            title:
+              `Nhắc lịch trước 1 ngày - ` +
+              `${tourName} - ${departureDateText}`,
+
+            message: `Tour ${tourName} sẽ khởi hành vào ngày mai.`,
+
+            content:
+              `Xin chào ${customerName},\n\n` +
+              `Travela nhắc bạn tour ${tourName} đi ${destination} ` +
+              `sẽ khởi hành vào ngày mai (${departureDateText}) ` +
+              `và kết thúc ngày ${endDateText}.\n\n` +
+              `Điểm đón: ${pickupName}.\n` +
+              `Địa chỉ: ${pickupAddress}.\n` +
+              `Thời gian đón: ${pickupTime}.\n\n` +
+              `Vui lòng kiểm tra giấy tờ tùy thân, hành lý ` +
+              `và có mặt trước giờ đón ít nhất 15 phút.`,
+
+            targetRole: "user",
+            targetUserId: booking.userId,
+          });
+
+          if (created) {
+            result.departureReminders.customers += 1;
+          }
+        }
+
+        for (const assignment of booking.guideAssignments || []) {
+          const guideUserId = assignment.guide?.userId;
+
+          if (!guideUserId) continue;
+
+          if (guideIds.has(String(guideUserId))) {
+            continue;
+          }
+
+          guideIds.add(String(guideUserId));
+
+          const guideName = assignment.guide?.fullName || "Hướng dẫn viên";
+
+          const created = await this.createNotificationOnce({
+            title:
+              `Nhắc điều hành trước 1 ngày - ` +
+              `${tourName} - ${departureDateText}`,
+
+            message: `Tour bạn phụ trách sẽ khởi hành vào ngày mai.`,
+
+            content:
+              `Xin chào ${guideName},\n\n` +
+              `Tour ${tourName} đi ${destination} ` +
+              `sẽ khởi hành vào ngày mai (${departureDateText}) ` +
+              `và kết thúc ngày ${endDateText}.\n\n` +
+              `Vui lòng kiểm tra:\n` +
+              `- Danh sách hành khách.\n` +
+              `- Điểm đón và thời gian đón.\n` +
+              `- Ghi chú sức khỏe, ăn uống của khách.\n` +
+              `- Lịch trình, phương tiện và nơi lưu trú.\n\n` +
+              `Hãy truy cập mục Điều hành chuyến đi để chuẩn bị.`,
+
+            targetRole: "guide",
+            targetUserId: guideUserId,
+          });
+
+          if (created) {
+            result.departureReminders.guides += 1;
+          }
+        }
+      }
+    }
+
+    /*
+     * =========================================================
+     * 2. SAU KHI TOUR KẾT THÚC
+     * =========================================================
+     *
+     * Quét 7 ngày gần nhất để gửi bù nếu backend từng bị tắt.
+     * createNotificationOnce() bảo đảm không gửi trùng.
+     */
+    const endedDepartures = await this.prisma.tourDeparture.findMany({
+      where: {
+        endDate: {
+          gte: addDays(now, -7),
+          lt: now,
+        },
+        status: {
+          not: "cancelled" as any,
+        },
+      },
+      include: {
+        tour: {
+          include: {
+            destination: true,
+          },
+        },
+        bookings: {
+          where: {
+            bookingStatus: {
+              in: ["confirmed", "completed"] as any,
+            },
+            userId: {
+              not: null,
+            },
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+              },
+            },
+            guideAssignments: {
+              where: {
+                status: {
+                  in: [
+                    "assigned",
+                    "accepted",
+                    "in_progress",
+                    "completed",
+                  ] as any,
+                },
+              },
+              include: {
+                guide: {
+                  select: {
+                    id: true,
+                    userId: true,
+                    fullName: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      take: 300,
+      orderBy: {
+        endDate: "desc",
+      },
+    });
+
+    for (const departure of endedDepartures) {
+      const tourName = departure.tour?.name || "tour Travela";
+
+      const destination = departure.tour?.destination?.name || "điểm đến";
+
+      const departureText = toDateText(departure.departureDate);
+
+      const endText = toDateText(departure.endDate);
+
+      const customerIds = new Set<string>();
+      const guideIds = new Set<string>();
+
+      for (const booking of departure.bookings || []) {
+        /*
+         * Mời khách đánh giá, không bắt buộc.
+         */
+        if (booking.userId && !customerIds.has(String(booking.userId))) {
+          customerIds.add(String(booking.userId));
+
+          const customerName =
+            booking.user?.fullName || booking.contactName || "Quý khách";
+
+          const created = await this.createNotificationOnce({
+            title: `Mời đánh giá tour - ` + `${tourName} - ${endText}`,
+
+            message: "Cảm ơn bạn đã đồng hành cùng Travela.",
+
+            content:
+              `Xin chào ${customerName},\n\n` +
+              `Tour ${tourName} đi ${destination}, ` +
+              `khởi hành ngày ${departureText} ` +
+              `và kết thúc ngày ${endText}, đã hoàn thành.\n\n` +
+              `Bạn có thể chia sẻ đánh giá về lịch trình, ` +
+              `hướng dẫn viên, phương tiện, lưu trú ` +
+              `và trải nghiệm chuyến đi.\n\n` +
+              `Việc đánh giá hoàn toàn không bắt buộc. ` +
+              `Khi gửi đánh giá hợp lệ, bạn sẽ được cộng ` +
+              `điểm thành viên theo chính sách Travela.`,
+
+            targetRole: "user",
+            targetUserId: booking.userId,
+          });
+
+          if (created) {
+            result.completedTours.customerReviews += 1;
+          }
+        }
+
+        /*
+         * Nhắc HDV làm báo cáo.
+         */
+        for (const assignment of booking.guideAssignments || []) {
+          const guideUserId = assignment.guide?.userId;
+
+          if (!guideUserId) continue;
+
+          if (guideIds.has(String(guideUserId))) {
+            continue;
+          }
+
+          guideIds.add(String(guideUserId));
+
+          const guideName = assignment.guide?.fullName || "Hướng dẫn viên";
+
+          const created = await this.createNotificationOnce({
+            title: `Yêu cầu báo cáo tour - ` + `${tourName} - ${endText}`,
+
+            message: "Tour đã kết thúc, vui lòng hoàn thiện báo cáo.",
+
+            content:
+              `Xin chào ${guideName},\n\n` +
+              `Tour ${tourName} đi ${destination}, ` +
+              `khởi hành ngày ${departureText} ` +
+              `và kết thúc ngày ${endText}, đã hoàn thành.\n\n` +
+              `Vui lòng vào mục Điều hành chuyến đi để:\n` +
+              `- Hoàn thiện nhật ký hành trình.\n` +
+              `- Kiểm tra tình trạng hành khách.\n` +
+              `- Ghi nhận sự cố và chi phí phát sinh.\n` +
+              `- Gửi báo cáo kết thúc tour cho Admin.`,
+
+            targetRole: "guide",
+            targetUserId: guideUserId,
+          });
+
+          if (created) {
+            result.completedTours.guideReports += 1;
+          }
+        }
+      }
+    }
+
+    return {
+      success: true,
+      ...result,
     };
   }
 }

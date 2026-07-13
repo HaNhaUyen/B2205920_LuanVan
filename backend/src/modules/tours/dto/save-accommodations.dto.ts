@@ -1,17 +1,35 @@
-import { Type } from 'class-transformer';
-import { IsArray, IsInt, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { Type } from "class-transformer";
+import {
+  IsArray,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  ValidateNested,
+} from "class-validator";
 
-class AccommodationItemDto {
+export class SaveAccommodationItemDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  supplierId?: number | null;
+
   @IsString()
-  @MaxLength(180)
   name!: string;
 
   @IsString()
-  @MaxLength(50)
+  @IsIn(["hotel", "homestay", "resort"])
   accommodationType!: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
+  @Min(1)
+  @Max(5)
   starRating?: number;
 
   @IsOptional()
@@ -23,6 +41,9 @@ class AccommodationItemDto {
   description?: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   pricePerNight?: number;
 
   @IsOptional()
@@ -35,12 +56,13 @@ class AccommodationItemDto {
 
   @IsOptional()
   @IsString()
+  @IsIn(["active", "inactive"])
   status?: string;
 }
 
 export class SaveAccommodationsDto {
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => AccommodationItemDto)
-  items!: AccommodationItemDto[];
+  @Type(() => SaveAccommodationItemDto)
+  items!: SaveAccommodationItemDto[];
 }

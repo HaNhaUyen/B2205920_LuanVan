@@ -7,6 +7,12 @@ import { AppModule } from "./app.module";
 import { BigIntInterceptor } from "./common/interceptors/bigint.interceptor";
 import { PrismaService } from "./prisma/prisma.service";
 
+/*
+ * Bảo đảm các phép tính ngày giờ chạy theo múi giờ Việt Nam.
+ * Nên đặt trước khi NestJS khởi tạo AppModule.
+ */
+process.env.TZ = process.env.TZ || "Asia/Ho_Chi_Minh";
+
 function getCorsOrigins(): string[] {
   return (process.env.CORS_ORIGIN || "http://localhost:3000")
     .split(",")
@@ -20,6 +26,14 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: getCorsOrigins(),
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Accept",
+      "Origin",
+      "X-Requested-With",
+    ],
   });
 
   app.useStaticAssets(join(process.cwd(), "uploads"), {
@@ -33,6 +47,9 @@ async function bootstrap(): Promise<void> {
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
     }),
   );
 
@@ -42,14 +59,18 @@ async function bootstrap(): Promise<void> {
   await prisma.enableShutdownHooks(app);
 
   const port = Number(process.env.PORT || 3001);
-  const host = "0.0.0.0";
+  const host = process.env.HOST || "0.0.0.0";
 
   await app.listen(port, host);
 
   console.log(`Backend running on http://localhost:${port}/api`);
+  console.log(`Timezone: ${process.env.TZ}`);
   console.log(
     `SePay webhook local route: http://localhost:${port}/api/payments/sepay-webhook`,
   );
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  console.error("Không thể khởi động backend:", error);
+  process.exit(1);
+});

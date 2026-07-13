@@ -1,13 +1,37 @@
-import { Type } from 'class-transformer';
-import { IsArray, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { Type } from "class-transformer";
+import {
+  IsArray,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from "class-validator";
 
-class TransportItemDto {
+export class TransportItemDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  supplierId?: number;
+
   @IsString()
-  @MaxLength(180)
   name!: string;
 
   @IsString()
-  @MaxLength(50)
+  @IsIn([
+    "bus",
+    "car",
+    "van",
+    "plane",
+    "train",
+    "ship",
+    "boat",
+    "motorbike",
+    "other",
+  ])
   transportType!: string;
 
   @IsOptional()
@@ -23,9 +47,15 @@ class TransportItemDto {
   destinationLabel?: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   durationHours?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   price?: number;
 
   @IsOptional()
@@ -38,6 +68,7 @@ class TransportItemDto {
 
   @IsOptional()
   @IsString()
+  @IsIn(["active", "inactive"])
   status?: string;
 }
 

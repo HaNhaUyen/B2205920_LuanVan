@@ -22,8 +22,8 @@ export class UpsertNotificationDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(["all", "admin", "user"])
-  targetRole?: "all" | "admin" | "user";
+  @IsIn(["all", "admin", "user", "guide"])
+  targetRole?: "all" | "admin" | "user" | "guide";
 
   @IsOptional()
   @IsInt()

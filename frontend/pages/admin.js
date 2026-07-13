@@ -23,6 +23,7 @@ import {
   exportAdminTours,
   exportAdminSmartReport,
 } from "@/lib/exportExcel";
+import TourSupplierSelector from "@/components/admin/TourSupplierSelector";
 
 const adminTabs = [
   { key: "overview", label: "Dashboard", href: "/admin" },
@@ -598,10 +599,12 @@ function toneForContact(item) {
 }
 
 function destinationImage(item) {
-  return (
-    item?.coverImage ||
-    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80"
-  );
+  const fallback =
+    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=800&q=80";
+
+  if (!item?.coverImage) return fallback;
+
+  return mapImageUrl(item.coverImage, API_URL);
 }
 
 function destinationStatusLabel(status) {
@@ -659,31 +662,39 @@ function buildNextDepartureItem(prevItems = [], durationDays = 2) {
     status: last.status || "open",
   });
 }
-function createAccommodationItem() {
+function createAccommodationItem(overrides = {}) {
   return {
-    name: "",
-    accommodationType: "hotel",
-    starRating: 4,
-    address: "",
-    description: "",
-    pricePerNight: 1200000,
-    imageUrl: "",
-    amenities: "",
-    status: "active",
+    supplierId: overrides.supplierId ? String(overrides.supplierId) : "",
+
+    isManualSupplier: overrides.isManualSupplier ?? false,
+
+    name: overrides.name || "",
+    accommodationType: overrides.accommodationType || "hotel",
+    starRating: Number(overrides.starRating || 4),
+    address: overrides.address || "",
+    description: overrides.description || "",
+    pricePerNight: Number(overrides.pricePerNight || 1200000),
+    imageUrl: overrides.imageUrl || "",
+    amenities: overrides.amenities || "",
+    status: overrides.status || "active",
   };
 }
-function createTransportItem() {
+function createTransportItem(overrides = {}) {
   return {
-    name: "",
-    transportType: "flight",
-    provider: "",
-    origin: "",
-    destinationLabel: "",
-    durationHours: 1.5,
-    price: 1500000,
-    description: "",
-    imageUrl: "",
-    status: "active",
+    supplierId: overrides.supplierId ? String(overrides.supplierId) : "",
+
+    isManualSupplier: overrides.isManualSupplier ?? false,
+
+    name: overrides.name || "",
+    transportType: overrides.transportType || "bus",
+    provider: overrides.provider || "",
+    origin: overrides.origin || "",
+    destinationLabel: overrides.destinationLabel || "",
+    durationHours: Number(overrides.durationHours || 1.5),
+    price: Number(overrides.price || 1500000),
+    description: overrides.description || "",
+    imageUrl: overrides.imageUrl || "",
+    status: overrides.status || "active",
   };
 }
 function buildDefaultItineraryByDuration(days = 1, current = []) {
@@ -772,6 +783,7 @@ export default function AdminPage({ initialTab = "overview" }) {
   const [reviewsData, setReviewsData] = useState(emptyPage);
   const [contactsData, setContactsData] = useState(emptyPage);
   const [destinations, setDestinations] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [destinationsData, setDestinationsData] = useState(emptyPage);
   const [allTours, setAllTours] = useState([]);
   const [bookingFilters, setBookingFilters] = useState(initialBookingFilter);
@@ -826,6 +838,7 @@ export default function AdminPage({ initialTab = "overview" }) {
       loadContacts(initialContactFilter),
       loadDestinationsPage(initialDestinationFilter),
       loadTours(),
+      loadSuppliers(),
     ])
       .catch((error) => showToast(error.message, "error"))
       .finally(() => setBooting(false));
@@ -856,6 +869,17 @@ export default function AdminPage({ initialTab = "overview" }) {
     setDestinationsData(
       await apiFetch(`/admin/destinations?${buildQuery(filters)}`),
     );
+  }
+  async function loadSuppliers() {
+    try {
+      const result = await apiFetch("/operations-v2/suppliers");
+
+      setSuppliers(Array.isArray(result) ? result : result?.items || []);
+    } catch (error) {
+      console.error("Không tải được danh sách nhà cung cấp:", error);
+
+      setSuppliers([]);
+    }
   }
   async function loadTours() {
     const [destinationData, toursData] = await Promise.all([
@@ -1269,9 +1293,12 @@ export default function AdminPage({ initialTab = "overview" }) {
       description: item.description || "",
       coverImage: item.coverImage || "",
       coverImageFile: null,
-      coverImagePreview: item.coverImage || "",
+      coverImagePreview: item.coverImage
+        ? mapImageUrl(item.coverImage, API_URL)
+        : "",
       status: item.status || "active",
     });
+
     setDestinationModalOpen(true);
   };
 
@@ -1284,12 +1311,20 @@ export default function AdminPage({ initialTab = "overview" }) {
     setSubmitting(true);
     try {
       const formData = new FormData();
+
       formData.append("name", destinationForm.name.trim());
       formData.append("province", destinationForm.province.trim());
       formData.append("country", destinationForm.country.trim() || "Vietnam");
       formData.append("description", destinationForm.description.trim() || "");
       formData.append("status", destinationForm.status || "active");
-      formData.append("coverImage", destinationForm.coverImage?.trim() || "");
+
+      if (
+        !destinationForm.coverImageFile &&
+        destinationForm.coverImage?.trim()
+      ) {
+        formData.append("coverImage", destinationForm.coverImage.trim());
+      }
+
       if (destinationForm.coverImageFile) {
         formData.append("coverImageFile", destinationForm.coverImageFile);
       }
@@ -1321,7 +1356,7 @@ export default function AdminPage({ initialTab = "overview" }) {
   const removeDestination = async (item) => {
     if (Number(item.bookingCount || 0) > 0) {
       showToast(
-        `Không thể xóa vì đã có ${item.bookingCount} booking thuộc điểm đến này. Hãy chuyển sang Tạm ẩn.`,
+        `Không thể xóa vì đã có ${item.bookingCount} booking thuộc điểm đến này.`,
         "error",
       );
       return;
@@ -1349,27 +1384,60 @@ export default function AdminPage({ initialTab = "overview" }) {
   const toggleDestinationStatus = async (item) => {
     const nextStatus = item.status === "active" ? "inactive" : "active";
 
+    if (nextStatus === "inactive") {
+      const confirmed = window.confirm(
+        `Bạn có chắc muốn tạm ẩn điểm đến "${item.name}"?\n\n` +
+          "Điểm đến sẽ ngừng hiển thị cho khách mới. " +
+          "Các tour, booking và lịch vận hành hiện có vẫn được giữ nguyên.",
+      );
+
+      if (!confirmed) return;
+    }
+
     try {
-      await apiFetch(`/admin/destinations/${item.id}`, {
+      const result = await apiFetch(`/admin/destinations/${item.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           name: item.name,
           province: item.province,
           country: item.country || "Vietnam",
           description: item.description || undefined,
-          coverImage: item.coverImage || undefined,
+
+          // Giữ nguyên ảnh hiện tại khi chỉ đổi trạng thái.
+          // Không gửi chuỗi rỗng vì backend có thể hiểu là xóa ảnh.
+          ...(item.coverImage
+            ? {
+                coverImage: item.coverImage,
+              }
+            : {}),
+
           status: nextStatus,
         }),
       });
-      showToast(
+
+      const defaultMessage =
         nextStatus === "active"
           ? "Đã bật lại điểm đến."
-          : "Đã tạm ẩn điểm đến.",
-        "success",
+          : "Đã tạm ẩn điểm đến. Các tour và booking hiện tại vẫn được giữ nguyên.";
+
+      showToast(
+        result?.warning || result?.message || defaultMessage,
+        result?.warning ? "warning" : "success",
       );
-      await Promise.all([loadDestinationsPage(), loadTours()]);
+
+      await Promise.all([
+        loadDestinationsPage(destinationFilters),
+        loadTours(),
+        loadOverview(),
+      ]);
     } catch (error) {
-      showToast(error.message, "error");
+      showToast(
+        error?.message ||
+          (nextStatus === "inactive"
+            ? "Không thể tạm ẩn điểm đến."
+            : "Không thể bật lại điểm đến."),
+        "error",
+      );
     }
   };
 
@@ -1459,11 +1527,41 @@ export default function AdminPage({ initialTab = "overview" }) {
       );
       setTourAccommodations(
         detail.accommodations?.length
-          ? detail.accommodations
+          ? detail.accommodations.map((item) =>
+              createAccommodationItem({
+                ...item,
+                supplierId:
+                  item.supplierId ||
+                  item.supplier_id ||
+                  item.supplier?.id ||
+                  "",
+                isManualSupplier: !(
+                  item.supplierId ||
+                  item.supplier_id ||
+                  item.supplier?.id
+                ),
+              }),
+            )
           : [createAccommodationItem()],
       );
       setTourTransports(
-        detail.transports?.length ? detail.transports : [createTransportItem()],
+        detail.transports?.length
+          ? detail.transports.map((item) =>
+              createTransportItem({
+                ...item,
+                supplierId:
+                  item.supplierId ||
+                  item.supplier_id ||
+                  item.supplier?.id ||
+                  "",
+                isManualSupplier: !(
+                  item.supplierId ||
+                  item.supplier_id ||
+                  item.supplier?.id
+                ),
+              }),
+            )
+          : [createTransportItem()],
       );
       setTourStep(1);
       setTourModalOpen(true);
@@ -1622,6 +1720,30 @@ export default function AdminPage({ initialTab = "overview" }) {
     }
   };
 
+  const setTourCoverMedia = async (mediaId) => {
+    if (!tourForm.id || !mediaId) return;
+
+    try {
+      const result = await apiFetch(
+        `/admin/tours/${tourForm.id}/media/${mediaId}/cover`,
+        {
+          method: "PATCH",
+        },
+      );
+
+      showToast("Đã chọn ảnh bìa cho tour.", "success");
+
+      setTourForm((prev) => ({
+        ...prev,
+        media: result.items || prev.media || [],
+      }));
+
+      await loadTours();
+    } catch (error) {
+      showToast(error.message || "Không thể chọn ảnh bìa.", "error");
+    }
+  };
+
   const resetTourWizard = () => {
     setTourModalOpen(false);
     setTourStep(1);
@@ -1742,6 +1864,7 @@ export default function AdminPage({ initialTab = "overview" }) {
           method: "POST",
           body: JSON.stringify({
             items: tourAccommodations.map((item) => ({
+              supplierId: item.supplierId ? Number(item.supplierId) : null,
               name: item.name,
               accommodationType: item.accommodationType,
               starRating: item.starRating ? Number(item.starRating) : undefined,
@@ -1761,6 +1884,7 @@ export default function AdminPage({ initialTab = "overview" }) {
           method: "POST",
           body: JSON.stringify({
             items: tourTransports.map((item) => ({
+              supplierId: item.supplierId ? Number(item.supplierId) : null,
               name: item.name,
               transportType: item.transportType,
               provider: item.provider || undefined,
@@ -2403,12 +2527,6 @@ export default function AdminPage({ initialTab = "overview" }) {
                 <h3 style={{ margin: 0, color: "#0f172a" }}>
                   Bộ lọc điều hành thông minh
                 </h3>
-                <p
-                  style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}
-                >
-                  Lọc theo ngày khởi hành, điểm đến, thanh toán và tình trạng
-                  HDV.
-                </p>
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button
@@ -2580,28 +2698,6 @@ export default function AdminPage({ initialTab = "overview" }) {
                 ]}
               />
             </div>
-
-            <div
-              style={{
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                borderRadius: 12,
-                padding: 14,
-                display: "grid",
-                gap: 8,
-              }}
-            >
-              <strong style={{ color: "#0f172a" }}>
-                Gợi ý xử lý của hệ thống
-              </strong>
-              {(bookingsData.intelligence?.suggestions || []).map(
-                (item, index) => (
-                  <div key={index} style={{ color: "#475569", fontSize: 13 }}>
-                    • {item}
-                  </div>
-                ),
-              )}
-            </div>
           </div>
 
           <div
@@ -2621,12 +2717,6 @@ export default function AdminPage({ initialTab = "overview" }) {
                 <h3 style={{ margin: 0, color: "#0f172a" }}>
                   Danh sách booking điều hành
                 </h3>
-                <p
-                  style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}
-                >
-                  Hiển thị tour, điểm đến, ngày đi/về, HDV, điểm đón và cảnh báo
-                  ưu tiên.
-                </p>
               </div>
               <div
                 style={{ display: "flex", gap: "12px", alignItems: "center" }}
@@ -3686,9 +3776,13 @@ export default function AdminPage({ initialTab = "overview" }) {
                 style={{
                   height: 200,
                   borderRadius: 16,
-                  backgroundImage: `url(${destinationForm.coverImagePreview || destinationForm.coverImage})`,
+                  backgroundImage: `url(${
+                    destinationForm.coverImagePreview ||
+                    mapImageUrl(destinationForm.coverImage, API_URL)
+                  })`,
                   backgroundSize: "cover",
                   backgroundPosition: "center",
+                  backgroundRepeat: "no-repeat",
                   border: "1px solid #e2e8f0",
                 }}
               />
@@ -4566,61 +4660,110 @@ export default function AdminPage({ initialTab = "overview" }) {
               }}
             >
               {tourForm.media && tourForm.media.length > 0 ? (
-                tourForm.media.map((m) => (
-                  <div
-                    key={m.id}
-                    style={{
-                      position: "relative",
-                      height: "180px",
-                      borderRadius: "12px",
-                      overflow: "hidden",
-                      border: "1px solid #e2e8f0",
-                      boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
-                    }}
-                  >
-                    <img
-                      src={mapImageUrl(m.fileUrl, API_URL)}
-                      alt="media"
+                [...tourForm.media]
+                  .sort((a, b) => {
+                    if (a.isCover && !b.isCover) return -1;
+                    if (!a.isCover && b.isCover) return 1;
+                    return (
+                      Number(a.displayOrder || 0) - Number(b.displayOrder || 0)
+                    );
+                  })
+                  .map((m) => (
+                    <div
+                      key={m.id}
                       style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
-                    />
-                    <button
-                      onClick={() => removeTourMedia(m.id)}
-                      style={{
-                        position: "absolute",
-                        top: 8,
-                        right: 8,
-                        background: "rgba(255,255,255,0.9)",
-                        color: "#ef4444",
-                        border: "none",
-                        borderRadius: "50%",
-                        width: 28,
-                        height: 28,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        cursor: "pointer",
-                        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                        position: "relative",
+                        height: "180px",
+                        borderRadius: "12px",
+                        overflow: "hidden",
+                        border: m.isCover
+                          ? "2px solid #2563eb"
+                          : "1px solid #e2e8f0",
+                        boxShadow: m.isCover
+                          ? "0 8px 18px rgba(37, 99, 235, 0.22)"
+                          : "0 2px 4px rgba(0,0,0,0.05)",
+                        background: "#f8fafc",
                       }}
                     >
-                      <svg
-                        width="14"
-                        height="14"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                      <img
+                        src={mapImageUrl(m.fileUrl, API_URL)}
+                        alt="Ảnh tour"
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          display: "block",
+                        }}
+                      />
+
+                      {m.isCover && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 8,
+                            left: 8,
+                            background: "#2563eb",
+                            color: "#ffffff",
+                            borderRadius: 999,
+                            padding: "6px 10px",
+                            fontSize: 12,
+                            fontWeight: 800,
+                            boxShadow: "0 4px 12px rgba(15, 23, 42, 0.18)",
+                          }}
+                        >
+                          Ảnh bìa
+                        </div>
+                      )}
+
+                      {!m.isCover && (
+                        <button
+                          type="button"
+                          onClick={() => setTourCoverMedia(m.id)}
+                          disabled={uploadingMedia}
+                          style={{
+                            position: "absolute",
+                            left: 8,
+                            bottom: 8,
+                            border: "none",
+                            borderRadius: 999,
+                            padding: "7px 11px",
+                            background: "rgba(15, 23, 42, 0.82)",
+                            color: "#ffffff",
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: uploadingMedia ? "wait" : "pointer",
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
+                          }}
+                        >
+                          Đặt làm bìa
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => removeTourMedia(m.id)}
+                        style={{
+                          position: "absolute",
+                          top: 8,
+                          right: 8,
+                          background: "rgba(255,255,255,0.95)",
+                          color: "#ef4444",
+                          border: "none",
+                          borderRadius: "50%",
+                          width: 28,
+                          height: 28,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                        }}
+                        title="Xóa ảnh"
                       >
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                      </svg>
-                    </button>
-                  </div>
-                ))
+                        ×
+                      </button>
+                    </div>
+                  ))
               ) : (
                 <label
                   onDragOver={(e) => {
@@ -5106,12 +5249,25 @@ export default function AdminPage({ initialTab = "overview" }) {
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
+                      alignItems: "center",
                       marginBottom: 12,
                     }}
                   >
-                    <strong style={{ color: "#334155" }}>
-                      Khách sạn / Chỗ ở
-                    </strong>
+                    <div>
+                      <strong style={{ color: "#334155" }}>
+                        Khách sạn / Chỗ ở
+                      </strong>
+                      <div
+                        style={{
+                          color: "#64748b",
+                          fontSize: 12,
+                          marginTop: 4,
+                        }}
+                      >
+                        Chọn từ nhà cung cấp đã quản lý hoặc nhập thủ công.
+                      </div>
+                    </div>
+
                     <button
                       type="button"
                       className="btn btn-light btn-sm"
@@ -5125,9 +5281,10 @@ export default function AdminPage({ initialTab = "overview" }) {
                       + Thêm
                     </button>
                   </div>
+
                   {tourAccommodations.map((item, index) => (
                     <div
-                      key={index}
+                      key={`accommodation-${index}`}
                       className="modal-form-grid"
                       style={{
                         background: "#f8fafc",
@@ -5137,10 +5294,53 @@ export default function AdminPage({ initialTab = "overview" }) {
                         border: "1px solid #e2e8f0",
                       }}
                     >
+                      <TourSupplierSelector
+                        suppliers={suppliers}
+                        supplierType="hotel"
+                        value={
+                          item.isManualSupplier ? "manual" : item.supplierId
+                        }
+                        label="Nhà cung cấp lưu trú"
+                        placeholder="Chọn khách sạn / nơi lưu trú"
+                        onChange={({ supplierId, supplier, isManual }) => {
+                          setTourAccommodations((prev) =>
+                            prev.map((row, idx) => {
+                              if (idx !== index) return row;
+
+                              if (isManual) {
+                                return {
+                                  ...row,
+                                  supplierId: "",
+                                  isManualSupplier: true,
+                                  name: "",
+                                  address: "",
+                                };
+                              }
+
+                              return {
+                                ...row,
+                                supplierId,
+                                isManualSupplier: false,
+                                name: supplier?.name || "",
+                                address: supplier?.address || "",
+                                description:
+                                  supplier?.note ||
+                                  supplier?.description ||
+                                  row.description ||
+                                  "",
+                              };
+                            }),
+                          );
+                        }}
+                      />
+
                       <div className="field">
                         <label>Tên chỗ ở</label>
                         <input
                           value={item.name}
+                          disabled={
+                            Boolean(item.supplierId) && !item.isManualSupplier
+                          }
                           onChange={(e) =>
                             setTourAccommodations((prev) =>
                               prev.map((row, idx) =>
@@ -5150,8 +5350,10 @@ export default function AdminPage({ initialTab = "overview" }) {
                               ),
                             )
                           }
+                          placeholder="Tên khách sạn, resort hoặc homestay"
                         />
                       </div>
+
                       <div
                         style={{
                           display: "grid",
@@ -5160,7 +5362,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                         }}
                       >
                         <div className="field">
-                          <label>Loại</label>
+                          <label>Loại lưu trú</label>
                           <select
                             value={item.accommodationType}
                             onChange={(e) =>
@@ -5181,6 +5383,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                             <option value="resort">Resort</option>
                           </select>
                         </div>
+
                         <div className="field">
                           <label>Hạng (Sao)</label>
                           <input
@@ -5192,7 +5395,10 @@ export default function AdminPage({ initialTab = "overview" }) {
                               setTourAccommodations((prev) =>
                                 prev.map((row, idx) =>
                                   idx === index
-                                    ? { ...row, starRating: e.target.value }
+                                    ? {
+                                        ...row,
+                                        starRating: e.target.value,
+                                      }
                                     : row,
                                 ),
                               )
@@ -5200,6 +5406,132 @@ export default function AdminPage({ initialTab = "overview" }) {
                           />
                         </div>
                       </div>
+
+                      <div className="field">
+                        <label>Địa chỉ</label>
+                        <input
+                          value={item.address || ""}
+                          onChange={(e) =>
+                            setTourAccommodations((prev) =>
+                              prev.map((row, idx) =>
+                                idx === index
+                                  ? {
+                                      ...row,
+                                      address: e.target.value,
+                                    }
+                                  : row,
+                              ),
+                            )
+                          }
+                          placeholder="Địa chỉ nơi lưu trú"
+                        />
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: 12,
+                        }}
+                      >
+                        <div className="field">
+                          <label>Giá mỗi đêm</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={item.pricePerNight || ""}
+                            onChange={(e) =>
+                              setTourAccommodations((prev) =>
+                                prev.map((row, idx) =>
+                                  idx === index
+                                    ? {
+                                        ...row,
+                                        pricePerNight: e.target.value,
+                                      }
+                                    : row,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+
+                        <div className="field">
+                          <label>Trạng thái</label>
+                          <select
+                            value={item.status || "active"}
+                            onChange={(e) =>
+                              setTourAccommodations((prev) =>
+                                prev.map((row, idx) =>
+                                  idx === index
+                                    ? {
+                                        ...row,
+                                        status: e.target.value,
+                                      }
+                                    : row,
+                                ),
+                              )
+                            }
+                          >
+                            <option value="active">Đang dùng</option>
+                            <option value="inactive">Tạm ẩn</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="field">
+                        <label>Tiện ích</label>
+                        <input
+                          value={item.amenities || ""}
+                          onChange={(e) =>
+                            setTourAccommodations((prev) =>
+                              prev.map((row, idx) =>
+                                idx === index
+                                  ? {
+                                      ...row,
+                                      amenities: e.target.value,
+                                    }
+                                  : row,
+                              ),
+                            )
+                          }
+                          placeholder="Wifi, hồ bơi, ăn sáng..."
+                        />
+                      </div>
+
+                      <div className="field">
+                        <label>Mô tả</label>
+                        <textarea
+                          rows={3}
+                          value={item.description || ""}
+                          onChange={(e) =>
+                            setTourAccommodations((prev) =>
+                              prev.map((row, idx) =>
+                                idx === index
+                                  ? {
+                                      ...row,
+                                      description: e.target.value,
+                                    }
+                                  : row,
+                              ),
+                            )
+                          }
+                          placeholder="Mô tả lưu trú..."
+                        />
+                      </div>
+
+                      {tourAccommodations.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() =>
+                            setTourAccommodations((prev) =>
+                              prev.filter((_, idx) => idx !== index),
+                            )
+                          }
+                        >
+                          Xóa chỗ ở này
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -5210,12 +5542,25 @@ export default function AdminPage({ initialTab = "overview" }) {
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
+                      alignItems: "center",
                       marginBottom: 12,
                     }}
                   >
-                    <strong style={{ color: "#334155" }}>
-                      Phương tiện di chuyển
-                    </strong>
+                    <div>
+                      <strong style={{ color: "#334155" }}>
+                        Phương tiện di chuyển
+                      </strong>
+                      <div
+                        style={{
+                          color: "#64748b",
+                          fontSize: 12,
+                          marginTop: 4,
+                        }}
+                      >
+                        Chọn đơn vị vận chuyển rồi nhập phương tiện cụ thể.
+                      </div>
+                    </div>
+
                     <button
                       type="button"
                       className="btn btn-light btn-sm"
@@ -5229,9 +5574,10 @@ export default function AdminPage({ initialTab = "overview" }) {
                       + Thêm
                     </button>
                   </div>
+
                   {tourTransports.map((item, index) => (
                     <div
-                      key={index}
+                      key={`transport-${index}`}
                       className="modal-form-grid"
                       style={{
                         background: "#f8fafc",
@@ -5241,8 +5587,46 @@ export default function AdminPage({ initialTab = "overview" }) {
                         border: "1px solid #e2e8f0",
                       }}
                     >
+                      <TourSupplierSelector
+                        suppliers={suppliers}
+                        supplierType="transport"
+                        value={
+                          item.isManualSupplier ? "manual" : item.supplierId
+                        }
+                        label="Đơn vị vận chuyển"
+                        placeholder="Chọn nhà cung cấp vận chuyển"
+                        onChange={({ supplierId, supplier, isManual }) => {
+                          setTourTransports((prev) =>
+                            prev.map((row, idx) => {
+                              if (idx !== index) return row;
+
+                              if (isManual) {
+                                return {
+                                  ...row,
+                                  supplierId: "",
+                                  isManualSupplier: true,
+                                  provider: "",
+                                };
+                              }
+
+                              return {
+                                ...row,
+                                supplierId,
+                                isManualSupplier: false,
+                                provider: supplier?.name || "",
+                                description:
+                                  supplier?.note ||
+                                  supplier?.description ||
+                                  row.description ||
+                                  "",
+                              };
+                            }),
+                          );
+                        }}
+                      />
+
                       <div className="field">
-                        <label>Tên hãng / Phương tiện</label>
+                        <label>Tên phương tiện</label>
                         <input
                           value={item.name}
                           onChange={(e) =>
@@ -5254,8 +5638,10 @@ export default function AdminPage({ initialTab = "overview" }) {
                               ),
                             )
                           }
+                          placeholder="Ví dụ: Xe limousine 18 chỗ"
                         />
                       </div>
+
                       <div
                         style={{
                           display: "grid",
@@ -5264,14 +5650,17 @@ export default function AdminPage({ initialTab = "overview" }) {
                         }}
                       >
                         <div className="field">
-                          <label>Loại xe</label>
+                          <label>Loại phương tiện</label>
                           <select
                             value={item.transportType}
                             onChange={(e) =>
                               setTourTransports((prev) =>
                                 prev.map((row, idx) =>
                                   idx === index
-                                    ? { ...row, transportType: e.target.value }
+                                    ? {
+                                        ...row,
+                                        transportType: e.target.value,
+                                      }
                                     : row,
                                 ),
                               )
@@ -5281,17 +5670,126 @@ export default function AdminPage({ initialTab = "overview" }) {
                             <option value="train">Tàu hỏa</option>
                             <option value="bus">Xe khách</option>
                             <option value="car">Ô tô ghép</option>
+                            <option value="ship">Tàu / Thuyền</option>
+                            <option value="mixed">Kết hợp</option>
                           </select>
                         </div>
+
                         <div className="field">
-                          <label>Nhà cung cấp</label>
+                          <label>Tên nhà cung cấp</label>
                           <input
                             value={item.provider || ""}
+                            disabled={
+                              Boolean(item.supplierId) && !item.isManualSupplier
+                            }
                             onChange={(e) =>
                               setTourTransports((prev) =>
                                 prev.map((row, idx) =>
                                   idx === index
-                                    ? { ...row, provider: e.target.value }
+                                    ? {
+                                        ...row,
+                                        provider: e.target.value,
+                                      }
+                                    : row,
+                                ),
+                              )
+                            }
+                            placeholder="Tên đơn vị vận chuyển"
+                          />
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: 12,
+                        }}
+                      >
+                        <div className="field">
+                          <label>Điểm đi</label>
+                          <input
+                            value={item.origin || ""}
+                            onChange={(e) =>
+                              setTourTransports((prev) =>
+                                prev.map((row, idx) =>
+                                  idx === index
+                                    ? {
+                                        ...row,
+                                        origin: e.target.value,
+                                      }
+                                    : row,
+                                ),
+                              )
+                            }
+                            placeholder="Ví dụ: TP.HCM"
+                          />
+                        </div>
+
+                        <div className="field">
+                          <label>Điểm đến</label>
+                          <input
+                            value={item.destinationLabel || ""}
+                            onChange={(e) =>
+                              setTourTransports((prev) =>
+                                prev.map((row, idx) =>
+                                  idx === index
+                                    ? {
+                                        ...row,
+                                        destinationLabel: e.target.value,
+                                      }
+                                    : row,
+                                ),
+                              )
+                            }
+                            placeholder="Ví dụ: Đà Lạt"
+                          />
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: 12,
+                        }}
+                      >
+                        <div className="field">
+                          <label>Thời lượng (giờ)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.5"
+                            value={item.durationHours || ""}
+                            onChange={(e) =>
+                              setTourTransports((prev) =>
+                                prev.map((row, idx) =>
+                                  idx === index
+                                    ? {
+                                        ...row,
+                                        durationHours: e.target.value,
+                                      }
+                                    : row,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+
+                        <div className="field">
+                          <label>Giá dự kiến</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={item.price || ""}
+                            onChange={(e) =>
+                              setTourTransports((prev) =>
+                                prev.map((row, idx) =>
+                                  idx === index
+                                    ? {
+                                        ...row,
+                                        price: e.target.value,
+                                      }
                                     : row,
                                 ),
                               )
@@ -5299,6 +5797,41 @@ export default function AdminPage({ initialTab = "overview" }) {
                           />
                         </div>
                       </div>
+
+                      <div className="field">
+                        <label>Mô tả</label>
+                        <textarea
+                          rows={3}
+                          value={item.description || ""}
+                          onChange={(e) =>
+                            setTourTransports((prev) =>
+                              prev.map((row, idx) =>
+                                idx === index
+                                  ? {
+                                      ...row,
+                                      description: e.target.value,
+                                    }
+                                  : row,
+                              ),
+                            )
+                          }
+                          placeholder="Ghi chú xe, đời xe, tiện nghi..."
+                        />
+                      </div>
+
+                      {tourTransports.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() =>
+                            setTourTransports((prev) =>
+                              prev.filter((_, idx) => idx !== index),
+                            )
+                          }
+                        >
+                          Xóa phương tiện này
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

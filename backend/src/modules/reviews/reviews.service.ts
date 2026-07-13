@@ -27,6 +27,13 @@ type AdminReviewQuery = ReviewListQuery & {
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private calculateMemberTier(points: number) {
+    if (points >= 15000) return "diamond";
+    if (points >= 5000) return "gold";
+    if (points >= 1000) return "silver";
+    return "bronze";
+  }
+
   private toBool(value?: string) {
     return ["1", "true", "yes", "y"].includes(
       String(value || "").toLowerCase(),
@@ -616,9 +623,52 @@ export class ReviewsService {
       );
     }
 
+    const reviewPoints = 50 + (files.length > 0 ? 20 : 0);
+
+    const updatedUser = await this.prisma.$transaction(async (tx) => {
+      const currentUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { memberPoints: true, memberTier: true },
+      });
+
+      if (!currentUser) return null;
+
+      const nextPoints = Number(currentUser.memberPoints || 0) + reviewPoints;
+      const nextTier = this.calculateMemberTier(nextPoints);
+
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: {
+          memberPoints: nextPoints,
+          memberTier: nextTier as any,
+        },
+        select: { memberPoints: true, memberTier: true },
+      });
+
+      await tx.notification.create({
+        data: {
+          title: `Cảm ơn bạn đã đánh giá tour`,
+          message: `Bạn được cộng ${reviewPoints} điểm thành viên.`,
+          content: `Cảm ơn bạn đã đánh giá tour. Travela đã cộng ${reviewPoints} điểm thành viên vào tài khoản của bạn. Tổng điểm hiện tại: ${nextPoints}. Hạng thành viên: ${nextTier}.`,
+          targetRole: "user",
+          targetUserId: userId,
+          isPublished: true,
+        },
+      });
+
+      return user;
+    });
+
     const withMedia = await this.attachMediaToReviews([created]);
 
-    return this.mapReview(withMedia[0]);
+    return {
+      ...this.mapReview(withMedia[0]),
+      membershipReward: {
+        earnedPoints: reviewPoints,
+        totalPoints: Number(updatedUser?.memberPoints || 0),
+        memberTier: updatedUser?.memberTier || "bronze",
+      },
+    };
   }
 
   async adminList(query: AdminReviewQuery) {

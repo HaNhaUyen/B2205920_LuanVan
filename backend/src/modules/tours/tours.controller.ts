@@ -15,6 +15,7 @@ import { FilesInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { extname } from "path";
 import { ToursService } from "./tours.service";
+import { DepartureMaintenanceService } from "./depature-maintenance.service";
 import { CreateTourStep1Dto } from "./dto/create-tour-step1.dto";
 import { SaveItineraryDto } from "./dto/save-itinerary.dto";
 import { SaveDeparturesDto } from "./dto/save-departures.dto";
@@ -36,16 +37,103 @@ function filename(
 
 @Controller()
 export class ToursController {
-  constructor(private readonly toursService: ToursService) {}
+  constructor(
+    private readonly toursService: ToursService,
+    private readonly departureMaintenanceService: DepartureMaintenanceService,
+  ) {}
+
+  private filterAdminVisibleDepartures(tour: any) {
+    if (!tour) return tour;
+
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - 7);
+
+    const departures = (Array.isArray(tour.departures) ? tour.departures : [])
+      .filter((departure: any) => {
+        const departureDate = new Date(departure.departureDate);
+        if (Number.isNaN(departureDate.getTime())) return false;
+        departureDate.setHours(0, 0, 0, 0);
+        return departureDate.getTime() >= cutoff.getTime();
+      })
+      .sort(
+        (a: any, b: any) =>
+          new Date(a.departureDate).getTime() -
+          new Date(b.departureDate).getTime(),
+      );
+
+    return { ...tour, departures };
+  }
+
+  private filterBookableDepartures(tour: any) {
+    if (!tour) return tour;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const departures = (Array.isArray(tour.departures) ? tour.departures : [])
+      .filter((departure: any) => {
+        const departureDate = new Date(departure.departureDate);
+        departureDate.setHours(0, 0, 0, 0);
+
+        const remainingSlots = Math.max(
+          0,
+          Number(departure.totalSlots || 0) -
+            Number(departure.bookedSlots || 0) -
+            Number(departure.heldSlots || 0),
+        );
+
+        return (
+          String(departure.status) === "open" &&
+          !Number.isNaN(departureDate.getTime()) &&
+          departureDate.getTime() >= today.getTime() &&
+          remainingSlots > 0
+        );
+      })
+      .sort(
+        (a: any, b: any) =>
+          new Date(a.departureDate).getTime() -
+          new Date(b.departureDate).getTime(),
+      );
+
+    const nextDeparture = departures[0] || null;
+
+    return {
+      ...tour,
+      departures,
+      nextDeparture,
+      remainingSlots: nextDeparture
+        ? Math.max(
+            0,
+            Number(nextDeparture.totalSlots || 0) -
+              Number(nextDeparture.bookedSlots || 0) -
+              Number(nextDeparture.heldSlots || 0),
+          )
+        : 0,
+    };
+  }
 
   @Get("tours")
-  findAllPublic() {
-    return this.toursService.findAllPublic();
+  async findAllPublic() {
+    const tours = await this.toursService.findAllPublic();
+    const items = Array.isArray(tours) ? tours : [];
+    const departuresByTour =
+      await this.departureMaintenanceService.getBookableDeparturesForTours(
+        items.map((tour: any) => tour.id),
+      );
+
+    return items.map((tour: any) =>
+      this.filterBookableDepartures({
+        ...tour,
+        departures: departuresByTour.get(String(tour.id)) || [],
+      }),
+    );
   }
 
   @Get("tours/:slug")
-  findBySlug(@Param("slug") slug: string) {
-    return this.toursService.findBySlug(slug);
+  async findBySlug(@Param("slug") slug: string) {
+    const tour = await this.toursService.findBySlug(slug);
+    return this.filterBookableDepartures(tour);
   }
 
   @Get("tours/:tourId/pickup-points")
@@ -61,16 +149,27 @@ export class ToursController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("admin")
+  @Post("admin/tours/departures/maintenance")
+  runDepartureMaintenance() {
+    return this.departureMaintenanceService.runMaintenance();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @Get("admin/tours")
-  adminList(@Query() query: any) {
-    return this.toursService.adminList(query);
+  async adminList(@Query() query: any) {
+    const tours = await this.toursService.adminList(query);
+    return (Array.isArray(tours) ? tours : []).map((tour) =>
+      this.filterAdminVisibleDepartures(tour),
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("admin")
   @Get("admin/tours/:tourId")
-  adminDetail(@Param("tourId") tourId: string) {
-    return this.toursService.findById(Number(tourId));
+  async adminDetail(@Param("tourId") tourId: string) {
+    const tour = await this.toursService.findById(Number(tourId));
+    return this.filterAdminVisibleDepartures(tour);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

@@ -1030,44 +1030,104 @@ export class ToursService {
     const tour = await this.prisma.tour.findUnique({
       where: { id: BigInt(tourId) },
     });
-    if (!tour) throw new NotFoundException("Tour not found");
+
+    if (!tour) {
+      throw new NotFoundException("Tour not found");
+    }
+
+    for (const item of dto.items || []) {
+      if (item.supplierId) {
+        const supplier = await this.prisma.supplier.findUnique({
+          where: {
+            id: BigInt(item.supplierId),
+          },
+        });
+
+        if (!supplier) {
+          throw new BadRequestException(
+            `Nhà cung cấp lưu trú mã ${item.supplierId} không tồn tại.`,
+          );
+        }
+      }
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.tourAccommodation.deleteMany({
-        where: { tourId: BigInt(tourId) },
+        where: {
+          tourId: BigInt(tourId),
+        },
       });
-      for (const item of dto.items) {
+
+      for (const item of dto.items || []) {
         await tx.tourAccommodation.create({
           data: {
             tourId: BigInt(tourId),
+
+            supplierId: item.supplierId ? BigInt(item.supplierId) : null,
+
             name: item.name,
-            accommodationType: item.accommodationType,
+            accommodationType: item.accommodationType as any,
             starRating: item.starRating,
             address: item.address,
             description: item.description,
             pricePerNight: item.pricePerNight,
             imageUrl: item.imageUrl,
             amenities: item.amenities,
-            status: item.status || "active",
+            status: (item.status || "active") as any,
           },
         });
       }
     });
-    return { message: "Accommodations saved", totalItems: dto.items.length };
+
+    return {
+      message: "Accommodations saved",
+      totalItems: dto.items.length,
+    };
   }
 
   async saveTransports(tourId: number, dto: SaveTransportsDto) {
     const tour = await this.prisma.tour.findUnique({
-      where: { id: BigInt(tourId) },
+      where: {
+        id: BigInt(tourId),
+      },
     });
-    if (!tour) throw new NotFoundException("Tour not found");
+
+    if (!tour) {
+      throw new NotFoundException("Tour not found");
+    }
+
+    for (const item of dto.items || []) {
+      if (item.supplierId) {
+        const supplier = await this.prisma.supplier.findUnique({
+          where: {
+            id: BigInt(item.supplierId),
+          },
+        });
+
+        if (!supplier) {
+          throw new BadRequestException(
+            `Nhà cung cấp vận chuyển mã ${item.supplierId} không tồn tại.`,
+          );
+        }
+      }
+    }
+
     await this.prisma.$transaction(async (tx) => {
-      await tx.tourTransport.deleteMany({ where: { tourId: BigInt(tourId) } });
-      for (const item of dto.items) {
+      await tx.tourTransport.deleteMany({
+        where: {
+          tourId: BigInt(tourId),
+        },
+      });
+
+      for (const item of dto.items || []) {
         await tx.tourTransport.create({
           data: {
             tourId: BigInt(tourId),
+
+            supplierId: item.supplierId ? BigInt(item.supplierId) : null,
+
             name: item.name,
-            transportType: item.transportType,
+            transportType: item.transportType as any,
             provider: item.provider,
             origin: item.origin,
             destinationLabel: item.destinationLabel,
@@ -1075,12 +1135,16 @@ export class ToursService {
             price: item.price,
             description: item.description,
             imageUrl: item.imageUrl,
-            status: item.status || "active",
+            status: (item.status || "active") as any,
           },
         });
       }
     });
-    return { message: "Transports saved", totalItems: dto.items.length };
+
+    return {
+      message: "Transports saved",
+      totalItems: dto.items.length,
+    };
   }
 
   async publishTour(tourId: number) {

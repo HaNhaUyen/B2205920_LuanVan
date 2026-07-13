@@ -66,6 +66,39 @@ function getFavoriteTourId(item) {
   return item?.tourId || item?.tour_id || item?.tour?.id || item?.id || "";
 }
 
+function getDepartureRemainingSlotsValue(departure = {}) {
+  const totalSlots = Number(departure.totalSlots ?? departure.total_slots ?? 0);
+  const bookedSlots = Number(
+    departure.bookedSlots ?? departure.booked_slots ?? 0,
+  );
+  const heldSlots = Number(departure.heldSlots ?? departure.held_slots ?? 0);
+
+  return Math.max(0, totalSlots - bookedSlots - heldSlots);
+}
+
+function getBookableDepartures(departures = []) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return (Array.isArray(departures) ? departures : [])
+    .filter((departure) => {
+      const departureDate = new Date(departure?.departureDate);
+      if (Number.isNaN(departureDate.getTime())) return false;
+      departureDate.setHours(0, 0, 0, 0);
+
+      return (
+        String(departure?.status || "").toLowerCase() === "open" &&
+        departureDate.getTime() >= today.getTime() &&
+        getDepartureRemainingSlotsValue(departure) > 0
+      );
+    })
+    .sort(
+      (a, b) =>
+        new Date(a.departureDate).getTime() -
+        new Date(b.departureDate).getTime(),
+    );
+}
+
 export default function TourDetailPage() {
   const router = useRouter();
   const { slug } = router.query;
@@ -101,7 +134,14 @@ export default function TourDetailPage() {
         const reviewData = await apiFetch(`/reviews/tour/${rawTour.id}`).catch(
           () => [],
         );
-        const normalized = normalizeTour({ ...rawTour, reviews: reviewData });
+        const normalizedBase = normalizeTour({
+          ...rawTour,
+          reviews: reviewData,
+        });
+        const normalized = {
+          ...normalizedBase,
+          departures: getBookableDepartures(normalizedBase.departures),
+        };
         const publicTours = await apiFetch("/tours").catch(() => []);
         if (!active) return;
 
@@ -113,17 +153,20 @@ export default function TourDetailPage() {
           ? normalized.media
           : [{ fileUrl: normalized.coverUrl }];
         setSelectedImage(mapImageUrl(gallery[0]?.fileUrl, API_URL));
-        setSelectedDepartureId(normalized.departures?.[0]?.id || "");
+        const firstBookableDeparture = normalized.departures?.[0] || null;
+        setSelectedDepartureId(firstBookableDeparture?.id || "");
         const initialPassengers = { adultCount: 2, childCount: 0 };
         setBookingPassengers(initialPassengers);
         setBookingGuests(buildDefaultGuests(2, 0, getUser(), []));
         setPreview(
-          renderDeparturePreview(
-            normalized,
-            normalized.departures?.[0]?.id,
-            2,
-            0,
-          ),
+          firstBookableDeparture
+            ? renderDeparturePreview(
+                normalized,
+                firstBookableDeparture.id,
+                2,
+                0,
+              )
+            : null,
         );
         setLoading(false);
 
@@ -197,19 +240,8 @@ export default function TourDetailPage() {
         })
       : "Liên hệ";
 
-  const getDepartureRemainingSlots = (departure = {}) => {
-    const totalSlots = Number(
-      departure.totalSlots ?? departure.total_slots ?? 0,
-    );
-
-    const bookedSlots = Number(
-      departure.bookedSlots ?? departure.booked_slots ?? 0,
-    );
-
-    const heldSlots = Number(departure.heldSlots ?? departure.held_slots ?? 0);
-
-    return Math.max(0, totalSlots - bookedSlots - heldSlots);
-  };
+  const getDepartureRemainingSlots = (departure = {}) =>
+    getDepartureRemainingSlotsValue(departure);
 
   const normalizeVoucherRow = (row) => ({
     ...(row?.voucher || row || {}),

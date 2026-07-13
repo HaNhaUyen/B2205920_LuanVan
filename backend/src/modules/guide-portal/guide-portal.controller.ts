@@ -4,6 +4,8 @@ import {
   Get,
   Param,
   Patch,
+  Post,
+  Delete,
   Query,
   UseGuards,
 } from "@nestjs/common";
@@ -12,6 +14,8 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { GuidePortalService } from "./guide-portal.service";
 import { UpdateGuideProfileDto } from "./dto/update-guide-profile.dto";
 import { UpdateAssignmentStatusDto } from "./dto/update-assignment-status.dto";
+import { CreateGuideCredentialDto } from "./dto/create-guide-credential.dto";
+import { CreateGuideUnavailableDto } from "./dto/create-guide-unavailable.dto";
 
 @Controller("guide-portal")
 @UseGuards(JwtAuthGuard)
@@ -33,6 +37,19 @@ export class GuidePortalController {
     return this.guidePortalService.updateMyProfile(user, dto);
   }
 
+  @Post("me/credentials")
+  createCredential(
+    @CurrentUser() user: any,
+    @Body() dto: CreateGuideCredentialDto,
+  ) {
+    return this.guidePortalService.createMyCredential(user, dto);
+  }
+
+  @Delete("me/credentials/:id")
+  deleteCredential(@CurrentUser() user: any, @Param("id") id: string) {
+    return this.guidePortalService.deleteMyCredential(user, Number(id));
+  }
+
   @Get("assignments")
   assignments(@CurrentUser() user: any, @Query() query: any) {
     return this.guidePortalService.getMyAssignments(user, query);
@@ -41,6 +58,19 @@ export class GuidePortalController {
   @Get("assignments/:id")
   assignmentDetail(@CurrentUser() user: any, @Param("id") id: string) {
     return this.guidePortalService.getAssignmentDetail(user, Number(id));
+  }
+
+  @Post("assignments/:id/unavailable")
+  reportUnavailable(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: CreateGuideUnavailableDto,
+  ) {
+    return this.guidePortalService.reportAssignmentUnavailable(
+      user,
+      Number(id),
+      dto,
+    );
   }
 
   @Patch("assignments/:id/status")

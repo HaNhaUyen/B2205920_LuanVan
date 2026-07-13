@@ -1,4 +1,10 @@
-import { IsOptional, IsString, MaxLength } from "class-validator";
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from "class-validator";
 
 export class UpdateGuideProfileDto {
   @IsOptional()
@@ -7,14 +13,16 @@ export class UpdateGuideProfileDto {
   phone?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail({}, { message: "Email không đúng định dạng." })
   @MaxLength(150)
   email?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(255)
-  languages?: string;
+  @Matches(/^\d{9}$|^\d{12}$/, {
+    message: "CCCD/CMND phải gồm 9 hoặc 12 chữ số.",
+  })
+  identityNumber?: string;
 
   @IsOptional()
   @IsString()

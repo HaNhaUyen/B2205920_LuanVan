@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import Loading from "@/components/Loading";
 import Modal from "@/components/Modal";
@@ -33,7 +33,8 @@ const initialForm = {
 
   // all_users: tất cả user
   // specific_user: một user cụ thể
-  // admins: tất cả admin
+  // all_guides: tất cả hướng dẫn viên
+  // specific_guide: một hướng dẫn viên cụ thể
   // all: toàn hệ thống
   targetMode: "all_users",
   targetUserId: "",
@@ -182,9 +183,37 @@ export default function AdminNotificationsPage() {
   const [bulkForm, setBulkForm] = useState(initialBulkForm);
   const [bulkResult, setBulkResult] = useState(null);
 
-  const loadData = async (nextFilters = filters) => {
-    setData(await apiFetch(`/admin/notifications?${buildQuery(nextFilters)}`));
-  };
+  const notificationRefreshBusyRef = useRef(false);
+  const notificationPageMountedRef = useRef(false);
+
+  const loadData = useCallback(
+    async (nextFilters = initialFilters, options = {}) => {
+      const { silent = false } = options;
+
+      if (notificationRefreshBusyRef.current) return null;
+
+      notificationRefreshBusyRef.current = true;
+
+      try {
+        const result = await apiFetch(
+          `/admin/notifications?${buildQuery(nextFilters)}`,
+        );
+
+        if (notificationPageMountedRef.current) {
+          setData(result || emptyPage);
+        }
+
+        return result;
+      } catch (error) {
+        if (!silent) throw error;
+        console.error("Không thể tự làm mới danh sách thông báo:", error);
+        return null;
+      } finally {
+        notificationRefreshBusyRef.current = false;
+      }
+    },
+    [],
+  );
 
   const loadUsers = async () => {
     const result = await apiFetch(
@@ -217,19 +246,79 @@ export default function AdminNotificationsPage() {
   };
 
   useEffect(() => {
+    notificationPageMountedRef.current = true;
+
     Promise.all([
       loadData(initialFilters),
       loadBulkTargets(initialBulkFilters),
       loadUsers(),
     ])
       .catch((error) => showToast(error.message, "error"))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (notificationPageMountedRef.current) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      notificationPageMountedRef.current = false;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!loading)
-      loadData(filters).catch((error) => showToast(error.message, "error"));
-  }, [filters.page, filters.search, filters.isPublished]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (loading) return;
+
+    loadData(filters).catch((error) =>
+      showToast(
+        error.message || "Không tải được danh sách thông báo.",
+        "error",
+      ),
+    );
+  }, [filters.page, filters.search, filters.isPublished, loading, loadData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (loading) return;
+
+    const refreshCurrentPage = () => {
+      void loadData(filters, { silent: true });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshCurrentPage();
+      }
+    };
+
+    /*
+     * Thông báo tự động được backend tạo không đi qua thao tác của trang này,
+     * nên polling giúp danh sách hiện mới mà không cần F5.
+     */
+    const timer = window.setInterval(refreshCurrentPage, 5000);
+
+    window.addEventListener(
+      "travela-notifications-changed",
+      refreshCurrentPage,
+    );
+    window.addEventListener("focus", refreshCurrentPage);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener(
+        "travela-notifications-changed",
+        refreshCurrentPage,
+      );
+      window.removeEventListener("focus", refreshCurrentPage);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [
+    loading,
+    filters.page,
+    filters.pageSize,
+    filters.search,
+    filters.isPublished,
+    loadData,
+  ]);
 
   const stats = useMemo(() => {
     const items = data.items || [];
@@ -255,9 +344,10 @@ export default function AdminNotificationsPage() {
     let targetMode = "all_users";
 
     if (item.targetUserId || item.targetUser?.id) {
-      targetMode = "specific_user";
-    } else if (item.targetRole === "admin") {
-      targetMode = "admins";
+      targetMode =
+        item.targetRole === "guide" ? "specific_guide" : "specific_user";
+    } else if (item.targetRole === "guide") {
+      targetMode = "all_guides";
     } else if (item.targetRole === "all") {
       targetMode = "all";
     }
@@ -296,9 +386,16 @@ export default function AdminNotificationsPage() {
       };
     }
 
-    if (form.targetMode === "admins") {
+    if (form.targetMode === "specific_guide") {
       return {
-        targetRole: "admin",
+        targetRole: "guide",
+        targetUserId: form.targetUserId ? Number(form.targetUserId) : undefined,
+      };
+    }
+
+    if (form.targetMode === "all_guides") {
+      return {
+        targetRole: "guide",
         targetUserId: undefined,
       };
     }
@@ -321,14 +418,18 @@ export default function AdminNotificationsPage() {
       showToast("Cần nhập tiêu đề và nội dung thông báo.", "error");
       return;
     }
-    setSubmitting(true);
-    try {
-      if (form.targetMode === "specific_user" && !form.targetUserId) {
-        showToast("Vui lòng chọn người dùng nhận thông báo.", "error");
-        setSubmitting(false);
-        return;
-      }
 
+    if (
+      ["specific_user", "specific_guide"].includes(form.targetMode) &&
+      !form.targetUserId
+    ) {
+      showToast("Vui lòng chọn người nhận thông báo.", "error");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
       const payload = {
         title: form.title.trim(),
         message: form.message.trim(),
@@ -338,23 +439,92 @@ export default function AdminNotificationsPage() {
       };
 
       if (form.id) {
-        await apiFetch(`/admin/notifications/${form.id}`, {
+        const updated = await apiFetch(`/admin/notifications/${form.id}`, {
           method: "PATCH",
           body: JSON.stringify(payload),
         });
+
+        /*
+         * Cập nhật ngay dòng đang hiển thị, không chờ gọi lại API.
+         */
+        setData((prev) => ({
+          ...prev,
+          items: (prev.items || []).map((item) =>
+            String(item.id) === String(form.id)
+              ? {
+                  ...item,
+                  ...updated,
+                  _count: updated?._count || item._count,
+                }
+              : item,
+          ),
+        }));
+
         showToast("Đã cập nhật thông báo.", "success");
+
+        setModalOpen(false);
+        setForm(initialForm);
+
+        /*
+         * Đồng bộ lại dữ liệu server để bảo đảm số lượt xem và người nhận đúng.
+         */
+        await loadData(filters, { silent: true });
       } else {
-        await apiFetch(`/admin/notifications`, {
+        const created = await apiFetch("/admin/notifications", {
           method: "POST",
           body: JSON.stringify(payload),
         });
+
+        /*
+         * Khi tạo mới, đưa thông báo lên đầu danh sách ngay lập tức.
+         * Đồng thời đưa bộ lọc về trang 1 để bản ghi mới không bị ẩn.
+         */
+        const nextFilters = {
+          ...initialFilters,
+          pageSize: filters.pageSize || initialFilters.pageSize,
+        };
+
+        setFilters(nextFilters);
+
+        setData((prev) => ({
+          items: [
+            {
+              ...created,
+              _count: created?._count || { reads: 0 },
+            },
+            ...(prev.items || []).filter(
+              (item) => String(item.id) !== String(created?.id),
+            ),
+          ].slice(0, Number(nextFilters.pageSize || 10)),
+          pagination: {
+            ...(prev.pagination || emptyPage.pagination),
+            page: 1,
+            pageSize: Number(nextFilters.pageSize || 10),
+            total: Number(prev.pagination?.total || 0) + 1,
+            totalPages: Math.max(
+              1,
+              Math.ceil(
+                (Number(prev.pagination?.total || 0) + 1) /
+                  Number(nextFilters.pageSize || 10),
+              ),
+            ),
+          },
+        }));
+
         showToast("Đã tạo thông báo mới.", "success");
+
+        setModalOpen(false);
+        setForm(initialForm);
+
+        /*
+         * Tải lại trang 1 ngay sau optimistic update.
+         */
+        await loadData(nextFilters, { silent: true });
       }
-      setModalOpen(false);
-      setForm(initialForm);
-      await loadData();
+
+      window.dispatchEvent(new Event("travela-notifications-changed"));
     } catch (error) {
-      showToast(error.message, "error");
+      showToast(error?.message || "Không thể lưu thông báo.", "error");
     } finally {
       setSubmitting(false);
     }
@@ -362,12 +532,44 @@ export default function AdminNotificationsPage() {
 
   const removeItem = async (id) => {
     if (!window.confirm("Xóa thông báo này?")) return;
+
     try {
-      await apiFetch(`/admin/notifications/${id}`, { method: "DELETE" });
+      await apiFetch(`/admin/notifications/${id}`, {
+        method: "DELETE",
+      });
+
+      /*
+       * Xóa ngay khỏi bảng, không cần F5.
+       */
+      setData((prev) => {
+        const nextTotal = Math.max(Number(prev.pagination?.total || 0) - 1, 0);
+
+        return {
+          ...prev,
+          items: (prev.items || []).filter(
+            (item) => String(item.id) !== String(id),
+          ),
+          pagination: {
+            ...(prev.pagination || emptyPage.pagination),
+            total: nextTotal,
+            totalPages: Math.max(
+              1,
+              Math.ceil(
+                nextTotal /
+                  Number(prev.pagination?.pageSize || filters.pageSize || 10),
+              ),
+            ),
+          },
+        };
+      });
+
       showToast("Đã xóa thông báo.", "success");
-      await loadData();
+
+      await loadData(filters, { silent: true });
+
+      window.dispatchEvent(new Event("travela-notifications-changed"));
     } catch (error) {
-      showToast(error.message, "error");
+      showToast(error?.message || "Không thể xóa thông báo.", "error");
     }
   };
 
@@ -431,7 +633,13 @@ export default function AdminNotificationsPage() {
       });
       setBulkResult(result);
       showToast("Đã xử lý gửi hàng loạt.", "success");
-      await Promise.all([loadData(), loadBulkTargets()]);
+
+      await Promise.all([
+        loadData(filters, { silent: true }),
+        loadBulkTargets(),
+      ]);
+
+      window.dispatchEvent(new Event("travela-notifications-changed"));
     } catch (error) {
       showToast(error.message, "error");
     } finally {
@@ -754,13 +962,15 @@ export default function AdminNotificationsPage() {
                 <option value="true">Đang hiển thị</option>
                 <option value="false">Đang ẩn</option>
               </select>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={openCreate}
-              >
-                + Tạo thông báo
-              </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={openCreate}
+                >
+                  + Tạo thông báo
+                </button>
+              </div>
             </div>
           </section>
 
@@ -787,8 +997,8 @@ export default function AdminNotificationsPage() {
                         <div className="pill blue" style={{ marginTop: 8 }}>
                           {item.targetUser
                             ? `Gửi riêng: ${item.targetUser.fullName}`
-                            : item.targetRole === "admin"
-                              ? "Đối tượng: Tất cả admin"
+                            : item.targetRole === "guide"
+                              ? "Đối tượng: Tất cả hướng dẫn viên"
                               : item.targetRole === "all"
                                 ? "Đối tượng: Toàn hệ thống"
                                 : "Đối tượng: Tất cả người dùng"}
@@ -1142,21 +1352,27 @@ export default function AdminNotificationsPage() {
                 setForm((p) => ({
                   ...p,
                   targetMode: e.target.value,
-                  targetUserId:
-                    e.target.value === "specific_user" ? p.targetUserId : "",
+                  targetUserId: ["specific_user", "specific_guide"].includes(
+                    e.target.value,
+                  )
+                    ? p.targetUserId
+                    : "",
                 }))
               }
             >
               <option value="all_users">Tất cả người dùng</option>
-              <option value="specific_user">Một người dùng cụ thể</option>
-              <option value="admins">Tất cả admin</option>
+              <option value="specific_user">Một khách hàng cụ thể</option>
+              <option value="all_guides">Tất cả hướng dẫn viên</option>
+              <option value="specific_guide">Một hướng dẫn viên cụ thể</option>
               <option value="all">Toàn hệ thống</option>
             </select>
           </label>
 
-          {form.targetMode === "specific_user" && (
+          {["specific_user", "specific_guide"].includes(form.targetMode) && (
             <label>
-              Chọn người dùng
+              {form.targetMode === "specific_guide"
+                ? "Chọn hướng dẫn viên"
+                : "Chọn khách hàng"}
               <select
                 className="smart-input"
                 value={form.targetUserId}
@@ -1164,12 +1380,22 @@ export default function AdminNotificationsPage() {
                   setForm((p) => ({ ...p, targetUserId: e.target.value }))
                 }
               >
-                <option value="">-- Chọn người dùng --</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.fullName} · {user.email}
-                  </option>
-                ))}
+                <option value="">
+                  {form.targetMode === "specific_guide"
+                    ? "-- Chọn hướng dẫn viên --"
+                    : "-- Chọn khách hàng --"}
+                </option>
+                {users
+                  .filter((user) =>
+                    form.targetMode === "specific_guide"
+                      ? String(user.role).toLowerCase() === "guide"
+                      : String(user.role).toLowerCase() === "user",
+                  )
+                  .map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.fullName} · {user.email}
+                    </option>
+                  ))}
               </select>
             </label>
           )}

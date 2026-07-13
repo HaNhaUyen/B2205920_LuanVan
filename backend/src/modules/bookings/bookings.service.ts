@@ -117,9 +117,9 @@ export class BookingsService {
       throw new BadRequestException("Số lượng khách không hợp lệ.");
     }
 
-    if (!["open", "full"].includes(String(departure.status))) {
+    if (String(departure.status) !== "open") {
       throw new BadRequestException(
-        "Lịch khởi hành này hiện không cho phép đặt chỗ.",
+        "Lịch khởi hành này đã đóng bán, đã đủ chỗ hoặc không còn khả dụng.",
       );
     }
 

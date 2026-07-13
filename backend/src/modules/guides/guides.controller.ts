@@ -67,6 +67,26 @@ export class GuidesController {
   }
 
   @Roles("admin")
+  @Get(":id/credentials")
+  credentials(@Param("id") id: string) {
+    return this.service.getGuideCredentials(BigInt(id));
+  }
+
+  @Roles("admin")
+  @Patch("credentials/:credentialId/review")
+  reviewCredential(
+    @CurrentUser() user: { userId: bigint },
+    @Param("credentialId") credentialId: string,
+    @Body() dto: { status: "approved" | "rejected"; reviewNote?: string },
+  ) {
+    return this.service.reviewGuideCredential(
+      user.userId,
+      BigInt(credentialId),
+      dto,
+    );
+  }
+
+  @Roles("admin")
   @Get(":id/calendar")
   calendar(@Param("id") id: string) {
     return this.service.calendar(BigInt(id));

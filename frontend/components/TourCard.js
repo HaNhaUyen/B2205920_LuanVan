@@ -6,6 +6,7 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import { mapLabel } from "@/lib/labels";
 import { mapImageUrl, pickTourImage } from "@/lib/tour";
 import { getUser } from "@/lib/storage";
+import Image from "next/image";
 import {
   Heart,
   MapPin,
@@ -87,29 +88,45 @@ const FALLBACK_TOUR_IMAGE =
   `);
 
 function buildImageCandidates(tour, rawCover) {
+  const coverMedia =
+    tour?.media?.find?.((item) => item?.isCover || item?.is_cover) ||
+    tour?.media?.find?.(
+      (item) => item?.displayOrder === 1 || item?.display_order === 1,
+    ) ||
+    tour?.media?.[0];
+
   const candidates = [
     rawCover,
+
+    // Ưu tiên ảnh gốc / ảnh cover
     tour?.coverUrl,
     tour?.cover_url,
-    tour?.thumbnailUrl,
-    tour?.thumbnail_url,
-    tour?.imageUrl,
-    tour?.image_url,
     tour?.mainImage,
     tour?.main_image,
+    tour?.imageUrl,
+    tour?.image_url,
     tour?.image,
-    tour?.media?.find?.((item) => item?.isCover || item?.is_cover)?.fileUrl,
-    tour?.media?.find?.((item) => item?.isCover || item?.is_cover)?.file_url,
-    tour?.media?.find?.((item) => item?.isCover || item?.is_cover)?.url,
-    tour?.media?.[0]?.fileUrl,
-    tour?.media?.[0]?.file_url,
-    tour?.media?.[0]?.url,
+
+    // Ưu tiên media gốc
+    coverMedia?.fileUrl,
+    coverMedia?.file_url,
+    coverMedia?.imageUrl,
+    coverMedia?.image_url,
+    coverMedia?.url,
+    coverMedia?.path,
+
     tour?.imageUrls?.[0],
     tour?.images?.[0]?.fileUrl,
     tour?.images?.[0]?.file_url,
     tour?.images?.[0]?.imageUrl,
     tour?.images?.[0]?.image_url,
     tour?.images?.[0]?.url,
+    tour?.images?.[0]?.path,
+
+    // Thumbnail để cuối cùng vì dễ bị mờ
+    tour?.thumbnailUrl,
+    tour?.thumbnail_url,
+
     tour?.destination?.coverImage,
     tour?.destination?.cover_image,
     tour?.destination?.imageUrl,
@@ -201,16 +218,23 @@ export default function TourCard({
     },
     imageWrapper: {
       position: "relative",
-      height: "220px",
+      width: "100%",
+      aspectRatio: "16 / 10",
+      minHeight: "220px",
       overflow: "hidden",
       background: "#f1f5f9",
     },
+
     image: {
       width: "100%",
       height: "100%",
       objectFit: "cover",
+      objectPosition: "center",
+      display: "block",
+      imageRendering: "auto",
+      backfaceVisibility: "hidden",
+      transform: isHovered ? "scale(1.03)" : "scale(1)",
       transition: "transform 0.5s ease",
-      transform: isHovered ? "scale(1.05)" : "scale(1)",
     },
     overlayTop: {
       position: "absolute",
@@ -370,24 +394,26 @@ export default function TourCard({
       onMouseLeave={() => setIsHovered(false)}
     >
       <div style={styles.imageWrapper}>
-        <img
+        <Image
           key={`${tour?.id || tour?.slug || "tour"}-${imageIndex}`}
           src={cover}
           alt={tour.name || "Tour Travela"}
-          loading="lazy"
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onError={(event) => {
-            event.currentTarget.onerror = null;
-
+          fill
+          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+          quality={90}
+          priority={false}
+          unoptimized={cover.startsWith("data:image")}
+          style={{
+            objectFit: "cover",
+            objectPosition: "center",
+            transform: isHovered ? "scale(1.03)" : "scale(1)",
+            transition: "transform 0.5s ease",
+          }}
+          onError={() => {
             if (imageIndex < imageCandidates.length - 1) {
               setImageIndex((prev) => prev + 1);
-              return;
             }
-
-            event.currentTarget.src = FALLBACK_TOUR_IMAGE;
           }}
-          style={styles.image}
         />
 
         <div

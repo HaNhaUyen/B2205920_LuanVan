@@ -48,6 +48,8 @@ export class AuthService {
       memberPoints: user.memberPoints || 0,
       memberTier: user.memberTier || "bronze",
       birthDate: user.birthDate,
+      dietaryNotes: user.dietaryNotes,
+      healthNotes: user.healthNotes,
     };
   }
 
@@ -88,33 +90,99 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const rawIdentifier = String(dto.identifier || dto.email || "").trim();
+    const password = String(dto.password || "");
+
     if (!rawIdentifier) {
       throw new UnauthorizedException(
         "Vui lòng nhập email hoặc tên tài khoản.",
       );
     }
 
-    const isEmail = rawIdentifier.includes("@");
-    const user = isEmail
-      ? await this.authRepository.findUserByEmail(rawIdentifier.toLowerCase())
-      : await this.authRepository.findUserByEmailOrName(rawIdentifier);
+    if (!password) {
+      throw new UnauthorizedException("Vui lòng nhập mật khẩu.");
+    }
 
-    if (!user) {
+    const isEmail = rawIdentifier.includes("@");
+
+    /*
+     * Đăng nhập bằng email:
+     * Email là duy nhất nên chỉ cần tìm một tài khoản.
+     */
+    if (isEmail) {
+      const user = await this.authRepository.findUserByEmail(
+        rawIdentifier.toLowerCase(),
+      );
+
+      if (!user) {
+        throw new UnauthorizedException(
+          "Email/tên tài khoản hoặc mật khẩu không đúng.",
+        );
+      }
+
+      if (!user.passwordHash) {
+        throw new UnauthorizedException(
+          "Tài khoản này đăng nhập bằng Google. Bạn hãy dùng nút Đăng nhập với Google.",
+        );
+      }
+
+      const matched = await bcrypt.compare(password, user.passwordHash);
+
+      if (!matched) {
+        throw new UnauthorizedException(
+          "Email/tên tài khoản hoặc mật khẩu không đúng.",
+        );
+      }
+
+      if (user.status !== "active") {
+        throw new UnauthorizedException("Tài khoản hiện đang bị khóa.");
+      }
+
+      return this.buildResponse(user);
+    }
+
+    /*
+     * Đăng nhập bằng tên:
+     * Lấy tất cả tài khoản trùng tên rồi so sánh mật khẩu từng tài khoản.
+     */
+    const users = await this.authRepository.findUsersByFullName(rawIdentifier);
+
+    if (!users.length) {
       throw new UnauthorizedException(
         "Email/tên tài khoản hoặc mật khẩu không đúng.",
       );
     }
 
-    if (!user.passwordHash) {
+    const matchedUsers: any[] = [];
+
+    for (const user of users) {
+      if (!user.passwordHash) {
+        continue;
+      }
+
+      const matched = await bcrypt.compare(password, user.passwordHash);
+
+      if (matched) {
+        matchedUsers.push(user);
+      }
+    }
+
+    if (matchedUsers.length === 0) {
       throw new UnauthorizedException(
-        "Tài khoản này đăng nhập bằng Google. Bạn hãy dùng nút Đăng nhập với Google.",
+        "Email/tên tài khoản hoặc mật khẩu không đúng.",
       );
     }
 
-    const matched = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!matched) {
-      throw new UnauthorizedException("Email hoặc mật khẩu không đúng.");
+    /*
+     * Bình thường chỉ có một tài khoản khớp.
+     * Nếu hai người trùng cả tên lẫn mật khẩu thì không thể biết user muốn vào tài khoản nào.
+     */
+    if (matchedUsers.length > 1) {
+      throw new BadRequestException(
+        "Có nhiều tài khoản trùng cả tên và mật khẩu. Vui lòng đăng nhập bằng email.",
+      );
     }
+
+    const user = matchedUsers[0];
 
     if (user.status !== "active") {
       throw new UnauthorizedException("Tài khoản hiện đang bị khóa.");
@@ -212,6 +280,14 @@ export class AuthService {
       phone: nextPhone,
       identityNumber: dto.identityNumber?.trim() || user.identityNumber,
       birthDate: dto.birthDate ? new Date(dto.birthDate) : user.birthDate,
+      dietaryNotes:
+        dto.dietaryNotes !== undefined
+          ? dto.dietaryNotes.trim() || null
+          : user.dietaryNotes,
+      healthNotes:
+        dto.healthNotes !== undefined
+          ? dto.healthNotes.trim() || null
+          : user.healthNotes,
     });
 
     return this.serializeUser(updated);

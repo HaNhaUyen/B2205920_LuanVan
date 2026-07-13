@@ -853,4 +853,79 @@ export class GuidesService {
 
     return created;
   }
+
+  async getGuideCredentials(guideId: bigint) {
+    const guide = await this.prisma.guide.findUnique({
+      where: { id: guideId },
+      select: { id: true, fullName: true },
+    });
+    if (!guide) throw new NotFoundException("Không tìm thấy hướng dẫn viên.");
+
+    const items = await this.prisma.guideCredential.findMany({
+      where: { guideId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return {
+      guide: { id: guide.id.toString(), fullName: guide.fullName },
+      items: items.map((item: any) => ({
+        ...item,
+        id: item.id.toString(),
+        guideId: item.guideId.toString(),
+        reviewedBy: item.reviewedBy?.toString() || null,
+      })),
+    };
+  }
+
+  async reviewGuideCredential(
+    adminUserId: bigint,
+    credentialId: bigint,
+    dto: { status: "approved" | "rejected"; reviewNote?: string },
+  ) {
+    const credential = await this.prisma.guideCredential.findUnique({
+      where: { id: credentialId },
+      include: { guide: true },
+    });
+    if (!credential)
+      throw new NotFoundException("Không tìm thấy khai báo chuyên môn.");
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.guideCredential.update({
+        where: { id: credentialId },
+        data: {
+          status: dto.status,
+          reviewNote: dto.reviewNote?.trim() || null,
+          reviewedBy: adminUserId,
+          reviewedAt: new Date(),
+        },
+      });
+
+      if (credential.guide.userId) {
+        await tx.notification.create({
+          data: {
+            title:
+              dto.status === "approved"
+                ? "Khai báo chuyên môn đã được duyệt"
+                : "Khai báo chuyên môn bị từ chối",
+            message: `${credential.name} - ${dto.status === "approved" ? "Đã duyệt" : "Từ chối"}`,
+            content: [
+              `Nội dung: ${credential.name}`,
+              credential.level ? `Cấp độ: ${credential.level}` : null,
+              dto.reviewNote ? `Ghi chú admin: ${dto.reviewNote}` : null,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            targetRole: "guide",
+            targetUserId: credential.guide.userId,
+            isPublished: true,
+            createdBy: adminUserId,
+          },
+        });
+      }
+
+      return row;
+    });
+
+    return { ...updated, id: updated.id.toString() };
+  }
 }

@@ -6,8 +6,14 @@ import { PrismaService } from "../../prisma/prisma.service";
 export class AuthRepository {
   constructor(public readonly prisma: PrismaService) {}
 
-  findUserByEmail(email: string) {
-    return this.prisma.user.findUnique({ where: { email } });
+  async findUserByEmail(email: string) {
+    return this.prisma.user.findUnique({
+      where: {
+        email: String(email || "")
+          .trim()
+          .toLowerCase(),
+      },
+    });
   }
 
   findUserByEmailOrName(identifier: string) {
@@ -31,6 +37,23 @@ export class AuthRepository {
 
   findUserById(id: bigint) {
     return this.prisma.user.findUnique({ where: { id } });
+  }
+
+  async findUsersByFullName(fullName: string) {
+    const normalizedName = String(fullName || "").trim();
+
+    if (!normalizedName) {
+      return [];
+    }
+
+    return this.prisma.user.findMany({
+      where: {
+        fullName: normalizedName,
+      },
+      orderBy: {
+        id: "asc",
+      },
+    });
   }
 
   createUser(data: {

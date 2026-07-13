@@ -4,7 +4,7 @@
     "name": "Phú Quốc",
     "province": "Kiên Giang",
     "datasetFolder": "phu-quoc",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["phu quoc", "phú quốc", "dao ngoc", "đảo ngọc"]
   },
   "nha-trang": {
@@ -12,7 +12,7 @@
     "name": "Nha Trang",
     "province": "Khánh Hòa",
     "datasetFolder": "nha-trang",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["nha trang", "nha-trang"]
   },
   "da-lat": {
@@ -20,7 +20,7 @@
     "name": "Đà Lạt",
     "province": "Lâm Đồng",
     "datasetFolder": "da-lat",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["da lat", "đà lạt", "dalat"]
   },
   "da-nang": {
@@ -28,7 +28,7 @@
     "name": "Đà Nẵng",
     "province": "Đà Nẵng",
     "datasetFolder": "da-nang",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["da nang", "đà nẵng", "danang"]
   },
   "can-tho": {
@@ -36,7 +36,7 @@
     "name": "Cần Thơ",
     "province": "Cần Thơ",
     "datasetFolder": "can-tho",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["can tho", "cần thơ", "cantho", "mien tay", "miền tây"]
   },
   "sa-pa": {
@@ -44,7 +44,7 @@
     "name": "Sa Pa",
     "province": "Lào Cai",
     "datasetFolder": "sa-pa",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["sa pa", "sapa"]
   },
   "ha-long": {
@@ -52,7 +52,7 @@
     "name": "Hạ Long",
     "province": "Quảng Ninh",
     "datasetFolder": "ha-long",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["ha long", "hạ long", "vịnh hạ long"]
   },
   "hoi-an": {
@@ -60,7 +60,7 @@
     "name": "Hội An",
     "province": "Quảng Nam",
     "datasetFolder": "hoi-an",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["hoi an", "hội an", "pho co hoi an", "phố cổ hội an"]
   },
   "hue": {
@@ -68,7 +68,7 @@
     "name": "Huế",
     "province": "Thừa Thiên Huế",
     "datasetFolder": "hue",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["hue", "huế", "cố đô", "co do hue"]
   },
   "mui-ne": {
@@ -76,7 +76,7 @@
     "name": "Mũi Né",
     "province": "Bình Thuận",
     "datasetFolder": "mui-ne",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["mui ne", "mũi né", "doi cat", "đồi cát"]
   },
   "quy-nhon": {
@@ -84,7 +84,7 @@
     "name": "Quy Nhơn",
     "province": "Bình Định",
     "datasetFolder": "quy-nhon",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["quy nhon", "quy nhơn", "ky co", "kỳ co", "eo gio", "eo gió"]
   },
   "ninh-binh": {
@@ -92,7 +92,7 @@
     "name": "Ninh Bình",
     "province": "Ninh Bình",
     "datasetFolder": "ninh-binh",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": [
       "ninh binh",
       "ninh bình",
@@ -107,7 +107,7 @@
     "name": "Hà Giang",
     "province": "Hà Giang",
     "datasetFolder": "ha-giang",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["ha giang", "hà giang", "ma pi leng", "mã pì lèng"]
   },
   "moc-chau": {
@@ -115,7 +115,7 @@
     "name": "Mộc Châu",
     "province": "Sơn La",
     "datasetFolder": "moc-chau",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["moc chau", "mộc châu", "doi che", "đồi chè"]
   },
   "buon-ma-thuot": {
@@ -123,7 +123,7 @@
     "name": "Buôn Ma Thuột",
     "province": "Đắk Lắk",
     "datasetFolder": "buon-ma-thuot",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["buon ma thuot", "buôn ma thuột", "dak lak", "đắk lắk"]
   },
   "con-dao": {
@@ -131,7 +131,7 @@
     "name": "Côn Đảo",
     "province": "Bà Rịa - Vũng Tàu",
     "datasetFolder": "con-dao",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["con dao", "côn đảo"]
   },
   "vung-tau": {
@@ -139,7 +139,7 @@
     "name": "Vũng Tàu",
     "province": "Bà Rịa - Vũng Tàu",
     "datasetFolder": "vung-tau",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["vung tau", "vũng tàu"]
   },
   "tay-ninh": {
@@ -147,7 +147,7 @@
     "name": "Tây Ninh",
     "province": "Tây Ninh",
     "datasetFolder": "tay-ninh",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["tay ninh", "tây ninh", "nui ba den", "núi bà đen"]
   },
   "an-giang": {
@@ -155,7 +155,7 @@
     "name": "An Giang",
     "province": "An Giang",
     "datasetFolder": "an-giang",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["an giang", "tra su", "trà sư", "chau doc", "châu đốc"]
   },
   "ca-mau": {
@@ -163,7 +163,7 @@
     "name": "Cà Mau",
     "province": "Cà Mau",
     "datasetFolder": "ca-mau",
-    "sampleCount": 10,
+    "sampleCount": 60,
     "aliases": ["ca mau", "cà mau", "mui ca mau", "mũi cà mau"]
   }
 }
