@@ -99,6 +99,80 @@ function getBookableDepartures(departures = []) {
     );
 }
 
+function getTourMediaUrl(item = {}, fallback = "") {
+  return (
+    item?.fileUrl ||
+    item?.file_url ||
+    item?.imageUrl ||
+    item?.image_url ||
+    item?.url ||
+    item?.path ||
+    fallback ||
+    ""
+  );
+}
+
+function isTourCoverImage(item = {}) {
+  const value = item?.isCover ?? item?.is_cover;
+
+  return (
+    value === true ||
+    value === 1 ||
+    value === "1" ||
+    String(value || "").toLowerCase() === "true"
+  );
+}
+
+function buildTourGallery(media = [], coverUrl = "") {
+  const items = Array.isArray(media)
+    ? media.filter((item) => getTourMediaUrl(item))
+    : [];
+
+  if (!items.length) {
+    return coverUrl
+      ? [
+          {
+            id: "fallback-cover",
+            fileUrl: coverUrl,
+            isCover: true,
+            displayOrder: 0,
+          },
+        ]
+      : [];
+  }
+
+  return [...items].sort((a, b) => {
+    const aCover = isTourCoverImage(a);
+    const bCover = isTourCoverImage(b);
+
+    // Ảnh được quản trị viên chọn làm ảnh bìa luôn đứng đầu.
+    if (aCover !== bCover) {
+      return aCover ? -1 : 1;
+    }
+
+    const aOrder = Number(
+      a?.displayOrder ?? a?.display_order ?? Number.MAX_SAFE_INTEGER,
+    );
+    const bOrder = Number(
+      b?.displayOrder ?? b?.display_order ?? Number.MAX_SAFE_INTEGER,
+    );
+
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder;
+    }
+
+    return Number(a?.id || 0) - Number(b?.id || 0);
+  });
+}
+
+function getTourCoverImage(media = [], coverUrl = "") {
+  const gallery = buildTourGallery(media, coverUrl);
+  const coverImage =
+    gallery.find((item) => isTourCoverImage(item)) || gallery[0] || null;
+
+  return getTourMediaUrl(coverImage, coverUrl);
+}
+
 export default function TourDetailPage() {
   const router = useRouter();
   const { slug } = router.query;
@@ -149,10 +223,12 @@ export default function TourDetailPage() {
         setReviews(reviewData || []);
         setAllTours((publicTours || []).map(normalizeTour));
 
-        const gallery = normalized.media?.length
-          ? normalized.media
-          : [{ fileUrl: normalized.coverUrl }];
-        setSelectedImage(mapImageUrl(gallery[0]?.fileUrl, API_URL));
+        const initialCoverUrl = getTourCoverImage(
+          normalized.media,
+          normalized.coverUrl,
+        );
+
+        setSelectedImage(mapImageUrl(initialCoverUrl, API_URL));
         const firstBookableDeparture = normalized.departures?.[0] || null;
         setSelectedDepartureId(firstBookableDeparture?.id || "");
         const initialPassengers = { adultCount: 2, childCount: 0 };
@@ -657,9 +733,7 @@ export default function TourDetailPage() {
 
   if (loading || !tour) return <Loading text="Đang tải chi tiết tour..." />;
 
-  const gallery = tour.media?.length
-    ? tour.media
-    : [{ fileUrl: tour.coverUrl }];
+  const gallery = buildTourGallery(tour.media, tour.coverUrl);
   const relatedTours = allTours
     .filter(
       (item) =>
@@ -936,15 +1010,36 @@ export default function TourDetailPage() {
                 }}
               >
                 {gallery.map((item, index) => {
-                  const url = mapImageUrl(item.fileUrl, API_URL);
+                  const rawUrl = getTourMediaUrl(item, tour.coverUrl);
+                  const url = mapImageUrl(rawUrl, API_URL);
+
+                  if (!url) return null;
+
                   return (
                     <button
-                      key={`${item.fileUrl}-${index}`}
+                      key={item?.id || `${rawUrl}-${index}`}
                       type="button"
-                      className={`gallery-thumb-btn ${selectedImage === url ? "active" : ""}`}
+                      className={`gallery-thumb-btn ${
+                        selectedImage === url ? "active" : ""
+                      }`}
                       onClick={() => setSelectedImage(url)}
+                      aria-label={
+                        isTourCoverImage(item)
+                          ? "Xem ảnh bìa tour"
+                          : `Xem ảnh tour ${index + 1}`
+                      }
                     >
-                      <img src={url} alt={`Gallery ${index + 1}`} />
+                      <img
+                        src={url}
+                        alt={
+                          isTourCoverImage(item)
+                            ? `${tour.name} - ảnh bìa`
+                            : `${tour.name} - ảnh ${index + 1}`
+                        }
+                        onError={(event) => {
+                          event.currentTarget.style.display = "none";
+                        }}
+                      />
                     </button>
                   );
                 })}

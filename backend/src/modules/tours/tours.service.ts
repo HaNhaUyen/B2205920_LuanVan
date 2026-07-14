@@ -781,28 +781,91 @@ export class ToursService {
 
     await this.prisma.$transaction(async (tx) => {
       for (const existing of existingDepartures) {
-        if (keptIncomingIds.has(String(existing.id))) continue;
+        if (keptIncomingIds.has(String(existing.id))) {
+          continue;
+        }
 
+        /*
+         * Không chỉ kiểm tra booking đang hoạt động.
+         * Chỉ cần còn bất kỳ booking nào tham chiếu departure này
+         * thì không được xóa vật lý.
+         */
         const bookingCount = await tx.booking.count({
           where: {
             departureId: existing.id,
-            bookingStatus: {
-              in: [
-                "pending_payment",
-                "waiting_confirmation",
-                "confirmed",
-                "completed",
-              ],
-            },
           },
         });
 
-        if (bookingCount > 0) {
+        /*
+         * TripOperation có quan hệ 1-1 với TourDeparture.
+         * Nếu đã tạo dữ liệu điều hành thì cũng phải giữ lịch.
+         */
+        const tripOperationCount = await tx.tripOperation.count({
+          where: {
+            departureId: existing.id,
+          },
+        });
+
+        /*
+         * Một số bảng nghiệp vụ không khai báo relation trực tiếp trong Prisma,
+         * nhưng vẫn lưu departure_id trong database.
+         */
+        const electronicTicketCount = await tx.electronicTicket.count({
+          where: {
+            departureId: existing.id,
+          },
+        });
+
+        const oldDepartureChangeCount = await tx.departureChangeRequest.count({
+          where: {
+            oldDepartureId: existing.id,
+          },
+        });
+
+        const newDepartureChangeCount = await tx.departureChangeRequest.count({
+          where: {
+            newDepartureId: existing.id,
+          },
+        });
+
+        const operationalAlertCount = await tx.operationalAlert.count({
+          where: {
+            departureId: existing.id,
+          },
+        });
+
+        const hasRelatedData =
+          bookingCount > 0 ||
+          tripOperationCount > 0 ||
+          electronicTicketCount > 0 ||
+          oldDepartureChangeCount > 0 ||
+          newDepartureChangeCount > 0 ||
+          operationalAlertCount > 0;
+
+        if (hasRelatedData) {
+          /*
+           * Không xóa lịch đã phát sinh dữ liệu.
+           * Chuyển sang đóng lịch để giữ toàn vẹn lịch sử.
+           */
+          await tx.tourDeparture.update({
+            where: {
+              id: existing.id,
+            },
+            data: {
+              status: "closed",
+            },
+          });
+
           preservedBookedCount += 1;
           continue;
         }
 
-        await tx.tourDeparture.delete({ where: { id: existing.id } });
+        await tx.tourDeparture.delete({
+          where: {
+            id: existing.id,
+          },
+        });
+
         deletedCount += 1;
       }
 
@@ -816,14 +879,6 @@ export class ToursService {
           const bookingCount = await tx.booking.count({
             where: {
               departureId: existing.id,
-              bookingStatus: {
-                in: [
-                  "pending_payment",
-                  "waiting_confirmation",
-                  "confirmed",
-                  "completed",
-                ],
-              },
             },
           });
 
