@@ -106,9 +106,30 @@ function buildImageDestinationQuery(
     if (!name) return;
 
     const key = strip(name);
-    const safeConfidence = Number(
-      confidence || raw?.confidence || raw?.score || 0,
-    );
+    // Không ưu tiên `confidence` trước vì backend có thể đã clamp nhiều
+    // điểm đến về 1.0, khiến Top 1/2/3 đều hiển thị 100%.
+    // Dùng score ảnh thực tế trước để giữ chênh lệch giữa các kết quả.
+    const scoreCandidates = [
+      raw?.score,
+      raw?.best_image_score,
+      raw?.top3_avg_image_score,
+      confidence,
+      raw?.confidence,
+      Number(raw?.confidence_percent || 0) / 100,
+    ];
+
+    const selectedScore = scoreCandidates.find((value) => {
+      const number = Number(value);
+      return Number.isFinite(number) && number > 0;
+    });
+
+    const rawConfidence = Number(selectedScore || 0);
+    const normalizedConfidence =
+      rawConfidence > 1 ? rawConfidence / 100 : rawConfidence;
+
+    // Phần trăm similarity chỉ để hiển thị mức tương đồng, không phải xác suất.
+    // Giới hạn 99% để tránh hiển thị 100% giả khi score bị làm tròn/clamp.
+    const safeConfidence = Math.max(0, Math.min(normalizedConfidence, 0.99));
     const old = byDestination.get(key);
 
     // Nếu trùng địa điểm thì giữ confidence cao nhất.
@@ -123,13 +144,23 @@ function buildImageDestinationQuery(
   };
 
   topMatches.forEach((match, index) => {
-    const confidence = Number(match?.confidence || match?.score || 0);
+    const confidence = Number(
+      match?.score ||
+        match?.best_image_score ||
+        match?.top3_avg_image_score ||
+        match?.confidence ||
+        Number(match?.confidence_percent || 0) / 100 ||
+        0,
+    );
 
     // Top 5 được lấy, nhưng chỉ giữ top thấp nếu % còn tương đối có ý nghĩa.
     // Sau đó sort lại theo confidence giảm dần.
     if (index < 3 || confidence >= 0.08) {
       pushDestination(
-        match?.destination || match?.name || match?.label,
+        match?.destination ||
+          match?.destination_name ||
+          match?.name ||
+          match?.label,
         confidence,
         match,
         index,
@@ -152,7 +183,7 @@ function buildImageDestinationQuery(
         Number(b.confidence || 0) - Number(a.confidence || 0) ||
         Number(a.sourceIndex || 0) - Number(b.sourceIndex || 0),
     )
-    .slice(0, 5);
+    .slice(0, 3);
 
   return {
     names: picked.map((item) => item.destination),
@@ -218,13 +249,19 @@ export default function AISmartSearchBar({
     try {
       const form = new FormData();
       form.append("file", file);
-      const result = await aiFetch("/image-search-upload?top_k=5", {
+      const result = await aiFetch("/image-search-upload?top_k=12", {
         method: "POST",
         body: form,
       });
       const detectedDestination =
-        normalizeDestination(result?.detected?.destination, destinations) ||
-        normalizeDestination(result?.destination, destinations) ||
+        normalizeDestination(
+          result?.detected?.destination || result?.detected?.destination_name,
+          destinations,
+        ) ||
+        normalizeDestination(
+          result?.destination || result?.destination_name,
+          destinations,
+        ) ||
         destinationFromFilename(file.name, destinations);
       const topMatches = result?.top_matches || result?.topMatches || [];
       const imageQuery = buildImageDestinationQuery(
@@ -507,9 +544,9 @@ export default function AISmartSearchBar({
       )}
       {!!matches.length && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {matches.slice(0, 5).map((m, idx) => {
+          {matches.slice(0, 3).map((m, idx) => {
             const destinationName = normalizeDestination(
-              m.destination || m.label,
+              m.destination || m.destination_name || m.label,
               destinations,
             );
             return (
@@ -529,9 +566,14 @@ export default function AISmartSearchBar({
                     `Đang lọc riêng tour ${destinationName}.`,
                   )
                 }
-                style={{ border: 0, cursor: "pointer" }}
+                style={{
+                  border: 0,
+                  cursor: "pointer",
+                  fontWeight: idx === 0 ? 800 : 700,
+                  background: idx === 0 ? "#dcfce7" : "#f8fafc",
+                }}
               >
-                {destinationName || m.label}{" "}
+                Top {idx + 1}: {destinationName || m.label}{" "}
                 {typeof m.confidence === "number"
                   ? `${Math.round(m.confidence * 100)}%`
                   : ""}

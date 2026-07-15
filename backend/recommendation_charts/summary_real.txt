@@ -1,0 +1,58 @@
+KẾT QUẢ ĐÁNH GIÁ THẬT HỆ THỐNG GỢI Ý TRAVELA
+==========================================================
+
+Thời điểm tạo: 2026-07-15T06:01:04.125Z
+Nguồn: database
+Phương pháp: temporal-holdout-by-unique-tour
+
+Cấu hình:
+- K: 10
+- Số user tối đa: 50
+- Số tour tối thiểu/user: 4
+- Số test item/user: 2
+- Số user tương tự: 30
+- Trọng số Content-Based: 0.7
+- Trọng số Collaborative: 0.30000000000000004
+
+Dữ liệu:
+- Tour đang xuất bản: 141
+- Hành vi đã đọc: 2527
+- User đủ điều kiện: 50
+- User được đánh giá: 50
+- TrainTours trung vị: 4.0
+- TrainTours nhỏ nhất: 4
+- TrainTours lớn nhất: 138
+
+Chống rò rỉ dữ liệu:
+- Loại test của target user khỏi train: True
+- Loại hành vi sau cutoff: True
+
+Kết quả:
+
+Lọc dựa trên nội dung
+- Precision@10: 0.0180
+- Recall@10: 0.0900
+- NDCG@10: 0.0466
+- Coverage: 0.6241
+- Diversity: 0.7781
+
+Lọc cộng tác
+- Precision@10: 0.0200
+- Recall@10: 0.1000
+- NDCG@10: 0.1034
+- Coverage: 0.1844
+- Diversity: 0.2012
+
+Lọc kết hợp (Hybrid)
+- Precision@10: 0.0300
+- Recall@10: 0.1500
+- NDCG@10: 0.0763
+- Coverage: 0.6454
+- Diversity: 0.7798
+
+Nhận xét:
+- Hybrid cao nhất về Precision@10, Recall@10, Coverage và Diversity.
+- Collaborative cao nhất về NDCG@10 trong lần chạy này.
+- Vì vậy không kết luận Hybrid tốt nhất ở mọi chỉ số.
+- Dữ liệu có độ lệch lớn: nhiều user chỉ có 4 tour train, trong khi một số user có hơn 120 tour.
+- Các cutoff 2026-04-29 lặp lại ở nhiều user cho thấy dữ liệu seed hoặc dữ liệu sinh hàng loạt; cần nêu đây là hạn chế của tập đánh giá.

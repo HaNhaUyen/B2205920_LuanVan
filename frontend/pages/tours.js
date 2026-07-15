@@ -668,7 +668,31 @@ export default function ToursPage() {
                   style={{ display: "grid", gap: "24px" }}
                 >
                   {pagedTours.map((tour) => (
-                    <TourCard key={tour.id} tour={tour} />
+                    <div key={tour.id} style={{ position: "relative" }}>
+                      {Number.isFinite(tour._imageMatchConfidence) && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            zIndex: 5,
+                            top: 12,
+                            left: 12,
+                            padding: "7px 11px",
+                            borderRadius: 999,
+                            background: "rgba(15, 23, 42, 0.88)",
+                            color: "#fff",
+                            fontSize: 12,
+                            fontWeight: 800,
+                            boxShadow: "0 6px 16px rgba(15, 23, 42, 0.2)",
+                          }}
+                          title={`Top ${tour._imageMatchRank}: ${tour._imageMatchDestination}`}
+                        >
+                          Top {tour._imageMatchRank} ·{" "}
+                          {tour._imageMatchDestination}{" "}
+                          {Math.round(tour._imageMatchConfidence * 100)}%
+                        </div>
+                      )}
+                      <TourCard tour={tour} />
+                    </div>
                   ))}
                 </div>
                 <div

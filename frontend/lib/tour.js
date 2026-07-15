@@ -74,37 +74,37 @@ export function normalizeTour(tour = {}) {
       reviews.length
     : 4.8;
 
-const departures = (tour.departures || []).map((item) => {
-  const totalSlots = toNumber(item.totalSlots ?? item.total_slots ?? 0);
-  const bookedSlots = toNumber(item.bookedSlots ?? item.booked_slots ?? 0);
-  const heldSlots = toNumber(item.heldSlots ?? item.held_slots ?? 0);
-  const remainingSlots = Math.max(0, totalSlots - bookedSlots - heldSlots);
+  const departures = (tour.departures || []).map((item) => {
+    const totalSlots = toNumber(item.totalSlots ?? item.total_slots ?? 0);
+    const bookedSlots = toNumber(item.bookedSlots ?? item.booked_slots ?? 0);
+    const heldSlots = toNumber(item.heldSlots ?? item.held_slots ?? 0);
+    const remainingSlots = Math.max(0, totalSlots - bookedSlots - heldSlots);
 
-  return {
-    ...item,
-    totalSlots,
-    bookedSlots,
-    heldSlots,
-    remainingSlots,
-  };
-});
+    return {
+      ...item,
+      totalSlots,
+      bookedSlots,
+      heldSlots,
+      remainingSlots,
+    };
+  });
 
-const nextDeparture =
-  tour.nextDeparture ||
-  departures.find(
-    (item) => String(item.status || "").toLowerCase() === "open",
-  ) ||
-  departures[0] ||
-  null;
+  const nextDeparture =
+    tour.nextDeparture ||
+    departures.find(
+      (item) => String(item.status || "").toLowerCase() === "open",
+    ) ||
+    departures[0] ||
+    null;
 
-const remainingSlots = nextDeparture
-  ? nextDeparture.remainingSlots
-  : Math.max(
-      0,
-      toNumber(tour.totalSlots ?? tour.total_slots ?? 0) -
-        toNumber(tour.bookedSlots ?? tour.booked_slots ?? 0) -
-        toNumber(tour.heldSlots ?? tour.held_slots ?? 0),
-    );
+  const remainingSlots = nextDeparture
+    ? nextDeparture.remainingSlots
+    : Math.max(
+        0,
+        toNumber(tour.totalSlots ?? tour.total_slots ?? 0) -
+          toNumber(tour.bookedSlots ?? tour.booked_slots ?? 0) -
+          toNumber(tour.heldSlots ?? tour.held_slots ?? 0),
+      );
 
   const departurePrices = departures
     .map((item) => toNumber(item.adultPrice || 0))
@@ -304,9 +304,21 @@ function parseImageDestinationScores(query = {}) {
     ? rawScores
         .map((item) => ({
           name: String(
-            item?.destination || item?.name || item?.label || "",
+            item?.destination ||
+              item?.destination_name ||
+              item?.name ||
+              item?.label ||
+              "",
           ).trim(),
-          confidence: Number(item?.confidence || item?.score || 0),
+          confidence: (() => {
+            const raw = Number(
+              item?.confidence ||
+                item?.score ||
+                Number(item?.confidence_percent || 0) / 100 ||
+                0,
+            );
+            return raw > 1 ? raw / 100 : raw;
+          })(),
         }))
         .filter((item) => item.name)
     : [];
@@ -336,9 +348,9 @@ function parseImageDestinationScores(query = {}) {
     }
   });
 
-  return Array.from(map.values()).sort(
-    (a, b) => b.confidence - a.confidence || a.rank - b.rank,
-  );
+  return Array.from(map.values())
+    .sort((a, b) => b.confidence - a.confidence || a.rank - b.rank)
+    .slice(0, 3);
 }
 
 function getTourDestinationText(tour = {}) {
@@ -546,7 +558,18 @@ export function filterTours(tours = [], query = {}) {
 
       return sortByNormalRule(a.tour, b.tour, sort);
     })
-    .map((item) => item.tour);
+    .map((item) => ({
+      ...item.tour,
+      _imageMatchConfidence: imageScores.length
+        ? Number(item.imageMatch?.confidence || 0)
+        : null,
+      _imageMatchDestination: imageScores.length
+        ? item.imageMatch?.name || ""
+        : "",
+      _imageMatchRank: imageScores.length
+        ? Number(item.imageMatch?.rank ?? 9999) + 1
+        : null,
+    }));
 }
 
 export function renderDeparturePreview(

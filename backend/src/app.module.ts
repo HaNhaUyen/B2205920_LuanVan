@@ -25,6 +25,7 @@ import { TravelCompanionsModule } from "./modules/travel-companions/travel-compa
 import { TripOperationsModule } from "./modules/trip-operations/trip-operations.module";
 import { OperationalExpansionModule } from "./modules/operational-expansion/operational-expansion.module";
 import { GuideAvailabilityModule } from "./modules/guide-availability/guide-availability.module";
+import { RealtimeModule } from "./modules/realtime/realtime.module";
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { GuideAvailabilityModule } from "./modules/guide-availability/guide-avai
     TripOperationsModule,
     OperationalExpansionModule,
     GuideAvailabilityModule,
+    RealtimeModule,
   ],
 })
 export class AppModule {}

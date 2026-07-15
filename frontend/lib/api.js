@@ -1,5 +1,6 @@
 import { API_URL, AI_API_URL } from "./config";
 import { getToken } from "./storage";
+import { emitDataChanged } from "./realtime";
 
 async function parsePayload(response) {
   const contentType = response.headers.get("content-type") || "";
@@ -81,6 +82,34 @@ export async function apiFetch(path, options = {}) {
 
   if (!response.ok) {
     throw new Error(extractMessage(payload));
+  }
+
+  const method = String(options.method || "GET").toUpperCase();
+  const normalizedPath = String(path || "").replace(/^\//, "");
+  const ignoredRealtimePrefixes = [
+    "auth/",
+    "chatbot/",
+    "recommendations/behavior",
+  ];
+  const shouldNotifyMutation =
+    ["POST", "PUT", "PATCH", "DELETE"].includes(method) &&
+    !ignoredRealtimePrefixes.some((prefix) =>
+      normalizedPath.startsWith(prefix),
+    );
+
+  if (shouldNotifyMutation) {
+    const resource = String(path || "")
+      .split("?")[0]
+      .split("/")
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("/");
+
+    emitDataChanged({
+      source: "local",
+      method,
+      resource: resource || "unknown",
+    });
   }
 
   return payload;

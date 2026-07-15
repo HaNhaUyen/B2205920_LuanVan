@@ -1,0 +1,357 @@
+{
+  "generatedAt": "2026-07-15T06:01:04.125Z",
+  "source": "database",
+  "evaluationMethod": "temporal-holdout-by-unique-tour",
+  "leakageProtection": {
+    "targetUserTestRemovedFromTraining": true,
+    "behaviorsAfterTestCutoffRemovedFromCollaborativeMatrix": true
+  },
+  "config": {
+    "k": 10,
+    "maxUsers": 50,
+    "minUniqueTours": 4,
+    "testItems": 2,
+    "topSimilarUsers": 30,
+    "hybridWeights": {
+      "contentBased": 0.7,
+      "collaborative": 0.30000000000000004
+    }
+  },
+  "dataset": {
+    "activeTours": 141,
+    "loadedBehaviors": 2527,
+    "eligibleUsers": 50,
+    "evaluatedUsers": 50
+  },
+  "result": [
+    {
+      "modelName": "ContentBased",
+      "precisionAt10": 0.018,
+      "recallAt10": 0.09,
+      "ndcgAt10": 0.0466,
+      "coverage": 0.6241,
+      "diversity": 0.7781,
+      "evaluatedUsers": 50
+    },
+    {
+      "modelName": "Collaborative",
+      "precisionAt10": 0.02,
+      "recallAt10": 0.1,
+      "ndcgAt10": 0.1034,
+      "coverage": 0.1844,
+      "diversity": 0.2012,
+      "evaluatedUsers": 50
+    },
+    {
+      "modelName": "Hybrid",
+      "precisionAt10": 0.03,
+      "recallAt10": 0.15,
+      "ndcgAt10": 0.0763,
+      "coverage": 0.6454,
+      "diversity": 0.7798,
+      "evaluatedUsers": 50
+    }
+  ],
+  "evaluatedUserDetails": [
+    {
+      "userId": "379",
+      "trainTours": 138,
+      "testTours": 2,
+      "cutoff": "2026-07-15T05:24:08.000Z"
+    },
+    {
+      "userId": "215",
+      "trainTours": 127,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "172",
+      "trainTours": 126,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "129",
+      "trainTours": 126,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "86",
+      "trainTours": 126,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "43",
+      "trainTours": 126,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "343",
+      "trainTours": 37,
+      "testTours": 2,
+      "cutoff": "2026-06-30T13:40:53.000Z"
+    },
+    {
+      "userId": "341",
+      "trainTours": 17,
+      "testTours": 2,
+      "cutoff": "2026-06-27T13:33:27.000Z"
+    },
+    {
+      "userId": "2",
+      "trainTours": 13,
+      "testTours": 2,
+      "cutoff": "2026-05-29T07:16:54.000Z"
+    },
+    {
+      "userId": "27",
+      "trainTours": 5,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "85",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "84",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "83",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "82",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "81",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "79",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "78",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "77",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "76",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "75",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "74",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "73",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "72",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "71",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "70",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "69",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "67",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "66",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "65",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "64",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "63",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "62",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "61",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "60",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "59",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "58",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "57",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "55",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "54",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "53",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "52",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "51",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "50",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "49",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "48",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "47",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "46",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "45",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "42",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    },
+    {
+      "userId": "41",
+      "trainTours": 4,
+      "testTours": 2,
+      "cutoff": "2026-04-29T13:55:40.000Z"
+    }
+  ]
+}
