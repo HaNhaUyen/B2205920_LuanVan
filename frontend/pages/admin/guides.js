@@ -140,6 +140,7 @@ export default function AdminGuidesPage() {
   });
 
   const [bookings, setBookings] = useState([]);
+  const [assignableDepartures, setAssignableDepartures] = useState([]);
   const [available, setAvailable] = useState([]);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -188,15 +189,22 @@ export default function AdminGuidesPage() {
     setLoading(true);
 
     try {
-      const [guidesRes, bookingPage] = await Promise.all([
-        apiFetch(`/guides?${qs}`).catch(() => emptyPage),
-        apiFetch("/admin/bookings?page=1&pageSize=200&status=confirmed").catch(
-          () => ({ items: [] }),
-        ),
-      ]);
+      const [guidesRes, bookingPage, assignableDepartureRows] =
+        await Promise.all([
+          apiFetch(`/guides?${qs}`).catch(() => emptyPage),
+          apiFetch(
+            "/admin/bookings?page=1&pageSize=200&status=confirmed",
+          ).catch(() => ({ items: [] })),
+          apiFetch("/guides/assignable-departures").catch(() => []),
+        ]);
 
       const bookingItems = bookingPage.items || bookingPage || [];
       setBookings(bookingItems);
+      setAssignableDepartures(
+        Array.isArray(assignableDepartureRows)
+          ? assignableDepartureRows
+          : assignableDepartureRows?.items || [],
+      );
 
       if (Array.isArray(guidesRes)) {
         let filtered = guidesRes;
@@ -256,6 +264,13 @@ export default function AdminGuidesPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qs]);
+
+  const openAssignGuide = () => {
+    setReassignContext(null);
+    setAssignForm({ departureId: "", guideId: "", note: "" });
+    setAvailable([]);
+    setAssignOpen(true);
+  };
 
   const openCreate = () => {
     setForm({
@@ -367,56 +382,63 @@ export default function AdminGuidesPage() {
   };
 
   const departureOptions = useMemo(() => {
-    const map = new Map();
+    /*
+     * Endpoint backend đã lọc:
+     * - Lịch chưa tới ngày khởi hành.
+     * - Có booking hợp lệ.
+     * - Chưa có HDV đang được phân công.
+     */
+    return (assignableDepartures || []).map((item) => {
+      const matchingBookings = (bookings || []).filter((booking) => {
+        const bookingDepartureId =
+          booking.departureId || booking.departure?.id || booking.departure_id;
 
-    for (const booking of bookings) {
-      const departureId =
-        booking.departureId || booking.departure?.id || booking.departure_id;
+        return String(bookingDepartureId) === String(item.departureId);
+      });
 
-      if (!departureId) continue;
-
-      const key = String(departureId);
-      const current = map.get(key);
-      const guestCount =
-        Number(booking.adultCount || 0) + Number(booking.childCount || 0);
-
-      if (!current) {
-        map.set(key, {
-          departureId: key,
-          representativeBookingId: String(booking.id),
-          tourName:
-            booking.tour?.name || booking.tourName || "Tour chưa cập nhật",
-          tourCode: booking.tour?.code || booking.tourCode || "",
-          departureDate:
-            booking.departureDate || booking.departure?.departureDate,
-          endDate: booking.endDate || booking.departure?.endDate,
-          destinationName:
-            booking.tour?.destination?.name ||
-            booking.destinationName ||
-            booking.tour?.destinationName ||
-            "Chưa cập nhật",
-          bookingCount: 1,
-          guestCount,
-          bookings: [booking],
-        });
-      } else {
-        current.bookingCount += 1;
-        current.guestCount += guestCount;
-        current.bookings.push(booking);
-      }
-    }
-
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(a.departureDate) - new Date(b.departureDate),
-    );
-  }, [bookings]);
+      return {
+        ...item,
+        departureId: String(item.departureId),
+        representativeBookingId: String(
+          item.representativeBookingId || matchingBookings[0]?.id || "",
+        ),
+        bookingCount: Number(item.bookingCount || matchingBookings.length || 0),
+        guestCount: Number(item.guestCount || 0),
+        bookings: matchingBookings,
+      };
+    });
+  }, [assignableDepartures, bookings]);
 
   const onSelectDeparture = async (departureId) => {
     const option = departureOptions.find(
       (item) => String(item.departureId) === String(departureId),
     );
 
-    const representativeBooking = option?.bookings?.[0] || null;
+    const representativeBooking =
+      option?.bookings?.[0] ||
+      (option
+        ? {
+            id: option.representativeBookingId,
+            departureId: option.departureId,
+            departureDate: option.departureDate,
+            endDate: option.endDate,
+            departure: {
+              id: option.departureId,
+              departureDate: option.departureDate,
+              endDate: option.endDate,
+            },
+            tourName: option.tourName,
+            tour: {
+              id: option.tourId,
+              code: option.tourCode,
+              name: option.tourName,
+              destination: {
+                name: option.destinationName,
+                province: option.destinationProvince,
+              },
+            },
+          }
+        : null);
 
     setAssignForm((prev) => ({
       ...prev,
@@ -503,8 +525,13 @@ export default function AdminGuidesPage() {
     try {
       await apiFetch("/guides/assign", {
         method: "POST",
-        body: JSON.stringify(assignForm),
+        body: JSON.stringify({
+          ...assignForm,
+          allowReplace: Boolean(reassignContext),
+        }),
       });
+
+      const wasReassigning = Boolean(reassignContext);
 
       setAssignOpen(false);
       setAssignForm({
@@ -512,10 +539,16 @@ export default function AdminGuidesPage() {
         guideId: "",
         note: "",
       });
+      setReassignContext(null);
 
       await load();
 
-      showToast("Đã phân công lại hướng dẫn viên.", "success");
+      showToast(
+        wasReassigning
+          ? "Đã phân công lại hướng dẫn viên."
+          : "Đã phân công hướng dẫn viên cho lịch khởi hành.",
+        "success",
+      );
     } catch (e) {
       showToast(e.message || "Không phân công được hướng dẫn viên.", "error");
     } finally {
@@ -885,6 +918,9 @@ export default function AdminGuidesPage() {
           >
             Duyệt lịch bận
           </Link>
+          <Link href="/admin/trip-reports" className="guide-management-tab">
+            Báo cáo chuyến đi
+          </Link>
         </div>
 
         <div
@@ -951,6 +987,18 @@ export default function AdminGuidesPage() {
               }}
             >
               {exporting ? "Đang xuất..." : "Xuất Excel"}
+            </button>
+
+            <button
+              type="button"
+              className="guide-btn"
+              onClick={openAssignGuide}
+              style={{
+                background: "linear-gradient(135deg, #0f766e, #0d9488)",
+                color: "#fff",
+              }}
+            >
+              Phân công HDV
             </button>
 
             <button
@@ -1825,6 +1873,23 @@ export default function AdminGuidesPage() {
                     </option>
                   ))}
                 </select>
+
+                {departureOptions.length === 0 ? (
+                  <p
+                    style={{
+                      margin: "10px 0 0",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: "#f8fafc",
+                      color: "#64748b",
+                      fontSize: "0.88rem",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Hiện không có lịch khởi hành tương lai nào đang chờ phân
+                    công hướng dẫn viên.
+                  </p>
+                ) : null}
 
                 {selectedDeparture && (
                   <div

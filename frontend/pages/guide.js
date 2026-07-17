@@ -48,6 +48,7 @@ const statusLabels = {
   active: "Đã duyệt",
   rejected: "Bị từ chối",
   cancelled: "Đã hủy",
+  replaced: "Đã thay thế",
 };
 
 const statusOptions = [
@@ -63,6 +64,7 @@ const statusTones = {
   in_progress: ["#fffbeb", "#b45309", "#fde68a"],
   completed: ["#f0fdfa", "#0f766e", "#ccfbf1"],
   issue: ["#fef2f2", "#b91c1c", "#fecaca"],
+  replaced: ["#f8fafc", "#64748b", "#cbd5e1"],
 };
 
 function toDateInput(value) {
@@ -480,19 +482,6 @@ export default function GuidePage() {
           <div className="brand-text">
             <h1>Travela Portal</h1>
             <p>Dành cho Hướng dẫn viên</p>
-          </div>
-        </div>
-
-        <div className="guide-user-card">
-          <div className="avatar-mini">
-            {guide?.fullName?.charAt(0)?.toUpperCase() || "G"}
-          </div>
-
-          <div className="user-info">
-            <strong>
-              {guide?.fullName || currentUser?.fullName || "Hướng dẫn viên"}
-            </strong>
-            <span>{guide?.email || currentUser?.email}</span>
           </div>
         </div>
 
@@ -1129,45 +1118,6 @@ export default function GuidePage() {
           margin: 2px 0 0;
           color: #94a3b8;
           font-size: 13px;
-        }
-
-        .guide-user-card {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 14px;
-          border-radius: 16px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          margin-bottom: 24px;
-        }
-
-        .avatar-mini {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          background: #334155;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 600;
-        }
-
-        .user-info strong {
-          display: block;
-          font-size: 14px;
-          color: #fff;
-          margin-bottom: 2px;
-        }
-
-        .user-info span {
-          display: block;
-          color: #94a3b8;
-          font-size: 12px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 150px;
         }
 
         .sidebar-nav {

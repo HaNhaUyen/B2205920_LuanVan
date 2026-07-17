@@ -734,8 +734,8 @@ export class BookingsService {
     });
   }
 
-  findMyBookings(userId: bigint) {
-    return this.prisma.booking.findMany({
+  async findMyBookings(userId: bigint) {
+    const bookings = await this.prisma.booking.findMany({
       where: {
         userId,
         bookingStatus: {
@@ -763,19 +763,25 @@ export class BookingsService {
         },
         guideAssignments: {
           where: {
-            status: { in: ["assigned", "confirmed"] as any },
+            status: {
+              in: [
+                "assigned",
+                "accepted",
+                "confirmed",
+                "in_progress",
+                "issue",
+              ] as any,
+            },
           },
-          include: {
-            guide: true,
-          },
+          include: { guide: true },
           orderBy: { createdAt: "desc" },
-          take: 1,
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
     });
+
+    const resolved = await this.attachDepartureGuides(bookings as any[]);
+    return resolved.map((booking: any) => this.enrichBooking(booking));
   }
 
   async cancelMyBooking(id: number, userId: bigint) {
@@ -896,12 +902,103 @@ export class BookingsService {
     return Math.ceil((target.getTime() - start.getTime()) / 86400000);
   }
 
+  /**
+   * Gắn HDV chính của lịch khởi hành vào từng booking.
+   *
+   * Nghiệp vụ hiện tại là:
+   * một departure -> một trip_operations -> một HDV -> toàn bộ booking cùng lịch.
+   * guide_assignments chỉ được giữ làm dữ liệu tương thích cho hệ thống cũ.
+   */
+  private async attachDepartureGuides(bookings: any[]) {
+    const rows = Array.isArray(bookings) ? bookings : [];
+
+    const departureIds = Array.from(
+      new Set(
+        rows
+          .map((booking: any) =>
+            String(booking?.departureId || booking?.departure?.id || ""),
+          )
+          .filter(Boolean),
+      ),
+    ).map((id) => BigInt(id));
+
+    const operations = departureIds.length
+      ? await this.prisma.tripOperation.findMany({
+          where: {
+            departureId: {
+              in: departureIds,
+            },
+          },
+          include: {
+            guide: true,
+          },
+        })
+      : [];
+
+    const operationByDepartureId = new Map(
+      operations.map((operation: any) => [
+        String(operation.departureId),
+        operation,
+      ]),
+    );
+
+    return rows.map((booking: any) => {
+      const departureId = String(
+        booking?.departureId || booking?.departure?.id || "",
+      );
+      const tripOperation = operationByDepartureId.get(departureId) || null;
+
+      const legacyAssignment = (booking.guideAssignments || []).find(
+        (assignment: any) =>
+          [
+            "assigned",
+            "accepted",
+            "confirmed",
+            "in_progress",
+            "issue",
+          ].includes(String(assignment?.status || "")),
+      );
+
+      const resolvedGuide =
+        tripOperation?.guide || legacyAssignment?.guide || null;
+
+      return {
+        ...booking,
+        guideId: resolvedGuide?.id || null,
+        guideName: resolvedGuide?.fullName || null,
+        guidePhone: resolvedGuide?.phone || null,
+        guideEmail: resolvedGuide?.email || null,
+        guide: resolvedGuide,
+        hasGuide: Boolean(resolvedGuide),
+        tripOperation: tripOperation
+          ? {
+              id: tripOperation.id,
+              departureId: tripOperation.departureId,
+              guideId: tripOperation.guideId,
+              operationStatus: tripOperation.operationStatus,
+              guide: tripOperation.guide || null,
+              primaryGuide: tripOperation.guide || null,
+            }
+          : null,
+      };
+    });
+  }
+
   private buildOperationInsight(booking: any) {
     const latestPayment = booking.payments?.[0] || null;
-    const activeGuide = (booking.guideAssignments || []).find(
+    const legacyActiveGuide = (booking.guideAssignments || []).find(
       (assignment: any) =>
-        ["assigned", "confirmed"].includes(String(assignment.status || "")),
+        ["assigned", "accepted", "confirmed", "in_progress", "issue"].includes(
+          String(assignment.status || ""),
+        ),
     );
+    const resolvedGuide =
+      booking.guide ||
+      booking.tripOperation?.guide ||
+      booking.tripOperation?.primaryGuide ||
+      legacyActiveGuide?.guide ||
+      null;
+    const activeGuide = resolvedGuide ? { guide: resolvedGuide } : null;
     const daysUntilDeparture = this.daysUntil(booking.departure?.departureDate);
     const flags: Array<{ code: string; label: string; tone: string }> = [];
     let priorityScore = 0;
@@ -1012,14 +1109,35 @@ export class BookingsService {
   }
 
   private enrichBooking(booking: any) {
-    return {
+    const legacyActiveAssignment =
+      (booking.guideAssignments || []).find((assignment: any) =>
+        ["assigned", "accepted", "confirmed", "in_progress", "issue"].includes(
+          String(assignment.status || ""),
+        ),
+      ) || null;
+
+    const resolvedGuide =
+      booking.guide ||
+      booking.tripOperation?.guide ||
+      booking.tripOperation?.primaryGuide ||
+      legacyActiveAssignment?.guide ||
+      null;
+
+    const normalized = {
       ...booking,
+      guideId: resolvedGuide?.id || booking.guideId || null,
+      guideName: resolvedGuide?.fullName || booking.guideName || null,
+      guidePhone: resolvedGuide?.phone || booking.guidePhone || null,
+      guideEmail: resolvedGuide?.email || booking.guideEmail || null,
+      guide: resolvedGuide,
+      hasGuide: Boolean(resolvedGuide),
       latestPayment: booking.payments?.[0] || null,
-      activeGuideAssignment:
-        (booking.guideAssignments || []).find((assignment: any) =>
-          ["assigned", "confirmed"].includes(String(assignment.status || "")),
-        ) || null,
-      operationInsight: this.buildOperationInsight(booking),
+      activeGuideAssignment: legacyActiveAssignment,
+    };
+
+    return {
+      ...normalized,
+      operationInsight: this.buildOperationInsight(normalized),
     };
   }
 
@@ -1107,6 +1225,8 @@ export class BookingsService {
       throw new NotFoundException("Không tìm thấy booking.");
     }
 
+    const [resolvedBooking] = await this.attachDepartureGuides([booking]);
+
     const pickupOptions = await this.prisma.tourPickupPoint.findMany({
       where: {
         tourId: booking.tourId,
@@ -1170,7 +1290,7 @@ export class BookingsService {
     });
 
     return {
-      ...this.enrichBooking(booking),
+      ...this.enrichBooking(resolvedBooking),
       pickupOptions,
       departureGuests,
       sameDepartureBookings,
@@ -1193,6 +1313,16 @@ export class BookingsService {
           time: assignment.createdAt,
           note: `${assignment.guide?.fullName || "HDV"} · ${assignment.status}`,
         })),
+        ...(resolvedBooking.tripOperation?.guide
+          ? [
+              {
+                label: "HDV chính của lịch khởi hành",
+                time:
+                  resolvedBooking.tripOperation?.updatedAt || booking.updatedAt,
+                note: `${resolvedBooking.tripOperation.guide.fullName} · ${resolvedBooking.tripOperation.operationStatus || "preparing"}`,
+              },
+            ]
+          : []),
         ...(booking.logs || []).map((log: any) => ({
           label: log.actionType || "Cập nhật trạng thái",
           time: log.createdAt,
@@ -1271,16 +1401,6 @@ export class BookingsService {
       where.payments = { some: { paymentStatus: query.paymentStatus } };
     }
 
-    if (query.guideStatus === "assigned") {
-      where.guideAssignments = {
-        some: { status: { in: ["assigned", "confirmed"] } },
-      };
-    } else if (query.guideStatus === "unassigned") {
-      where.guideAssignments = {
-        none: { status: { in: ["assigned", "confirmed"] } },
-      };
-    }
-
     const include = {
       tour: {
         select: {
@@ -1296,7 +1416,17 @@ export class BookingsService {
       voucher: true,
       payments: { take: 1, orderBy: { createdAt: "desc" as const } },
       guideAssignments: {
-        where: { status: { in: ["assigned", "confirmed"] as any } },
+        where: {
+          status: {
+            in: [
+              "assigned",
+              "accepted",
+              "confirmed",
+              "in_progress",
+              "issue",
+            ] as any,
+          },
+        },
         include: { guide: true },
         take: 1,
         orderBy: { createdAt: "desc" as const },
@@ -1304,18 +1434,38 @@ export class BookingsService {
       refundRequests: { where: { status: "pending" as any }, take: 1 },
     };
 
-    const [rawItems, total] = await Promise.all([
-      this.prisma.booking.findMany({
-        where,
-        skip,
-        take: pageSize,
-        orderBy: [{ [sortBy]: sortOrder }, { id: "desc" }],
-        include,
-      }),
-      this.prisma.booking.count({ where }),
-    ]);
+    const requiresResolvedGuideFilter = ["assigned", "unassigned"].includes(
+      String(query.guideStatus || ""),
+    );
 
-    let items = rawItems.map((item) => this.enrichBooking(item));
+    const rawItems = await this.prisma.booking.findMany({
+      where,
+      ...(requiresResolvedGuideFilter ? {} : { skip, take: pageSize }),
+      orderBy: [{ [sortBy]: sortOrder }, { id: "desc" }],
+      include,
+    });
+
+    const resolvedRawItems = await this.attachDepartureGuides(
+      rawItems as any[],
+    );
+
+    let resolvedItems = resolvedRawItems.map((item: any) =>
+      this.enrichBooking(item),
+    );
+
+    if (query.guideStatus === "assigned") {
+      resolvedItems = resolvedItems.filter((item: any) => item.hasGuide);
+    } else if (query.guideStatus === "unassigned") {
+      resolvedItems = resolvedItems.filter((item: any) => !item.hasGuide);
+    }
+
+    const total = requiresResolvedGuideFilter
+      ? resolvedItems.length
+      : await this.prisma.booking.count({ where });
+
+    let items = requiresResolvedGuideFilter
+      ? resolvedItems.slice(skip, skip + pageSize)
+      : resolvedItems;
 
     if (query.urgency === "high") {
       items = items.filter(
@@ -1649,9 +1799,12 @@ export class BookingsService {
     const noPickup = confirmedBookings.filter(
       (b: any) => !b.pickupPointId && !b.pickupName,
     );
-    const noGuide = confirmedBookings.filter(
-      (b: any) => !(b.guideAssignments || []).length,
-    );
+    const departureGuide =
+      departure.guide ||
+      departure.tripOperation?.guide ||
+      departure.tripOperation?.primaryGuide ||
+      null;
+    const noGuide = departureGuide ? [] : confirmedBookings;
     const emailReminderSent = bookings.some((b: any) =>
       (b.logs || []).some((log: any) =>
         String(log.actionType || "").startsWith("bulk_"),
@@ -1659,7 +1812,7 @@ export class BookingsService {
     );
 
     return {
-      totalBookings: bookings.length,
+      totalBookings: resolvedBookings.length,
       confirmedBookings: confirmedBookings.length,
       pendingPayments: pendingPayments.length,
       noPickup: noPickup.length,
@@ -1765,7 +1918,17 @@ export class BookingsService {
           bookingStatus: { in: ["confirmed", "waiting_confirmation"] as any },
           departure: { departureDate: { gte: todayStart, lte: next7End } },
           guideAssignments: {
-            none: { status: { in: ["assigned", "confirmed"] } },
+            none: {
+              status: {
+                in: [
+                  "assigned",
+                  "accepted",
+                  "confirmed",
+                  "in_progress",
+                  "issue",
+                ],
+              },
+            },
           },
         },
       }),
@@ -1941,6 +2104,26 @@ export class BookingsService {
       orderBy: { departureDate: "asc" },
     });
 
+    const departureIds = departures.map((dep: any) => dep.id);
+    const operations = departureIds.length
+      ? await this.prisma.tripOperation.findMany({
+          where: { departureId: { in: departureIds } },
+          include: { guide: true },
+        })
+      : [];
+    const operationByDeparture = new Map(
+      operations.map((operation: any) => [
+        String(operation.departureId),
+        operation,
+      ]),
+    );
+
+    departures.forEach((dep: any) => {
+      const operation = operationByDeparture.get(String(dep.id)) || null;
+      dep.tripOperation = operation;
+      dep.guide = operation?.guide || null;
+    });
+
     return {
       mode: query.mode || "week",
       start,
@@ -1957,13 +2140,13 @@ export class BookingsService {
             sum + Number(b.adultCount || 0) + Number(b.childCount || 0),
           0,
         );
-        const noGuide = (dep.bookings || []).filter(
-          (b: any) =>
-            !(b.guideAssignments || []).length &&
-            ["confirmed", "waiting_confirmation"].includes(
-              String(b.bookingStatus),
-            ),
-        ).length;
+        const noGuide = dep.guide
+          ? 0
+          : (dep.bookings || []).filter((b: any) =>
+              ["confirmed", "waiting_confirmation"].includes(
+                String(b.bookingStatus),
+              ),
+            ).length;
         group.departures.push({
           id: dep.id,
           tourId: dep.tourId,
@@ -1978,6 +2161,8 @@ export class BookingsService {
           guests,
           bookingCount: dep.bookings?.length || 0,
           noGuide,
+          guideId: dep.guide?.id || null,
+          guideName: dep.guide?.fullName || null,
           status: dep.status,
         });
         return acc;
@@ -2022,8 +2207,25 @@ export class BookingsService {
       take: 80,
     });
 
+    const departureIds = departures.map((dep: any) => dep.id);
+    const operations = departureIds.length
+      ? await this.prisma.tripOperation.findMany({
+          where: { departureId: { in: departureIds } },
+          include: { guide: true },
+        })
+      : [];
+    const operationByDeparture = new Map(
+      operations.map((operation: any) => [
+        String(operation.departureId),
+        operation,
+      ]),
+    );
+
     const items = [];
     for (const dep of departures as any[]) {
+      const operation = operationByDeparture.get(String(dep.id)) || null;
+      dep.tripOperation = operation;
+      dep.guide = operation?.guide || null;
       const checklist = await this.getDepartureChecklist(dep);
       items.push({
         id: dep.id,
@@ -2033,6 +2235,8 @@ export class BookingsService {
         departureDate: dep.departureDate,
         endDate: dep.endDate,
         daysUntilDeparture: this.daysUntil(dep.departureDate),
+        guideId: dep.guide?.id || null,
+        guideName: dep.guide?.fullName || null,
         ...checklist,
       });
     }
@@ -2048,7 +2252,11 @@ export class BookingsService {
       ? `${booking.pickupName} - ${booking.pickupAddress || ""}`
       : "Travela sẽ liên hệ xác nhận";
     const guide =
-      booking.guideAssignments?.[0]?.guide?.fullName || "Travela sẽ cập nhật";
+      booking.guide?.fullName ||
+      booking.tripOperation?.guide?.fullName ||
+      booking.tripOperation?.primaryGuide?.fullName ||
+      booking.guideAssignments?.[0]?.guide?.fullName ||
+      "Travela sẽ cập nhật";
     const templates: any = {
       reminder: `Nhắc lịch: ${tourName} sẽ khởi hành ngày ${departureDate}. Điểm đón: ${pickup}. Vui lòng có mặt trước giờ đón 15 phút.`,
       pickup: `Thông tin điểm đón của ${tourName}: ${pickup}. Ngày khởi hành: ${departureDate}.`,
@@ -2100,10 +2308,14 @@ export class BookingsService {
       take: 200,
     });
 
+    const resolvedBookings = await this.attachDepartureGuides(
+      bookings as any[],
+    );
+
     let notificationCount = 0;
     let emailCount = 0;
     const errors: string[] = [];
-    for (const booking of bookings as any[]) {
+    for (const booking of resolvedBookings as any[]) {
       const content = this.buildBulkMessage(
         dto.type || "reminder",
         booking,

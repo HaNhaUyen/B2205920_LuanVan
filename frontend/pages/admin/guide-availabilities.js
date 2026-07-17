@@ -832,6 +832,7 @@ function GuideManagementTabs() {
     { href: "/admin/guide-competencies", label: "Duyệt chứng chỉ" },
     { href: "/admin/incidents", label: "Duyệt sự cố" },
     { href: "/admin/guide-availabilities", label: "Duyệt lịch bận" },
+    { href: "/admin/trip-reports", label: "Báo cáo chuyến đi" },
   ];
 
   return (

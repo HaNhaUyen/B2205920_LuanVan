@@ -585,6 +585,18 @@ function toneForPriority(level) {
   if (level === "medium") return "warning";
   return "success";
 }
+function canUpdateBookingPickup(booking) {
+  if (!booking) return false;
+  if (["completed", "cancelled", "expired"].includes(booking.bookingStatus)) {
+    return false;
+  }
+  const raw = booking.departure?.departureDate || booking.departureDate;
+  if (!raw) return false;
+  const departureAt = new Date(raw);
+  if (Number.isNaN(departureAt.getTime())) return false;
+  return departureAt.getTime() > Date.now();
+}
+
 function formatDaysUntilDeparture(days) {
   if (days === null || days === undefined) return "Chưa rõ";
   if (days < 0) return `Đã qua ${Math.abs(days)} ngày`;
@@ -802,6 +814,7 @@ export default function AdminPage({ initialTab = "overview" }) {
   const [bookingPickupForm, setBookingPickupForm] = useState({
     pickupPointId: "",
   });
+  const [updatingBookingPickup, setUpdatingBookingPickup] = useState(false);
   const [contactDetailOpen, setContactDetailOpen] = useState(false);
   const [contactDetail, setContactDetail] = useState(null);
   const [replyOpen, setReplyOpen] = useState(false);
@@ -1174,11 +1187,19 @@ export default function AdminPage({ initialTab = "overview" }) {
 
   const updateBookingPickup = async () => {
     if (!bookingDetail?.id) return;
+    if (!canUpdateBookingPickup(bookingDetail)) {
+      showToast(
+        "Tour đã bắt đầu hoặc đã qua ngày khởi hành nên không thể cập nhật điểm đón.",
+        "warning",
+      );
+      return;
+    }
     if (!bookingPickupForm.pickupPointId) {
       showToast("Vui lòng chọn điểm đón mới.", "error");
       return;
     }
 
+    setUpdatingBookingPickup(true);
     try {
       const detail = await apiFetch(`/admin/bookings/${bookingDetail.id}`, {
         method: "PATCH",
@@ -1190,12 +1211,22 @@ export default function AdminPage({ initialTab = "overview" }) {
       setBookingPickupForm({
         pickupPointId: detail.pickupPointId ? String(detail.pickupPointId) : "",
       });
-      showToast("Đã cập nhật điểm đón cho booking.", "success");
+
+      const emailNote = detail.pickupNotification?.emailSent
+        ? " Đã gửi thông báo trong hệ thống và email cho khách."
+        : detail.pickupNotification?.inAppSent
+          ? " Đã gửi thông báo trong hệ thống cho khách."
+          : " Điểm đón đã được cập nhật.";
+
+      showToast(`Đã cập nhật điểm đón.${emailNote}`, "success");
       await loadBookings(bookingFilters);
     } catch (error) {
       showToast(error.message, "error");
+    } finally {
+      setUpdatingBookingPickup(false);
     }
   };
+
   const openContactDetail = async (id) => {
     try {
       setContactDetail(await apiFetch(`/admin/contacts/${id}`));
@@ -4044,16 +4075,16 @@ export default function AdminPage({ initialTab = "overview" }) {
 
               <div className="detail-card">
                 <h4>Sửa điểm đón</h4>
-                {["completed", "cancelled", "expired"].includes(
-                  bookingDetail.bookingStatus,
-                ) ? (
+                {!canUpdateBookingPickup(bookingDetail) ? (
                   <p className="table-muted">
-                    Booking đã ở trạng thái cuối nên không thể sửa điểm đón.
+                    Tour đã bắt đầu hoặc đã qua ngày khởi hành nên không thể sửa
+                    điểm đón.
                   </p>
                 ) : (
                   <div style={{ display: "grid", gap: 12 }}>
                     <select
                       value={bookingPickupForm.pickupPointId}
+                      disabled={updatingBookingPickup}
                       onChange={(e) =>
                         setBookingPickupForm({ pickupPointId: e.target.value })
                       }
@@ -4069,13 +4100,16 @@ export default function AdminPage({ initialTab = "overview" }) {
                       type="button"
                       className="btn btn-primary"
                       onClick={updateBookingPickup}
+                      disabled={updatingBookingPickup}
                     >
-                      Cập nhật điểm đón
+                      {updatingBookingPickup
+                        ? "Đang cập nhật..."
+                        : "Cập nhật điểm đón"}
                     </button>
                     <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
-                      Để đảm bảo dữ liệu chỗ và tiền không bị lệch, admin chỉ
-                      được sửa điểm đón; không sửa số lượng khách, tour, ngày
-                      khởi hành hoặc tổng tiền.
+                      Chỉ được cập nhật trước thời điểm tour bắt đầu. Sau khi
+                      lưu, khách sẽ nhận thông báo trong hệ thống và email (nếu
+                      có email). Giá và tổng tiền booking không thay đổi.
                     </p>
                   </div>
                 )}

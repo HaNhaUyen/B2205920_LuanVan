@@ -52,6 +52,12 @@ export class GuidesController {
   }
 
   @Roles("admin")
+  @Get("assignable-departures")
+  assignableDepartures() {
+    return this.service.assignableDepartures();
+  }
+
+  @Roles("admin")
   @Get("available")
   available(
     @Query("startDate") startDate: string,
@@ -118,7 +124,7 @@ export class GuidesController {
 
   @Roles("admin")
   @Post("assign")
-  assign(@Body() dto: any) {
-    return this.service.assign(dto);
+  assign(@CurrentUser() user: { userId: bigint }, @Body() dto: any) {
+    return this.service.assign({ ...dto, changedBy: user.userId });
   }
 }

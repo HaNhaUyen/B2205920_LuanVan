@@ -625,50 +625,171 @@ export class GuidesService {
     });
   }
 
+  async assignableDepartures() {
+    const activeAssignmentStatuses = [
+      "assigned",
+      "accepted",
+      "in_progress",
+      "confirmed",
+      "issue",
+    ];
+
+    /*
+     * Chỉ lấy lịch:
+     * - Chưa tới ngày khởi hành.
+     * - Có ít nhất một booking hợp lệ.
+     * - Chưa có phân công HDV đang hoạt động.
+     *
+     * Dùng SQL tổng hợp để một lịch khởi hành chỉ xuất hiện đúng một lần,
+     * dù lịch đó có nhiều booking.
+     */
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT
+         td.id AS departureId,
+         td.departure_date AS departureDate,
+         td.end_date AS endDate,
+         td.status AS departureStatus,
+         t.id AS tourId,
+         t.code AS tourCode,
+         t.name AS tourName,
+         d.name AS destinationName,
+         d.province AS destinationProvince,
+         COUNT(DISTINCT b.id) AS bookingCount,
+         COALESCE(SUM(b.adult_count + b.child_count), 0) AS guestCount,
+         MIN(b.id) AS representativeBookingId
+       FROM tour_departures td
+       JOIN tours t
+         ON t.id = td.tour_id
+       JOIN destinations d
+         ON d.id = t.destination_id
+       JOIN bookings b
+         ON b.departure_id = td.id
+        AND b.booking_status IN ('confirmed', 'waiting_confirmation')
+       WHERE td.departure_date > CURDATE()
+         AND td.status NOT IN ('cancelled', 'closed')
+         AND NOT EXISTS (
+           SELECT 1
+           FROM guide_assignments ga
+           JOIN bookings assigned_booking
+             ON assigned_booking.id = ga.booking_id
+           WHERE assigned_booking.departure_id = td.id
+             AND ga.status IN ('assigned', 'accepted', 'in_progress', 'confirmed', 'issue')
+         )
+       GROUP BY
+         td.id,
+         td.departure_date,
+         td.end_date,
+         td.status,
+         t.id,
+         t.code,
+         t.name,
+         d.name,
+         d.province
+       ORDER BY td.departure_date ASC, t.name ASC`,
+    );
+
+    return rows.map((row) => ({
+      ...row,
+      departureId: String(row.departureId),
+      tourId: String(row.tourId),
+      representativeBookingId: String(row.representativeBookingId),
+      bookingCount: Number(row.bookingCount || 0),
+      guestCount: Number(row.guestCount || 0),
+    }));
+  }
+
   async available(startDate: string, endDate: string) {
     if (!startDate || !endDate) {
-      return this.prisma.guide.findMany({
-        where: {
-          status: "active",
-        },
-        orderBy: {
-          fullName: "asc",
-        },
-      });
+      throw new BadRequestException(
+        "Vui lòng truyền đầy đủ ngày bắt đầu và ngày kết thúc.",
+      );
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T23:59:59.999`);
 
-    const busy = await this.prisma.guideAssignment.findMany({
-      where: {
-        status: {
-          in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+    if (
+      Number.isNaN(start.getTime()) ||
+      Number.isNaN(end.getTime()) ||
+      end < start
+    ) {
+      throw new BadRequestException("Khoảng thời gian kiểm tra không hợp lệ.");
+    }
+
+    const activeAssignmentStatuses = [
+      "assigned",
+      "accepted",
+      "in_progress",
+      "confirmed",
+      "issue",
+    ];
+
+    const [busyAssignments, busyAvailabilities] = await Promise.all([
+      this.prisma.guideAssignment.findMany({
+        where: {
+          status: {
+            in: activeAssignmentStatuses,
+          },
+          NOT: [
+            {
+              endDate: {
+                lt: start,
+              },
+            },
+            {
+              startDate: {
+                gt: end,
+              },
+            },
+          ],
         },
-        NOT: [
-          {
-            endDate: {
-              lt: start,
-            },
+        select: {
+          guideId: true,
+        },
+      }),
+
+      this.prisma.guideAvailability.findMany({
+        where: {
+          /*
+           * pending cũng được loại khỏi danh sách để tránh admin phân công
+           * trong lúc HDV đã chủ động báo bận nhưng yêu cầu chưa kịp duyệt.
+           */
+          status: {
+            in: ["pending", "active"],
           },
-          {
-            startDate: {
-              gt: end,
-            },
+          availabilityType: {
+            not: "available",
           },
-        ],
-      },
-      select: {
-        guideId: true,
-      },
-    });
+          startAt: {
+            lte: end,
+          },
+          endAt: {
+            gte: start,
+          },
+        },
+        select: {
+          guideId: true,
+        },
+      }),
+    ]);
+
+    const busyGuideIds = Array.from(
+      new Set([
+        ...busyAssignments.map((item) => item.guideId.toString()),
+        ...busyAvailabilities.map((item) => item.guideId.toString()),
+      ]),
+    ).map((id) => BigInt(id));
 
     return this.prisma.guide.findMany({
       where: {
         status: "active",
-        id: {
-          notIn: busy.map((x) => x.guideId),
-        },
+        ...(busyGuideIds.length
+          ? {
+              id: {
+                notIn: busyGuideIds,
+              },
+            }
+          : {}),
       },
       orderBy: {
         fullName: "asc",
@@ -677,181 +798,240 @@ export class GuidesService {
   }
 
   async assign(dto: any) {
-    const bookingId = BigInt(dto.bookingId);
-    const guideId = BigInt(dto.guideId);
+    const departureId = BigInt(dto.departureId || 0);
+    const guideId = BigInt(dto.guideId || 0);
+    const adminUserId = dto.changedBy ? BigInt(dto.changedBy) : null;
+    const allowReplace = Boolean(dto.allowReplace);
 
-    const booking = await this.prisma.booking.findUnique({
-      where: {
-        id: bookingId,
-      },
+    if (!departureId || departureId <= 0n) {
+      throw new BadRequestException(
+        "Vui lòng chọn lịch khởi hành cần phân công.",
+      );
+    }
+    if (!guideId || guideId <= 0n) {
+      throw new BadRequestException("Vui lòng chọn hướng dẫn viên.");
+    }
+
+    const departure = await this.prisma.tourDeparture.findUnique({
+      where: { id: departureId },
       include: {
-        departure: true,
         tour: true,
-        user: true,
-        guideAssignments: {
-          include: {
-            guide: true,
-          },
+        bookings: {
           where: {
-            status: {
-              in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+            bookingStatus: {
+              in: ["confirmed", "waiting_confirmation", "completed"],
             },
           },
+          include: { user: true },
+          orderBy: { id: "asc" },
         },
       },
     });
 
-    if (!booking) {
-      throw new BadRequestException("Không tìm thấy booking.");
+    if (!departure)
+      throw new BadRequestException("Không tìm thấy lịch khởi hành.");
+    if (new Date(departure.departureDate).getTime() <= Date.now()) {
+      throw new BadRequestException(
+        "Tour đã bắt đầu hoặc đã qua ngày khởi hành, không thể phân công HDV.",
+      );
     }
-
-    if (!booking.departure) {
-      throw new BadRequestException("Booking này chưa có lịch khởi hành.");
+    if (!departure.bookings.length) {
+      throw new BadRequestException(
+        "Lịch khởi hành này chưa có booking hợp lệ để phân công.",
+      );
     }
 
     const guide = await this.prisma.guide.findUnique({
-      where: {
-        id: guideId,
-      },
+      where: { id: guideId },
     });
-
     if (!guide || guide.status !== "active") {
       throw new BadRequestException("Hướng dẫn viên không khả dụng.");
     }
 
+    const representative = departure.bookings[0];
+    const activeStatuses = [
+      "assigned",
+      "accepted",
+      "in_progress",
+      "confirmed",
+      "issue",
+    ];
+
     const overlap = await this.prisma.guideAssignment.findFirst({
       where: {
         guideId,
-        status: {
-          in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
-        },
-        bookingId: {
-          not: booking.id,
-        },
+        status: { in: activeStatuses },
         NOT: [
-          {
-            endDate: {
-              lt: booking.departure.departureDate,
-            },
-          },
-          {
-            startDate: {
-              gt: booking.departure.endDate,
-            },
-          },
+          { endDate: { lt: departure.departureDate } },
+          { startDate: { gt: departure.endDate } },
         ],
+        booking: { departureId: { not: departure.id } },
       },
-      include: {
-        booking: true,
-        tour: true,
-      },
+      include: { tour: true },
     });
-
     if (overlap) {
       throw new BadRequestException(
-        `Hướng dẫn viên đã bận tour ${overlap.tour?.name || ""} trong thời gian này.`,
+        `Hướng dẫn viên đã có tour ${overlap.tour?.name || "khác"} trong thời gian này.`,
       );
     }
 
-    const previousGuide = booking.guideAssignments[0]?.guide;
+    const busyAvailability = await this.prisma.guideAvailability.findFirst({
+      where: {
+        guideId,
+        status: {
+          in: ["pending", "active"],
+        },
+        availabilityType: {
+          not: "available",
+        },
+        startAt: {
+          lte: new Date(new Date(departure.endDate).setHours(23, 59, 59, 999)),
+        },
+        endAt: {
+          gte: new Date(new Date(departure.departureDate).setHours(0, 0, 0, 0)),
+        },
+      },
+    });
+
+    if (busyAvailability) {
+      throw new BadRequestException(
+        "Hướng dẫn viên đã khai báo lịch bận trong thời gian tour diễn ra.",
+      );
+    }
+
+    const currentAssignments = await this.prisma.guideAssignment.findMany({
+      where: {
+        status: { in: activeStatuses },
+        booking: { departureId: departure.id },
+      },
+      include: { guide: true },
+      orderBy: { id: "desc" },
+    });
+    const previousGuide = currentAssignments[0]?.guide || null;
+
+    if (currentAssignments.length > 0 && !allowReplace) {
+      throw new BadRequestException(
+        `Lịch khởi hành này đã được phân công cho ${previousGuide?.fullName || "một hướng dẫn viên"}.`,
+      );
+    }
 
     const created = await this.prisma.$transaction(async (tx) => {
       await tx.guideAssignment.updateMany({
         where: {
-          bookingId: booking.id,
-          status: {
-            in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
-          },
+          status: { in: activeStatuses },
+          booking: { departureId: departure.id },
         },
         data: {
           status: "replaced",
-          note: dto.note || "Đã đổi hướng dẫn viên sau khi HDV báo sự cố",
+          note:
+            dto.note ||
+            "Phân công này đã được thay thế bởi hướng dẫn viên khác.",
         },
       });
 
       const assignment = await tx.guideAssignment.create({
         data: {
           guideId,
-          bookingId: booking.id,
-          tourId: booking.tourId,
-          startDate: booking.departure.departureDate,
-          endDate: booking.departure.endDate,
+          bookingId: representative.id,
+          tourId: departure.tourId,
+          startDate: departure.departureDate,
+          endDate: departure.endDate,
           status: "assigned",
-          note: dto.note || null,
+          note:
+            dto.note ||
+            "Phân công chính đại diện cho toàn bộ khách của lịch khởi hành.",
         },
-        include: {
-          guide: true,
-          booking: true,
-          tour: true,
-        },
+        include: { guide: true, booking: true, tour: true },
       });
 
-      await tx.bookingStatusLog.create({
-        data: {
-          bookingId: booking.id,
-          actionType: previousGuide ? "change_guide" : "assign_guide",
-          oldStatus: previousGuide?.fullName || null,
-          newStatus: guide.fullName,
-          source: "admin",
-          reason: dto.note || null,
-          note: previousGuide
-            ? `Đổi HDV từ ${previousGuide.fullName} sang ${guide.fullName}`
-            : `Chỉ định HDV ${guide.fullName}`,
-        },
-      });
+      await tx.$executeRawUnsafe(
+        `INSERT INTO trip_operations(departure_id,guide_id,operation_status,created_by,created_at,updated_at)
+         VALUES (?,?, 'preparing', ?, NOW(), NOW())
+         ON DUPLICATE KEY UPDATE guide_id=VALUES(guide_id), updated_at=NOW()`,
+        departure.id,
+        guideId,
+        adminUserId,
+      );
+
+      for (const booking of departure.bookings) {
+        await tx.bookingStatusLog.create({
+          data: {
+            bookingId: booking.id,
+            actionType: previousGuide ? "change_guide" : "assign_guide",
+            oldStatus: previousGuide?.fullName || null,
+            newStatus: guide.fullName,
+            source: "admin",
+            reason: dto.note || null,
+            note: previousGuide
+              ? `Đổi HDV từ ${previousGuide.fullName} sang ${guide.fullName} cho toàn bộ lịch khởi hành.`
+              : `Chỉ định HDV ${guide.fullName} cho toàn bộ lịch khởi hành.`,
+          },
+        });
+      }
+
+      if (guide.userId) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO notifications(title,message,content,target_role,target_user_id,is_published,created_by,created_at,updated_at)
+           VALUES (?,?,?,?,?,1,?,NOW(),NOW())`,
+          "Bạn có lịch tour mới",
+          `${departure.tour.name} đã được phân công cho bạn.`,
+          `Bạn được phân công phụ trách tour ${departure.tour.name}, khởi hành ngày ${new Date(departure.departureDate).toLocaleDateString("vi-VN")}.`,
+          "user",
+          guide.userId,
+          adminUserId,
+        );
+      }
+
+      for (const booking of departure.bookings) {
+        if (!booking.userId) continue;
+        await tx.$executeRawUnsafe(
+          `INSERT INTO notifications(title,message,content,target_role,target_user_id,is_published,created_by,created_at,updated_at)
+           VALUES (?,?,?,?,?,1,?,NOW(),NOW())`,
+          previousGuide
+            ? "Hướng dẫn viên đã được cập nhật"
+            : "Đã có hướng dẫn viên phụ trách",
+          `Booking ${booking.bookingCode} đã có hướng dẫn viên ${guide.fullName}.`,
+          `Travela thông báo hướng dẫn viên phụ trách tour ${departure.tour.name} là ${guide.fullName}${guide.phone ? `, số điện thoại ${guide.phone}` : ""}.`,
+          "user",
+          booking.userId,
+          adminUserId,
+        );
+      }
 
       return assignment;
     });
 
-    const customerEmail = booking.user?.email || booking.contactEmail;
-
-    if (customerEmail) {
+    for (const booking of departure.bookings) {
+      const customerEmail = booking.user?.email || booking.contactEmail;
+      if (!customerEmail) continue;
       try {
         await this.email.sendMail({
           to: customerEmail,
           subject: previousGuide
-            ? `Travela cập nhật hướng dẫn viên cho đơn ${booking.bookingCode}`
-            : `Travela đã chỉ định hướng dẫn viên cho đơn ${booking.bookingCode}`,
-          html: `
-            <div style="font-family:Arial,sans-serif;line-height:1.6">
-              <h2>Thông báo hướng dẫn viên</h2>
-              <p>Xin chào ${htmlEscape(booking.contactName)},</p>
-              <p>
-                Đơn <b>${htmlEscape(booking.bookingCode)}</b> - tour 
-                <b>${htmlEscape(booking.tour.name)}</b> đã được 
-                ${previousGuide ? "cập nhật" : "chỉ định"} hướng dẫn viên.
-              </p>
-              <ul>
-                <li>Hướng dẫn viên: <b>${htmlEscape(guide.fullName)}</b></li>
-                <li>Số điện thoại HDV: ${htmlEscape(guide.phone)}</li>
-                <li>
-                  Thời gian tour:
-                  ${new Date(booking.departure.departureDate).toLocaleDateString("vi-VN")}
-                  -
-                  ${new Date(booking.departure.endDate).toLocaleDateString("vi-VN")}
-                </li>
-              </ul>
-              ${dto.note ? `<p>Ghi chú: ${htmlEscape(dto.note)}</p>` : ""}
-              <p>Travela chúc quý khách có chuyến đi vui vẻ.</p>
-            </div>
-          `,
+            ? `Travela cập nhật hướng dẫn viên cho ${booking.bookingCode}`
+            : `Travela đã chỉ định hướng dẫn viên cho ${booking.bookingCode}`,
+          html: `<div style="font-family:Arial,sans-serif;line-height:1.6">
+            <h2>Thông báo hướng dẫn viên</h2>
+            <p>Xin chào ${htmlEscape(booking.contactName)},</p>
+            <p>Tour <b>${htmlEscape(departure.tour.name)}</b> đã được ${previousGuide ? "cập nhật" : "chỉ định"} hướng dẫn viên.</p>
+            <ul><li>Hướng dẫn viên: <b>${htmlEscape(guide.fullName)}</b></li>
+            <li>Số điện thoại: ${htmlEscape(guide.phone || "Travela sẽ cập nhật")}</li>
+            <li>Khởi hành: ${new Date(departure.departureDate).toLocaleDateString("vi-VN")}</li></ul>
+            ${dto.note ? `<p>Ghi chú: ${htmlEscape(dto.note)}</p>` : ""}
+          </div>`,
         });
-      } catch (error) {
-        await this.prisma.bookingStatusLog
-          .create({
-            data: {
-              bookingId: booking.id,
-              actionType: "guide_email_failed",
-              source: "system",
-              reason: String(error?.message || error),
-              note: `Không gửi được email thông báo HDV đến ${customerEmail}`,
-            },
-          })
-          .catch(() => null);
-      }
+      } catch (_) {}
     }
 
-    return created;
+    return {
+      success: true,
+      assignment: created,
+      departureId: String(departure.id),
+      bookingCount: departure.bookings.length,
+      message: previousGuide
+        ? "Đã phân công lại hướng dẫn viên cho toàn bộ lịch khởi hành."
+        : "Đã phân công hướng dẫn viên cho toàn bộ lịch khởi hành.",
+    };
   }
 
   async getGuideCredentials(guideId: bigint) {

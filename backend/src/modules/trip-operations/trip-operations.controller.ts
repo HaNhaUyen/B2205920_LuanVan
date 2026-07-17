@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   UploadedFile,
   UseInterceptors,
   Get,
@@ -98,6 +99,27 @@ export class TripOperationsController {
     return this.service.createJourneyLog(user, Number(id), body);
   }
 
+  @Patch(":id/journey-logs/:logId")
+  @Roles("guide", "admin")
+  updateJourneyLog(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Param("logId") logId: string,
+    @Body() body: any,
+  ) {
+    return this.service.updateJourneyLog(user, Number(id), Number(logId), body);
+  }
+
+  @Delete(":id/journey-logs/:logId")
+  @Roles("guide", "admin")
+  deleteJourneyLog(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Param("logId") logId: string,
+  ) {
+    return this.service.deleteJourneyLog(user, Number(id), Number(logId));
+  }
+
   @Get(":id/incidents")
   @Roles("guide", "admin")
   incidents(@CurrentUser() user: any, @Param("id") id: string) {
@@ -164,6 +186,28 @@ export class TripOperationsController {
   @Roles("guide", "admin")
   report(@CurrentUser() user: any, @Param("id") id: string) {
     return this.service.report(user, Number(id));
+  }
+
+  @Get("admin/reports")
+  @Roles("admin")
+  adminReports(@Query() query: any) {
+    return this.service.adminReports(query);
+  }
+
+  @Get("admin/reports/:reportId")
+  @Roles("admin")
+  adminReportDetail(@Param("reportId") reportId: string) {
+    return this.service.adminReportDetail(Number(reportId));
+  }
+
+  @Patch("admin/reports/:reportId/review")
+  @Roles("admin")
+  reviewTripReport(
+    @CurrentUser() user: any,
+    @Param("reportId") reportId: string,
+    @Body() body: any,
+  ) {
+    return this.service.reviewTripReport(user, Number(reportId), body);
   }
 
   @Get("admin/incidents/all")

@@ -376,6 +376,100 @@ export class TripOperationsService {
     return { success: true };
   }
 
+  async updateJourneyLog(
+    user: any,
+    operationId: number,
+    logId: number,
+    body: any,
+  ) {
+    await this.assertWritableOperation(user, operationId);
+
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT id, guide_id AS guideId
+       FROM journey_logs
+       WHERE id=? AND trip_operation_id=?
+       LIMIT 1`,
+      logId,
+      operationId,
+    );
+
+    const current = rows[0];
+    if (!current) {
+      throw new NotFoundException("Không tìm thấy nhật ký hành trình.");
+    }
+
+    if (this.role(user) === "guide") {
+      const gid = await this.guideId(user);
+      if (Number(current.guideId) !== Number(gid)) {
+        throw new ForbiddenException("Bạn chỉ có thể sửa nhật ký do mình tạo.");
+      }
+    }
+
+    const title = String(body?.title || "").trim();
+    if (!title) {
+      throw new BadRequestException("Tiêu đề nhật ký là bắt buộc.");
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE journey_logs
+       SET log_type=?,
+           title=?,
+           content=?,
+           location_name=?,
+           latitude=?,
+           longitude=?,
+           media_urls=?,
+           occurred_at=COALESCE(?, occurred_at),
+           updated_at=NOW()
+       WHERE id=? AND trip_operation_id=?`,
+      body?.logType || "general",
+      title,
+      String(body?.content || "").trim() || null,
+      String(body?.locationName || "").trim() || null,
+      body?.latitude ?? null,
+      body?.longitude ?? null,
+      this.json(body?.mediaUrls || []),
+      body?.occurredAt || null,
+      logId,
+      operationId,
+    );
+
+    return { success: true, message: "Đã cập nhật nhật ký hành trình." };
+  }
+
+  async deleteJourneyLog(user: any, operationId: number, logId: number) {
+    await this.assertWritableOperation(user, operationId);
+
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT id, guide_id AS guideId
+       FROM journey_logs
+       WHERE id=? AND trip_operation_id=?
+       LIMIT 1`,
+      logId,
+      operationId,
+    );
+
+    const current = rows[0];
+    if (!current) {
+      throw new NotFoundException("Không tìm thấy nhật ký hành trình.");
+    }
+
+    if (this.role(user) === "guide") {
+      const gid = await this.guideId(user);
+      if (Number(current.guideId) !== Number(gid)) {
+        throw new ForbiddenException("Bạn chỉ có thể xóa nhật ký do mình tạo.");
+      }
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM journey_logs WHERE id=? AND trip_operation_id=?`,
+      logId,
+      operationId,
+    );
+
+    return { success: true, message: "Đã xóa nhật ký hành trình." };
+  }
+
   async incidents(user: any, operationId: number) {
     await this.assertAccess(user, operationId);
     return this.prisma.$queryRawUnsafe<any[]>(
@@ -703,17 +797,176 @@ export class TripOperationsService {
       `UPDATE trip_operations SET operation_status='completed',completed_at=NOW() WHERE id=?`,
       operationId,
     );
-    return { success: true };
+
+    const reportRows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT tr.id, tr.actual_guest_count AS actualGuestCount, tr.absent_guest_count AS absentGuestCount,
+              tr.extra_cost AS extraCost, t.name AS tourName, g.full_name AS guideName
+       FROM trip_reports tr
+       JOIN trip_operations op ON op.id=tr.trip_operation_id
+       JOIN tour_departures td ON td.id=op.departure_id
+       JOIN tours t ON t.id=td.tour_id
+       JOIN guides g ON g.id=tr.guide_id
+       WHERE tr.trip_operation_id=? LIMIT 1`,
+      operationId,
+    );
+    const saved = reportRows[0];
+    if (saved) {
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO notifications(title,message,content,target_role,target_user_id,is_published,created_by,created_at,updated_at)
+         SELECT ?,?,?, 'admin',u.id,1,?,NOW(),NOW()
+         FROM users u WHERE u.role='admin' AND u.status='active'`,
+        "HDV đã gửi báo cáo chuyến đi",
+        `${saved.guideName} đã gửi báo cáo tour ${saved.tourName}.`,
+        `Báo cáo có ${Number(saved.actualGuestCount || 0)} khách thực tế, ${Number(saved.absentGuestCount || 0)} khách vắng và ${Number(saved.extraCost || 0).toLocaleString("vi-VN")}đ chi phí phát sinh.`,
+        this.uid(user),
+      );
+    }
+
+    return {
+      success: true,
+      reportId: saved?.id || null,
+      notificationSent: Boolean(saved),
+    };
   }
 
   async report(user: any, operationId: number) {
     await this.assertAccess(user, operationId);
     const rows = await this.prisma.$queryRawUnsafe<any[]>(
-      `SELECT tr.*,g.full_name AS guideName,u.full_name AS reviewedByName FROM trip_reports tr
-       JOIN guides g ON g.id=tr.guide_id LEFT JOIN users u ON u.id=tr.reviewed_by WHERE tr.trip_operation_id=?`,
+      `SELECT
+         tr.*,
+         DATE_FORMAT(tr.submitted_at,'%Y-%m-%d %H:%i:%s') AS submittedAt,
+         DATE_FORMAT(tr.reviewed_at,'%Y-%m-%d %H:%i:%s') AS reviewedAt,
+         DATE_FORMAT(tr.created_at,'%Y-%m-%d %H:%i:%s') AS createdAt,
+         DATE_FORMAT(tr.updated_at,'%Y-%m-%d %H:%i:%s') AS updatedAt,
+         g.full_name AS guideName,
+         u.full_name AS reviewedByName
+       FROM trip_reports tr
+       JOIN guides g ON g.id=tr.guide_id
+       LEFT JOIN users u ON u.id=tr.reviewed_by
+       WHERE tr.trip_operation_id=?`,
       operationId,
     );
     return rows[0] || null;
+  }
+
+  async adminReports(query: any) {
+    const page = Math.max(Number(query?.page || 1), 1);
+    const pageSize = Math.min(Math.max(Number(query?.pageSize || 10), 1), 50);
+    const status = String(query?.status || "all").trim();
+    const search = String(query?.search || "").trim();
+    const offset = (page - 1) * pageSize;
+    let where = ` WHERE 1=1 `;
+    const params: any[] = [];
+    if (status && status !== "all") {
+      where += ` AND tr.status=? `;
+      params.push(status);
+    }
+    if (search) {
+      where += ` AND (t.name LIKE ? OR t.code LIKE ? OR g.full_name LIKE ? OR CAST(tr.id AS CHAR) LIKE ?) `;
+      const kw = `%${search}%`;
+      params.push(kw, kw, kw, kw);
+    }
+    const countRows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT COUNT(*) AS total FROM trip_reports tr
+       JOIN trip_operations op ON op.id=tr.trip_operation_id
+       JOIN tour_departures td ON td.id=op.departure_id
+       JOIN tours t ON t.id=td.tour_id
+       JOIN guides g ON g.id=tr.guide_id ${where}`,
+      ...params,
+    );
+    const items = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT tr.id,tr.trip_operation_id AS tripOperationId,tr.status,tr.actual_guest_count AS actualGuestCount,
+       tr.absent_guest_count AS absentGuestCount,tr.extra_cost AS extraCost,
+       DATE_FORMAT(tr.submitted_at,'%Y-%m-%d %H:%i:%s') AS submittedAt,
+       DATE_FORMAT(tr.reviewed_at,'%Y-%m-%d %H:%i:%s') AS reviewedAt,
+       tr.admin_note AS adminNote,
+       t.id AS tourId,t.code AS tourCode,t.name AS tourName,d.name AS destinationName,d.province,
+       td.id AS departureId,td.departure_date AS departureDate,td.end_date AS endDate,
+       g.id AS guideId,g.full_name AS guideName,g.phone AS guidePhone,u.full_name AS reviewedByName
+       FROM trip_reports tr JOIN trip_operations op ON op.id=tr.trip_operation_id
+       JOIN tour_departures td ON td.id=op.departure_id JOIN tours t ON t.id=td.tour_id
+       JOIN destinations d ON d.id=t.destination_id JOIN guides g ON g.id=tr.guide_id
+       LEFT JOIN users u ON u.id=tr.reviewed_by ${where}
+       ORDER BY CASE tr.status WHEN 'submitted' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END,tr.submitted_at DESC
+       LIMIT ? OFFSET ?`,
+      ...params,
+      pageSize,
+      offset,
+    );
+    const total = Number(countRows[0]?.total || 0);
+    return {
+      items,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(Math.ceil(total / pageSize), 1),
+      },
+    };
+  }
+
+  async adminReportDetail(reportId: number) {
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT tr.*,tr.trip_operation_id AS tripOperationId,tr.actual_guest_count AS actualGuestCount,
+       tr.absent_guest_count AS absentGuestCount,tr.vehicle_rating AS vehicleRating,tr.hotel_rating AS hotelRating,
+       tr.restaurant_rating AS restaurantRating,tr.itinerary_rating AS itineraryRating,
+       tr.incidents_summary AS incidentsSummary,tr.extra_cost AS extraCost,tr.extra_cost_note AS extraCostNote,
+       tr.admin_note AS adminNote,
+       DATE_FORMAT(tr.submitted_at,'%Y-%m-%d %H:%i:%s') AS submittedAt,
+       DATE_FORMAT(tr.reviewed_at,'%Y-%m-%d %H:%i:%s') AS reviewedAt,
+       t.code AS tourCode,t.name AS tourName,d.name AS destinationName,d.province,
+       td.departure_date AS departureDate,td.end_date AS endDate,
+       g.full_name AS guideName,g.phone AS guidePhone,g.email AS guideEmail,u.full_name AS reviewedByName
+       FROM trip_reports tr JOIN trip_operations op ON op.id=tr.trip_operation_id
+       JOIN tour_departures td ON td.id=op.departure_id JOIN tours t ON t.id=td.tour_id
+       JOIN destinations d ON d.id=t.destination_id JOIN guides g ON g.id=tr.guide_id
+       LEFT JOIN users u ON u.id=tr.reviewed_by WHERE tr.id=? LIMIT 1`,
+      reportId,
+    );
+    if (!rows.length)
+      throw new NotFoundException("Không tìm thấy báo cáo chuyến đi.");
+    return rows[0];
+  }
+
+  async reviewTripReport(user: any, reportId: number, body: any) {
+    const action = String(body?.action || "review");
+    if (!["review", "reopen"].includes(action))
+      throw new BadRequestException("Thao tác báo cáo không hợp lệ.");
+    const report = await this.adminReportDetail(reportId);
+    if (action === "review") {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE trip_reports SET status='reviewed',reviewed_by=?,reviewed_at=NOW(),admin_note=?,updated_at=NOW() WHERE id=?`,
+        this.uid(user),
+        String(body?.adminNote || "").trim() || null,
+        reportId,
+      );
+    } else {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE trip_reports SET status='submitted',reviewed_by=NULL,reviewed_at=NULL,admin_note=?,updated_at=NOW() WHERE id=?`,
+        String(body?.adminNote || "").trim() || null,
+        reportId,
+      );
+    }
+    const guideRows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT user_id AS userId FROM guides WHERE id=? LIMIT 1`,
+      report.guide_id || report.guideId,
+    );
+    const guideUserId = guideRows[0]?.userId;
+    if (guideUserId) {
+      await this.prisma.$executeRawUnsafe(
+        `INSERT INTO notifications(title,message,content,target_role,target_user_id,is_published,created_by,created_at,updated_at)
+         VALUES (?,?,?,?,?,1,?,NOW(),NOW())`,
+        action === "review"
+          ? "Báo cáo chuyến đi đã được xem xét"
+          : "Báo cáo chuyến đi cần được kiểm tra lại",
+        `Báo cáo tour ${report.tourName} đã được admin cập nhật.`,
+        String(body?.adminNote || "Admin đã cập nhật trạng thái báo cáo."),
+        "user",
+        guideUserId,
+        this.uid(user),
+      );
+    }
+    return this.adminReportDetail(reportId);
   }
 
   async allIncidents(query: any) {

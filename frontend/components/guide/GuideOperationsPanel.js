@@ -23,6 +23,7 @@ import {
   LockKeyhole,
   PlusCircle,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import Loading from "@/components/Loading";
 import Pagination from "@/components/Pagination";
@@ -305,6 +306,9 @@ export default function GuideOperationsPanel({ guide }) {
     content: "",
     locationName: "",
   });
+  const [editingLogId, setEditingLogId] = useState("");
+  const [savingLog, setSavingLog] = useState(false);
+  const [deletingLogId, setDeletingLogId] = useState("");
   const [incidentForm, setIncidentForm] = useState({
     category: "other",
     severity: "medium",
@@ -663,6 +667,88 @@ export default function GuideOperationsPanel({ guide }) {
       await reloadCurrent();
     } catch (error) {
       showToast(error.message || "Không thể lưu dữ liệu.", "error");
+    }
+  };
+
+  const resetLogForm = () => {
+    setEditingLogId("");
+    setLogForm({
+      logType: "general",
+      title: "",
+      content: "",
+      locationName: "",
+    });
+  };
+
+  const startEditLog = (log) => {
+    setEditingLogId(String(log.id));
+    setLogForm({
+      logType: log.logType || log.log_type || "general",
+      title: log.title || "",
+      content: log.content || "",
+      locationName: log.locationName || log.location_name || "",
+    });
+  };
+
+  const saveJourneyLog = async (event) => {
+    event.preventDefault();
+    if (isReadOnlyTrip || !selectedTrip?.id) return;
+
+    const title = logForm.title.trim();
+    if (!title) {
+      showToast("Vui lòng nhập tiêu đề nhật ký.", "warning");
+      return;
+    }
+
+    setSavingLog(true);
+    try {
+      const path = editingLogId
+        ? `/trip-operations/${selectedTrip.id}/journey-logs/${editingLogId}`
+        : `/trip-operations/${selectedTrip.id}/journey-logs`;
+
+      await apiFetch(path, {
+        method: editingLogId ? "PATCH" : "POST",
+        body: JSON.stringify({
+          logType: logForm.logType,
+          title,
+          content: logForm.content.trim(),
+          locationName: logForm.locationName.trim(),
+        }),
+      });
+
+      showToast(
+        editingLogId
+          ? "Đã cập nhật nhật ký hành trình."
+          : "Đã thêm nhật ký hành trình.",
+        "success",
+      );
+      resetLogForm();
+      setLogPage(1);
+      await reloadCurrent();
+    } catch (error) {
+      showToast(error.message || "Không thể lưu nhật ký.", "error");
+    } finally {
+      setSavingLog(false);
+    }
+  };
+
+  const deleteJourneyLog = async (log) => {
+    if (isReadOnlyTrip || !selectedTrip?.id) return;
+    if (!window.confirm(`Xóa nhật ký "${log.title || "này"}"?`)) return;
+
+    setDeletingLogId(String(log.id));
+    try {
+      await apiFetch(
+        `/trip-operations/${selectedTrip.id}/journey-logs/${log.id}`,
+        { method: "DELETE" },
+      );
+      showToast("Đã xóa nhật ký hành trình.", "success");
+      if (String(editingLogId) === String(log.id)) resetLogForm();
+      await reloadCurrent();
+    } catch (error) {
+      showToast(error.message || "Không thể xóa nhật ký.", "error");
+    } finally {
+      setDeletingLogId("");
     }
   };
 
@@ -1459,24 +1545,13 @@ export default function GuideOperationsPanel({ guide }) {
                   <div className="ops-form-panel">
                     <form
                       className={`ops-form-card ${isReadOnlyTrip ? "readonly" : ""}`}
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (isReadOnlyTrip) return;
-                        postAndReload(
-                          `/trip-operations/${selectedTrip.id}/journey-logs`,
-                          logForm,
-                          "Đã thêm nhật ký hành trình.",
-                          () =>
-                            setLogForm({
-                              logType: "general",
-                              title: "",
-                              content: "",
-                              locationName: "",
-                            }),
-                        );
-                      }}
+                      onSubmit={saveJourneyLog}
                     >
-                      <h3>Thêm nhật ký hành trình</h3>
+                      <h3>
+                        {editingLogId
+                          ? "Chỉnh sửa nhật ký hành trình"
+                          : "Thêm nhật ký hành trình"}
+                      </h3>
                       <p className="ops-form-desc">
                         Cập nhật tiến độ để công ty và khách hàng theo dõi.
                       </p>
@@ -1533,14 +1608,33 @@ export default function GuideOperationsPanel({ guide }) {
                           }
                         />
                       </Field>
-                      <button
-                        className="ops-btn-primary"
-                        type="submit"
-                        disabled={isReadOnlyTrip}
-                      >
-                        <Route size={16} />{" "}
-                        {isReadOnlyTrip ? "Chỉ xem" : "Lưu nhật ký"}
-                      </button>
+                      <div className="ops-log-form-actions">
+                        {editingLogId ? (
+                          <button
+                            type="button"
+                            className="ops-btn-outline"
+                            onClick={resetLogForm}
+                            disabled={savingLog}
+                          >
+                            <X size={16} /> Hủy sửa
+                          </button>
+                        ) : null}
+
+                        <button
+                          className="ops-btn-primary"
+                          type="submit"
+                          disabled={isReadOnlyTrip || savingLog}
+                        >
+                          <Route size={16} />
+                          {isReadOnlyTrip
+                            ? "Chỉ xem"
+                            : savingLog
+                              ? "Đang lưu..."
+                              : editingLogId
+                                ? "Lưu thay đổi"
+                                : "Lưu nhật ký"}
+                        </button>
+                      </div>
                     </form>
                   </div>
 
@@ -1563,8 +1657,33 @@ export default function GuideOperationsPanel({ guide }) {
                               <div className="ops-timeline-dot"></div>
                               <div className="ops-timeline-content">
                                 <div className="ops-timeline-head">
-                                  <strong>{log.title}</strong>
-                                  <Badge>{log.logType || log.log_type}</Badge>
+                                  <div className="ops-log-title">
+                                    <strong>{log.title}</strong>
+                                  </div>
+                                  {!isReadOnlyTrip ? (
+                                    <div className="ops-log-actions">
+                                      <button
+                                        type="button"
+                                        className="ops-log-action edit"
+                                        onClick={() => startEditLog(log)}
+                                      >
+                                        <Pencil size={14} /> Sửa
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="ops-log-action delete"
+                                        disabled={
+                                          deletingLogId === String(log.id)
+                                        }
+                                        onClick={() => deleteJourneyLog(log)}
+                                      >
+                                        <Trash2 size={14} />
+                                        {deletingLogId === String(log.id)
+                                          ? "Đang xóa..."
+                                          : "Xóa"}
+                                      </button>
+                                    </div>
+                                  ) : null}
                                 </div>
                                 <p>{log.content || "Không có mô tả."}</p>
                                 <small>
@@ -3197,6 +3316,52 @@ export default function GuideOperationsPanel({ guide }) {
           justify-content: space-between;
           align-items: center;
           margin-bottom: 8px;
+        }
+        .ops-log-form-actions {
+          display: flex;
+          justify-content: flex-end;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .ops-log-title {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+          min-width: 0;
+        }
+        .ops-log-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-shrink: 0;
+        }
+        .ops-log-action {
+          min-height: 32px;
+          padding: 0 10px;
+          border-radius: 9px;
+          border: 1px solid;
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .ops-log-action.edit {
+          color: #1d4ed8;
+          border-color: #bfdbfe;
+          background: #eff6ff;
+        }
+        .ops-log-action.delete {
+          color: #b91c1c;
+          border-color: #fecaca;
+          background: #fef2f2;
+        }
+        .ops-log-action:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
         .ops-timeline-content p {
           font-size: 14px;

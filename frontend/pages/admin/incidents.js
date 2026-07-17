@@ -193,6 +193,9 @@ export default function AdminGuideIncidentsPage() {
           >
             Duyệt lịch bận
           </Link>
+          <Link href="/admin/trip-reports" className="guide-management-tab">
+            Báo cáo chuyến đi
+          </Link>
         </div>
 
         <form className="incident-toolbar" onSubmit={applySearch}>
