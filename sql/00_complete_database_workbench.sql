@@ -10910,3 +10910,258 @@ COMMIT;
 DROP TEMPORARY TABLE IF EXISTS tmp_missing_membership_rewards;
 
 
+
+
+SET NAMES utf8mb4;
+SET SESSION time_zone = '+07:00';
+SET SQL_SAFE_UPDATES = 0;
+
+START TRANSACTION;
+
+-- ------------------------------------------------------------
+-- 1. Xem trước các yêu cầu hoàn tiền đang thiếu thông tin
+-- ------------------------------------------------------------
+SELECT
+    rr.id AS refund_id,
+    b.booking_code,
+    COALESCE(u.full_name, b.contact_name, 'Khách hàng Travela') AS customer_name,
+    rr.status,
+    rr.refund_amount,
+    rr.refund_bank_name,
+    rr.refund_account_no,
+    rr.refund_account_name,
+    rr.refund_qr_url
+FROM refund_requests rr
+INNER JOIN bookings b
+    ON b.id = rr.booking_id
+LEFT JOIN users u
+    ON u.id = COALESCE(rr.user_id, b.user_id)
+WHERE NULLIF(TRIM(rr.refund_bank_name), '') IS NULL
+   OR NULLIF(TRIM(rr.refund_account_no), '') IS NULL
+   OR NULLIF(TRIM(rr.refund_account_name), '') IS NULL
+ORDER BY rr.id;
+
+-- ------------------------------------------------------------
+-- 2. Tạo bảng tạm chứa dữ liệu ngân hàng giả lập giống thật
+-- ------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS tmp_refund_bank_seed;
+
+CREATE TEMPORARY TABLE tmp_refund_bank_seed (
+    refund_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+    bank_name VARCHAR(100) NOT NULL,
+    account_no VARCHAR(50) NOT NULL,
+    account_name VARCHAR(150) NOT NULL,
+    qr_url VARCHAR(500) NULL
+);
+
+INSERT INTO tmp_refund_bank_seed (
+    refund_id,
+    bank_name,
+    account_no,
+    account_name,
+    qr_url
+)
+SELECT
+    rr.id,
+
+    CASE MOD(COALESCE(rr.user_id, b.user_id, rr.id), 8)
+        WHEN 0 THEN 'Vietcombank'
+        WHEN 1 THEN 'BIDV'
+        WHEN 2 THEN 'VietinBank'
+        WHEN 3 THEN 'Agribank'
+        WHEN 4 THEN 'MB Bank'
+        WHEN 5 THEN 'Techcombank'
+        WHEN 6 THEN 'ACB'
+        ELSE 'Sacombank'
+    END AS bank_name,
+
+    CASE MOD(COALESCE(rr.user_id, b.user_id, rr.id), 8)
+        WHEN 0 THEN CONCAT(
+            '102',
+            LPAD(
+                MOD(
+                    COALESCE(rr.user_id, b.user_id, 0) * 100000 + rr.id,
+                    1000000000
+                ),
+                9,
+                '0'
+            )
+        )
+        WHEN 1 THEN CONCAT(
+            '215',
+            LPAD(
+                MOD(
+                    COALESCE(rr.user_id, b.user_id, 0) * 100000 + rr.id,
+                    1000000000
+                ),
+                9,
+                '0'
+            )
+        )
+        WHEN 2 THEN CONCAT(
+            '711',
+            LPAD(
+                MOD(
+                    COALESCE(rr.user_id, b.user_id, 0) * 100000 + rr.id,
+                    1000000000
+                ),
+                9,
+                '0'
+            )
+        )
+        WHEN 3 THEN CONCAT(
+            '130',
+            LPAD(
+                MOD(
+                    COALESCE(rr.user_id, b.user_id, 0) * 100000 + rr.id,
+                    1000000000
+                ),
+                9,
+                '0'
+            )
+        )
+        WHEN 4 THEN CONCAT(
+            '068',
+            LPAD(
+                MOD(
+                    COALESCE(rr.user_id, b.user_id, 0) * 100000 + rr.id,
+                    1000000000
+                ),
+                9,
+                '0'
+            )
+        )
+        WHEN 5 THEN CONCAT(
+            '190',
+            LPAD(
+                MOD(
+                    COALESCE(rr.user_id, b.user_id, 0) * 100000 + rr.id,
+                    1000000000
+                ),
+                9,
+                '0'
+            )
+        )
+        WHEN 6 THEN CONCAT(
+            '668',
+            LPAD(
+                MOD(
+                    COALESCE(rr.user_id, b.user_id, 0) * 100000 + rr.id,
+                    1000000000
+                ),
+                9,
+                '0'
+            )
+        )
+        ELSE CONCAT(
+            '060',
+            LPAD(
+                MOD(
+                    COALESCE(rr.user_id, b.user_id, 0) * 100000 + rr.id,
+                    1000000000
+                ),
+                9,
+                '0'
+            )
+        )
+    END AS account_no,
+
+    UPPER(
+        TRIM(
+            COALESCE(
+                NULLIF(u.full_name, ''),
+                NULLIF(b.contact_name, ''),
+                CONCAT('KHACH HANG TRAVELA ', rr.id)
+            )
+        )
+    ) AS account_name,
+
+    CONCAT(
+        '/uploads/refunds/qr/refund-',
+        rr.id,
+        '.png'
+    ) AS qr_url
+
+FROM refund_requests rr
+INNER JOIN bookings b
+    ON b.id = rr.booking_id
+LEFT JOIN users u
+    ON u.id = COALESCE(rr.user_id, b.user_id)
+WHERE NULLIF(TRIM(rr.refund_bank_name), '') IS NULL
+   OR NULLIF(TRIM(rr.refund_account_no), '') IS NULL
+   OR NULLIF(TRIM(rr.refund_account_name), '') IS NULL
+   OR NULLIF(TRIM(rr.refund_qr_url), '') IS NULL;
+
+-- ------------------------------------------------------------
+-- 3. Kiểm tra dữ liệu chuẩn bị cập nhật
+-- ------------------------------------------------------------
+SELECT
+    rr.id AS refund_id,
+    b.booking_code,
+    seed.bank_name,
+    seed.account_no,
+    seed.account_name,
+    seed.qr_url
+FROM tmp_refund_bank_seed seed
+INNER JOIN refund_requests rr
+    ON rr.id = seed.refund_id
+INNER JOIN bookings b
+    ON b.id = rr.booking_id
+ORDER BY rr.id;
+
+-- ------------------------------------------------------------
+-- 4. Bổ sung đúng các trường còn thiếu
+-- ------------------------------------------------------------
+UPDATE refund_requests rr
+INNER JOIN tmp_refund_bank_seed seed
+    ON seed.refund_id = rr.id
+SET
+    rr.refund_bank_name = COALESCE(
+        NULLIF(TRIM(rr.refund_bank_name), ''),
+        seed.bank_name
+    ),
+    rr.refund_account_no = COALESCE(
+        NULLIF(TRIM(rr.refund_account_no), ''),
+        seed.account_no
+    ),
+    rr.refund_account_name = COALESCE(
+        NULLIF(TRIM(rr.refund_account_name), ''),
+        seed.account_name
+    ),
+    rr.refund_qr_url = COALESCE(
+        NULLIF(TRIM(rr.refund_qr_url), ''),
+        seed.qr_url
+    ),
+    rr.updated_at = NOW();
+
+-- ------------------------------------------------------------
+-- 5. Kiểm tra kết quả sau cập nhật
+-- ------------------------------------------------------------
+SELECT
+    rr.id AS refund_id,
+    b.booking_code,
+    COALESCE(u.full_name, b.contact_name, 'Khách hàng Travela') AS customer_name,
+    rr.status,
+    rr.refund_amount,
+    rr.refund_bank_name,
+    rr.refund_account_no,
+    rr.refund_account_name,
+    rr.refund_qr_url,
+    rr.updated_at
+FROM refund_requests rr
+INNER JOIN bookings b
+    ON b.id = rr.booking_id
+LEFT JOIN users u
+    ON u.id = COALESCE(rr.user_id, b.user_id)
+WHERE rr.id IN (
+    SELECT refund_id
+    FROM tmp_refund_bank_seed
+)
+ORDER BY rr.id;
+
+COMMIT;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_refund_bank_seed;
+
+SET SQL_SAFE_UPDATES = 1;
+
