@@ -94,6 +94,84 @@ function channelLabel(channels = []) {
   return "Thông báo trong hệ thống";
 }
 
+function formatPickupTime(value) {
+  if (!value) return "Travela sẽ liên hệ";
+
+  const raw = String(value).trim();
+
+  // API có thể trả ISO cho cột MySQL TIME:
+  // 1970-01-01T07:00:00.000Z
+  const isoMatch = raw.match(/T(\d{2}):(\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[1]}:${isoMatch[2]}`;
+  }
+
+  // Hoặc trả trực tiếp HH:mm:ss / HH:mm.
+  const directMatch = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (directMatch) {
+    return `${String(directMatch[1]).padStart(2, "0")}:${directMatch[2]}`;
+  }
+
+  const parsed = new Date(value);
+
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${String(parsed.getUTCHours()).padStart(2, "0")}:${String(
+      parsed.getUTCMinutes(),
+    ).padStart(2, "0")}`;
+  }
+
+  return "Travela sẽ liên hệ";
+}
+
+function getBookingAccount(booking) {
+  return booking?.user || null;
+}
+
+function hasBookingAccount(booking) {
+  return Boolean(getBookingAccount(booking)?.id);
+}
+
+function getBookingAccountName(booking) {
+  return (
+    getBookingAccount(booking)?.fullName ||
+    getBookingAccount(booking)?.email ||
+    "Tài khoản đặt tour"
+  );
+}
+
+function getBookingAccountEmail(booking) {
+  return getBookingAccount(booking)?.email || "";
+}
+
+function getBookingAccountPhone(booking) {
+  return getBookingAccount(booking)?.phone || booking?.contactPhone || "";
+}
+
+function getPrimaryGuideName(target) {
+  const directGuide =
+    target?.guide?.fullName ||
+    target?.tripOperation?.guide?.fullName ||
+    target?.primaryGuideName ||
+    "";
+
+  if (directGuide) return directGuide;
+
+  const uniqueNames = Array.from(
+    new Set(
+      [
+        ...(target?.guideNames || []),
+        ...(target?.bookings || []).flatMap(
+          (booking) => booking?.guideNames || [],
+        ),
+      ]
+        .map((name) => String(name || "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  return uniqueNames[0] || "";
+}
+
 function buildDefaultBulkContent(type, target) {
   if (!target) return { title: "", message: "", content: "" };
   const tourName = target.tourName || "tour của Travela";
@@ -103,9 +181,7 @@ function buildDefaultBulkContent(type, target) {
   const first = target.bookings?.[0] || {};
   const pickupName = first.pickupName || "Travela sẽ liên hệ xác nhận";
   const pickupAddress = first.pickupAddress || "đang cập nhật";
-  const pickupTime = first.pickupTime
-    ? formatDateTime(first.pickupTime).slice(-5)
-    : "Travela sẽ liên hệ";
+  const pickupTime = formatPickupTime(first.pickupTime);
   const guideNames = target.guideNames?.length
     ? target.guideNames.join(", ")
     : "Travela sẽ cập nhật trong thời gian sớm nhất";
@@ -575,8 +651,18 @@ export default function AdminNotificationsPage() {
 
   const openBulkModal = (target) => {
     const defaults = buildDefaultBulkContent("reminder", target);
-    setSelectedTarget(target);
-    setSelectedBookingIds((target.bookings || []).map((b) => String(b.id)));
+
+    // Chỉ những booking gắn với tài khoản người dùng mới là người nhận.
+    // Người liên hệ hoặc hành khách đi kèm không có tài khoản sẽ không nhận riêng.
+    const accountBookings = (target.bookings || []).filter(hasBookingAccount);
+
+    setSelectedTarget({
+      ...target,
+      accountBookings,
+    });
+
+    setSelectedBookingIds(accountBookings.map((booking) => String(booking.id)));
+
     setBulkForm({ ...initialBulkForm, ...defaults });
     setBulkResult(null);
     setBulkModalOpen(true);
@@ -611,10 +697,25 @@ export default function AdminNotificationsPage() {
 
   const submitBulk = async () => {
     if (!selectedTarget) return;
-    if (!selectedBookingIds.length) {
-      showToast("Cần chọn ít nhất 1 booking để gửi.", "error");
+
+    const validRecipientIds = new Set(
+      (selectedTarget.accountBookings || selectedTarget.bookings || [])
+        .filter(hasBookingAccount)
+        .map((booking) => String(booking.id)),
+    );
+
+    const safeSelectedBookingIds = selectedBookingIds.filter((bookingId) =>
+      validRecipientIds.has(String(bookingId)),
+    );
+
+    if (!safeSelectedBookingIds.length) {
+      showToast(
+        "Không có booking nào gắn với tài khoản người dùng để nhận thông báo.",
+        "error",
+      );
       return;
     }
+
     if (!bulkForm.title.trim() || !bulkForm.content.trim()) {
       showToast("Cần nhập tiêu đề và nội dung gửi.", "error");
       return;
@@ -627,7 +728,7 @@ export default function AdminNotificationsPage() {
         method: "POST",
         body: JSON.stringify({
           departureId: selectedTarget.departureId,
-          bookingIds: selectedBookingIds,
+          bookingIds: safeSelectedBookingIds,
           ...bulkForm,
         }),
       });
@@ -877,11 +978,18 @@ export default function AdminNotificationsPage() {
         }
         .bulk-booking-row {
           display: grid;
-          grid-template-columns: auto 1fr auto;
-          gap: 10px;
+          grid-template-columns: auto minmax(0, 1fr);
+          gap: 12px;
           align-items: center;
-          padding: 10px 12px;
+          padding: 12px 14px;
           border-bottom: 1px solid #eef2f7;
+          background: #ffffff;
+        }
+        .bulk-booking-row:hover {
+          background: #f8fafc;
+        }
+        .bulk-booking-row:last-child {
+          border-bottom: none;
         }
         @media (max-width: 768px) {
           .target-header {
@@ -1291,10 +1399,8 @@ export default function AdminNotificationsPage() {
                           : "Cần kiểm tra"}
                       </div>
                       <div className="checkitem">
-                        HDV:{" "}
-                        {target.guideNames?.length
-                          ? target.guideNames.join(", ")
-                          : "Chưa có"}
+                        HDV phụ trách:{" "}
+                        {getPrimaryGuideName(target) || "Chưa có"}
                       </div>
                     </div>
                   </article>
@@ -1526,8 +1632,14 @@ export default function AdminNotificationsPage() {
                 {selectedTarget.destinationName} ·{" "}
                 {formatDate(selectedTarget.departureDate)} →{" "}
                 {formatDate(selectedTarget.endDate)} ·{" "}
-                {selectedBookingIds.length}/{selectedTarget.bookingCount}{" "}
-                booking được chọn
+                {selectedBookingIds.length}/
+                {
+                  (
+                    selectedTarget.accountBookings ||
+                    (selectedTarget.bookings || []).filter(hasBookingAccount)
+                  ).length
+                }{" "}
+                tài khoản đặt tour được chọn
               </div>
             </div>
 
@@ -1624,46 +1736,121 @@ export default function AdminNotificationsPage() {
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
+                  gap: 12,
                   marginBottom: 8,
+                  flexWrap: "wrap",
                 }}
               >
-                <strong>Danh sách booking nhận thông báo/email</strong>
+                <div>
+                  <strong>
+                    Danh sách tài khoản đặt booking nhận thông báo/email
+                  </strong>
+
+                  <div
+                    style={{
+                      marginTop: 5,
+                      color: "#64748b",
+                      fontSize: 13,
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    Chỉ gửi cho tài khoản sở hữu booking. Danh sách chỉ hiển thị
+                    tên, email và số điện thoại của người đặt tour.
+                  </div>
+                </div>
+
                 <button
                   type="button"
                   className="btn btn-light btn-sm"
                   onClick={() =>
                     setSelectedBookingIds(
-                      (selectedTarget.bookings || []).map((b) => String(b.id)),
+                      (
+                        selectedTarget.accountBookings ||
+                        selectedTarget.bookings ||
+                        []
+                      )
+                        .filter(hasBookingAccount)
+                        .map((booking) => String(booking.id)),
                     )
                   }
                 >
-                  Chọn tất cả
+                  Chọn tất cả tài khoản
                 </button>
               </div>
+
               <div className="bulk-booking-list">
-                {(selectedTarget.bookings || []).map((booking) => (
-                  <label key={booking.id} className="bulk-booking-row">
-                    <input
-                      type="checkbox"
-                      checked={selectedBookingIds.includes(String(booking.id))}
-                      onChange={() => toggleBooking(booking.id)}
-                    />
-                    <div>
-                      <strong>{booking.bookingCode}</strong> ·{" "}
-                      {booking.contactName}
-                      <div style={{ color: "#64748b", fontSize: ".9rem" }}>
-                        {booking.contactEmail} · {booking.contactPhone} ·{" "}
-                        {booking.paymentStatus || "chưa có payment"} ·{" "}
-                        {booking.guideNames?.length
-                          ? booking.guideNames.join(", ")
-                          : "chưa có HDV"}
+                {(
+                  selectedTarget.accountBookings ||
+                  (selectedTarget.bookings || []).filter(hasBookingAccount)
+                ).map((booking) => {
+                  const accountName = getBookingAccountName(booking);
+                  const accountEmail = getBookingAccountEmail(booking);
+                  const accountPhone = getBookingAccountPhone(booking);
+
+                  return (
+                    <label key={booking.id} className="bulk-booking-row">
+                      <input
+                        type="checkbox"
+                        checked={selectedBookingIds.includes(
+                          String(booking.id),
+                        )}
+                        onChange={() => toggleBooking(booking.id)}
+                      />
+
+                      <div>
+                        <div>
+                          <strong>{booking.bookingCode}</strong>
+                          {" · "}
+                          <strong style={{ color: "#0f172a" }}>
+                            {accountName}
+                          </strong>
+
+                          <span
+                            style={{
+                              marginLeft: 8,
+                              display: "inline-flex",
+                              padding: "3px 8px",
+                              borderRadius: 999,
+                              background: "#dcfce7",
+                              color: "#166534",
+                              fontSize: 11,
+                              fontWeight: 800,
+                            }}
+                          >
+                            Tài khoản đặt tour
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            color: "#64748b",
+                            fontSize: ".9rem",
+                            marginTop: 3,
+                          }}
+                        >
+                          {accountEmail || "Chưa có email tài khoản"} ·{" "}
+                          {accountPhone || "Chưa có số điện thoại"}
+                        </div>
                       </div>
-                    </div>
-                    <div style={{ textAlign: "right", fontWeight: 700 }}>
-                      {formatCurrency(booking.finalAmount)}
-                    </div>
-                  </label>
-                ))}
+                    </label>
+                  );
+                })}
+
+                {!(
+                  selectedTarget.accountBookings ||
+                  (selectedTarget.bookings || []).filter(hasBookingAccount)
+                ).length ? (
+                  <div
+                    style={{
+                      padding: 18,
+                      textAlign: "center",
+                      color: "#b91c1c",
+                      background: "#fef2f2",
+                    }}
+                  >
+                    Không có booking nào gắn với tài khoản người dùng.
+                  </div>
+                ) : null}
               </div>
             </div>
 

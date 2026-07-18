@@ -12,6 +12,8 @@ type DestinationFilters = {
   pageSize?: string | number;
   search?: string;
   status?: string;
+  sortBy?: string;
+  sortOrder?: string;
 };
 
 @Injectable()
@@ -31,6 +33,22 @@ export class DestinationsService {
     const search = String(filters.search || "").trim();
     const status = String(filters.status || "").trim();
 
+    const allowedSortFields = new Set([
+      "createdAt",
+      "name",
+      "province",
+      "country",
+      "status",
+    ]);
+    const requestedSortBy = String(filters.sortBy || "createdAt");
+    const sortBy = allowedSortFields.has(requestedSortBy)
+      ? requestedSortBy
+      : "createdAt";
+    const sortOrder: Prisma.SortOrder =
+      String(filters.sortOrder || "desc").toLowerCase() === "asc"
+        ? "asc"
+        : "desc";
+
     const where: Prisma.DestinationWhereInput = {
       ...(status ? { status } : {}),
       ...(search
@@ -49,7 +67,13 @@ export class DestinationsService {
       this.prisma.destination.count({ where }),
       this.prisma.destination.findMany({
         where,
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        // Quan trọng: sắp xếp toàn bộ tập dữ liệu trước khi skip/take.
+        // Nhờ vậy "Tên điểm đến - Tăng dần" đúng trên toàn bộ các trang,
+        // không chỉ đúng trong 10 bản ghi của trang hiện tại.
+        orderBy: [
+          { [sortBy]: sortOrder } as Prisma.DestinationOrderByWithRelationInput,
+          { id: sortOrder },
+        ],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -199,7 +223,7 @@ export class DestinationsService {
       warning,
     };
   }
-  
+
   async remove(id: number) {
     const destinationId = BigInt(id);
 

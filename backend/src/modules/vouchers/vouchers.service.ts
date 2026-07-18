@@ -197,6 +197,7 @@ export class VouchersService {
       startDate: "startDate",
       endDate: "endDate",
       status: "status",
+      memberTier: "memberTier",
     };
     const sortBy = allowedSort[String(query.sortBy || "")] || "createdAt";
     const sortOrder = query.sortOrder === "asc" ? "asc" : "desc";
@@ -214,7 +215,8 @@ export class VouchersService {
       this.prisma.voucher.findMany({
         where,
         include: { _count: { select: { userVouchers: true } } },
-        orderBy: [{ [sortBy]: sortOrder }, { id: "desc" }],
+        // Sắp xếp toàn bộ voucher trước khi phân trang.
+        orderBy: [{ [sortBy]: sortOrder }, { id: sortOrder }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),

@@ -277,7 +277,7 @@ export default function AdminRefundsPage() {
           
           .console-table {
             width: 100%;
-            min-width: 1100px;
+            min-width: 1200px;
             border-collapse: collapse;
           }
           .console-table th {
@@ -303,6 +303,19 @@ export default function AdminRefundsPage() {
             line-height: 1.5;
             font-size: 0.9rem;
             color: #475569;
+          }
+          .admin-note-header {
+            min-width: 250px;
+          }
+          .admin-note-cell {
+            min-width: 260px;
+            max-width: 360px;
+            white-space: normal;
+            word-break: break-word;
+            line-height: 1.75;
+            font-size: 0.96rem;
+            padding-top: 18px !important;
+            padding-bottom: 18px !important;
           }
 
           /* --- RESPONSIVE --- */
@@ -489,7 +502,7 @@ export default function AdminRefundsPage() {
                 <th>Tài khoản nhận hoàn</th>
                 <th>Số tiền hoàn</th>
                 <th>Trạng thái</th>
-                <th>Phản hồi Admin</th>
+                <th className="admin-note-header">Phản hồi Admin</th>
                 <th style={{ textAlign: "right" }}>Thao tác</th>
               </tr>
             </thead>
@@ -613,7 +626,7 @@ export default function AdminRefundsPage() {
                     </td>
 
                     <td
-                      className="reason-cell"
+                      className="reason-cell admin-note-cell"
                       style={{
                         fontStyle: r.adminNote ? "normal" : "italic",
                         color: r.adminNote ? "#1e293b" : "#94a3b8",

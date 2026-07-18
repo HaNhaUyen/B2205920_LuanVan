@@ -8930,3 +8930,1983 @@ WHERE
 ALTER TABLE guides
 ADD UNIQUE KEY uk_guides_email(email),
 ADD UNIQUE KEY uk_guides_phone(phone);
+
+UPDATE guide_assignments
+SET
+    note = TRIM(
+        REPLACE(
+            REPLACE(
+                REPLACE(
+                    COALESCE(note, ''),
+                    '[NORMALIZE_ASSIGNMENT] Đã gộp phân công theo lịch khởi hành; phân công này không còn là bản active.',
+                    'Phân công này đã được thay thế bởi hướng dẫn viên khác.'
+                ),
+                '[NORMALIZE_ASSIGNMENT] Đã gộp phân công theo lịch khởi hành; phân công này không còn là bản active',
+                'Phân công này đã được thay thế bởi hướng dẫn viên khác.'
+            ),
+            '[NORMALIZE_ASSIGNMENT]',
+            ''
+        )
+    ),
+    updated_at = NOW()
+WHERE status = 'replaced'
+   OR note LIKE '%[NORMALIZE_ASSIGNMENT]%';
+
+
+-- Phân công được giữ lại làm phân công chính của cả lịch khởi hành.
+UPDATE guide_assignments
+SET
+    note = TRIM(
+        REPLACE(
+            REPLACE(
+                COALESCE(note, ''),
+                '[NORMALIZE_ASSIGNMENT] Phân công đại diện cho toàn bộ lịch khởi hành.',
+                'Phân công chính đại diện cho toàn bộ khách của lịch khởi hành.'
+            ),
+            '[NORMALIZE_ASSIGNMENT]',
+            ''
+        )
+    ),
+    updated_at = NOW()
+WHERE note LIKE '%Phân công đại diện cho toàn bộ lịch khởi hành%'
+   OR note LIKE '%[NORMALIZE_ASSIGNMENT]%';
+
+
+-- Xóa dòng trống thừa do REPLACE.
+UPDATE guide_assignments
+SET
+    note = TRIM(
+        REPLACE(
+            REPLACE(
+                REPLACE(note, CONCAT(CHAR(13), CHAR(10), CHAR(13), CHAR(10)), CONCAT(CHAR(13), CHAR(10))),
+                CONCAT(CHAR(10), CHAR(10)),
+                CHAR(10)
+            ),
+            CONCAT(CHAR(13), CHAR(13)),
+            CHAR(13)
+        )
+    )
+WHERE note IS NOT NULL;
+
+
+-- Chuẩn hóa ghi chú cho mọi phân công replaced chưa có mô tả rõ ràng.
+UPDATE guide_assignments
+SET
+    note = 'Phân công này đã được thay thế bởi hướng dẫn viên khác.',
+    updated_at = NOW()
+WHERE status = 'replaced'
+  AND (
+      note IS NULL
+      OR TRIM(note) = ''
+      OR note LIKE '%NORMALIZE_ASSIGNMENT%'
+  );
+
+
+-- =========================================================
+-- 2. LÀM SẠCH LỊCH BẬN HƯỚNG DẪN VIÊN
+-- =========================================================
+
+UPDATE guide_availabilities
+SET
+    reason = TRIM(
+        REPLACE(
+            REPLACE(
+                REPLACE(
+                    COALESCE(reason, ''),
+                    '[PENDING_SEED]',
+                    ''
+                ),
+                '[SEED]',
+                ''
+            ),
+            '  ',
+            ' '
+        )
+    ),
+    updated_at = NOW()
+WHERE reason LIKE '%[SEED]%'
+   OR reason LIKE '%[PENDING_SEED]%';
+
+
+-- Chuẩn hóa các nội dung mẫu cũ.
+UPDATE guide_availabilities
+SET
+    reason = CASE
+        WHEN LOWER(reason) LIKE '%tham gia khóa đào tạo nghiệp vụ%'
+            THEN 'Tham gia khóa đào tạo nghiệp vụ hướng dẫn viên'
+
+        WHEN LOWER(reason) LIKE '%tham gia đào tạo nghiệp vụ%'
+            THEN 'Tham gia đào tạo nghiệp vụ'
+
+        WHEN LOWER(reason) LIKE '%xin nghỉ buổi chiều%'
+            THEN 'Xin nghỉ buổi chiều để giải quyết công việc cá nhân'
+
+        WHEN LOWER(reason) LIKE '%có việc cá nhân%'
+            THEN 'Có việc cá nhân'
+
+        WHEN LOWER(reason) LIKE '%nghỉ phép cá nhân%'
+            THEN 'Nghỉ phép cá nhân'
+
+        ELSE TRIM(reason)
+    END,
+    updated_at = NOW()
+WHERE reason IS NOT NULL;
+
+
+-- =========================================================
+-- 3. LÀM SẠCH GHI CHÚ ĐIỂM DANH
+-- =========================================================
+
+UPDATE passenger_checkins
+SET
+    note = 'Điểm danh tự động cho chuyến đi đã hoàn thành',
+    updated_at = NOW()
+WHERE note = 'Dữ liệu điểm danh seed cho chuyến đã hoàn thành'
+   OR note LIKE '%điểm danh seed%';
+
+
+-- =========================================================
+-- 4. LÀM SẠCH NHẬT KÝ HÀNH TRÌNH MẪU
+-- =========================================================
+
+UPDATE journey_logs
+SET
+    title = TRIM(
+        REPLACE(
+            REPLACE(title, '[SEED]', ''),
+            '[DEMO]',
+            ''
+        )
+    ),
+    content = CASE
+        WHEN content IS NULL THEN NULL
+        ELSE TRIM(
+            REPLACE(
+                REPLACE(content, '[SEED]', ''),
+                '[DEMO]',
+                ''
+            )
+        )
+    END,
+    updated_at = NOW()
+WHERE title LIKE '%[SEED]%'
+   OR title LIKE '%[DEMO]%'
+   OR content LIKE '%[SEED]%'
+   OR content LIKE '%[DEMO]%';
+
+
+-- =========================================================
+-- 5. LÀM SẠCH GHI CHÚ BOOKING VÀ LOG BOOKING MẪU
+-- =========================================================
+
+UPDATE bookings
+SET
+    note = TRIM(
+        REPLACE(
+            REPLACE(
+                REPLACE(
+                    REPLACE(
+                        COALESCE(note, ''),
+                        'Seed booking demo lớn',
+                        'Booking dữ liệu mẫu'
+                    ),
+                    'Seed booking cực lớn có voucher và điểm đón',
+                    'Booking mẫu có voucher và điểm đón'
+                ),
+                'Seed booking cực lớn',
+                'Booking dữ liệu mẫu'
+            ),
+            '[SEED]',
+            ''
+        )
+    ),
+    updated_at = NOW()
+WHERE note LIKE '%Seed%'
+   OR note LIKE '%[SEED]%';
+
+
+UPDATE booking_status_logs
+SET
+    reason = CASE
+        WHEN reason = 'Seed dữ liệu demo'
+            THEN 'Khởi tạo dữ liệu booking mẫu'
+
+        WHEN reason = 'Seed dữ liệu cực lớn'
+            THEN 'Khởi tạo dữ liệu booking mẫu'
+
+        ELSE TRIM(
+            REPLACE(
+                REPLACE(COALESCE(reason, ''), '[SEED]', ''),
+                'Seed',
+                'Khởi tạo'
+            )
+        )
+    END,
+
+    note = CASE
+        WHEN note = 'Tạo log trạng thái booking mẫu'
+            THEN 'Khởi tạo lịch sử trạng thái booking'
+
+        WHEN note = 'Tạo log trạng thái booking mẫu có voucher/điểm đón'
+            THEN 'Khởi tạo lịch sử trạng thái booking có voucher và điểm đón'
+
+        ELSE TRIM(
+            REPLACE(
+                REPLACE(COALESCE(note, ''), '[SEED]', ''),
+                'Seed',
+                'Khởi tạo'
+            )
+        )
+    END
+WHERE reason LIKE '%Seed%'
+   OR reason LIKE '%[SEED]%'
+   OR note LIKE '%Seed%'
+   OR note LIKE '%[SEED]%';
+
+
+-- =========================================================
+-- 6. LÀM SẠCH GHI CHÚ SỰ CỐ VÀ CẢNH BÁO MẪU
+-- =========================================================
+
+UPDATE incident_tickets
+SET
+    title = TRIM(
+        REPLACE(
+            REPLACE(title, '[SEED]', ''),
+            '[DEMO]',
+            ''
+        )
+    ),
+    description = TRIM(
+        REPLACE(
+            REPLACE(description, '[SEED]', ''),
+            '[DEMO]',
+            ''
+        )
+    ),
+    updated_at = NOW()
+WHERE title LIKE '%[SEED]%'
+   OR title LIKE '%[DEMO]%'
+   OR description LIKE '%[SEED]%'
+   OR description LIKE '%[DEMO]%';
+
+
+UPDATE operational_alerts
+SET
+    title = TRIM(
+        REPLACE(
+            REPLACE(title, '[SEED]', ''),
+            '[DEMO]',
+            ''
+        )
+    ),
+    message = TRIM(
+        REPLACE(
+            REPLACE(message, '[SEED]', ''),
+            '[DEMO]',
+            ''
+        )
+    )
+WHERE title LIKE '%[SEED]%'
+   OR title LIKE '%[DEMO]%'
+   OR message LIKE '%[SEED]%'
+   OR message LIKE '%[DEMO]%';
+
+
+COMMIT;
+
+SET SQL_SAFE_UPDATES = 0;
+
+DELETE FROM guide_availabilities
+WHERE created_by IN (
+    SELECT user_id
+    FROM guides
+    WHERE user_id IS NOT NULL
+)
+AND (
+    reason IN (
+        'Có việc cá nhân',
+        'Nghỉ phép cá nhân',
+        'Tham gia đào tạo nghiệp vụ',
+        'Tham gia khóa đào tạo nghiệp vụ hướng dẫn viên',
+        'Xin nghỉ buổi chiều để giải quyết công việc cá nhân'
+    )
+    OR reason LIKE '[SEED]%'
+    OR reason LIKE '[PENDING_SEED]%'
+);
+
+INSERT INTO guide_availabilities (
+    guide_id,
+    guide_assignment_id,
+    availability_type,
+    start_at,
+    end_at,
+    all_day,
+    reason,
+    status,
+    created_by,
+    approved_by,
+    approved_at,
+    created_at,
+    updated_at
+)
+SELECT
+    g.id,
+    NULL,
+
+    CASE MOD(g.id, 3)
+        WHEN 0 THEN 'leave'
+        WHEN 1 THEN 'personal'
+        ELSE 'training'
+    END,
+
+    TIMESTAMP(
+        DATE_ADD(
+            GREATEST(
+                CURDATE(),
+                COALESCE(MAX(ga.end_date), CURDATE())
+            ),
+            INTERVAL 3 + MOD(g.id, 2) DAY
+        ),
+        '00:00:00'
+    ),
+
+    TIMESTAMP(
+        DATE_ADD(
+            GREATEST(
+                CURDATE(),
+                COALESCE(MAX(ga.end_date), CURDATE())
+            ),
+            INTERVAL 3 + MOD(g.id, 2) DAY
+        ),
+        '23:59:59'
+    ),
+
+    TRUE,
+
+    CASE MOD(g.id, 3)
+        WHEN 0 THEN 'Nghỉ phép cá nhân'
+        WHEN 1 THEN 'Có việc cá nhân'
+        ELSE 'Tham gia đào tạo nghiệp vụ'
+    END,
+
+    'active',
+    g.user_id,
+    1,
+    NOW(),
+    NOW(),
+    NOW()
+
+FROM guides g
+
+LEFT JOIN guide_assignments ga
+    ON ga.guide_id = g.id
+
+WHERE g.status = 'active'
+  AND g.user_id IS NOT NULL
+
+GROUP BY
+    g.id,
+    g.user_id;
+    
+    
+    INSERT INTO guide_availabilities (
+    guide_id,
+    guide_assignment_id,
+    availability_type,
+    start_at,
+    end_at,
+    all_day,
+    reason,
+    status,
+    created_by,
+    approved_by,
+    approved_at,
+    created_at,
+    updated_at
+)
+SELECT
+    g.id,
+    NULL,
+    'training',
+
+    TIMESTAMP(
+        DATE_ADD(
+            GREATEST(
+                CURDATE(),
+                COALESCE(MAX(ga.end_date), CURDATE())
+            ),
+            INTERVAL 18 + MOD(g.id, 6) DAY
+        ),
+        '08:00:00'
+    ),
+
+    TIMESTAMP(
+        DATE_ADD(
+            GREATEST(
+                CURDATE(),
+                COALESCE(MAX(ga.end_date), CURDATE())
+            ),
+            INTERVAL 18 + MOD(g.id, 6) DAY
+        ),
+        '17:00:00'
+    ),
+
+    FALSE,
+    'Tham gia khóa đào tạo nghiệp vụ hướng dẫn viên',
+    'pending',
+    g.user_id,
+    NULL,
+    NULL,
+    NOW(),
+    NOW()
+
+FROM guides g
+
+LEFT JOIN guide_assignments ga
+    ON ga.guide_id = g.id
+
+WHERE g.status = 'active'
+  AND g.user_id IS NOT NULL
+
+GROUP BY
+    g.id,
+    g.user_id;
+    
+INSERT INTO guide_availabilities (
+    guide_id,
+    guide_assignment_id,
+    availability_type,
+    start_at,
+    end_at,
+    all_day,
+    reason,
+    status,
+    created_by,
+    approved_by,
+    approved_at,
+    created_at,
+    updated_at
+)
+SELECT
+    g.id,
+    NULL,
+    'personal',
+
+    TIMESTAMP(
+        DATE_ADD(
+            GREATEST(
+                CURDATE(),
+                COALESCE(MAX(ga.end_date), CURDATE())
+            ),
+            INTERVAL 29 + MOD(g.id, 4) DAY
+        ),
+        '13:00:00'
+    ),
+
+    TIMESTAMP(
+        DATE_ADD(
+            GREATEST(
+                CURDATE(),
+                COALESCE(MAX(ga.end_date), CURDATE())
+            ),
+            INTERVAL 29 + MOD(g.id, 4) DAY
+        ),
+        '18:00:00'
+    ),
+
+    FALSE,
+    'Xin nghỉ buổi chiều để giải quyết công việc cá nhân',
+    'pending',
+    g.user_id,
+    NULL,
+    NULL,
+    NOW(),
+    NOW()
+
+FROM guides g
+
+LEFT JOIN guide_assignments ga
+    ON ga.guide_id = g.id
+
+WHERE g.status = 'active'
+  AND g.user_id IS NOT NULL
+  AND MOD(g.id, 4) = 0
+
+GROUP BY
+    g.id,
+    g.user_id;
+    
+    
+    
+USE travela_full_mvc;
+SET SQL_SAFE_UPDATES = 0;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- =====================================================================
+-- 1. TẠO THÊM 60 TÀI KHOẢN VÀ HỒ SƠ HƯỚNG DẪN VIÊN MỚI
+-- =====================================================================
+
+-- Tạo bảng tạm chứa 60 số thứ tự (từ 41 đến 100)
+DROP TEMPORARY TABLE IF EXISTS tmp_seq_guides;
+CREATE TEMPORARY TABLE tmp_seq_guides (n INT PRIMARY KEY);
+INSERT INTO tmp_seq_guides(n)
+SELECT a.i + b.i * 10 FROM 
+(SELECT 0 i UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) a
+CROSS JOIN 
+(SELECT 0 i UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9) b
+WHERE a.i + b.i * 10 BETWEEN 41 AND 100;
+
+-- 1.1 Thêm vào bảng users
+INSERT INTO users (
+    full_name, email, phone, identity_number, password_hash, 
+    role, status, auth_provider, member_points, member_tier, created_at, updated_at
+)
+SELECT
+    CONCAT('HDV Travela Pro ', n),
+    CONCAT('guide.pro.', n, '@travela.vn'),
+    CONCAT('0988', LPAD(n, 6, '0')),
+    CONCAT('0792011', LPAD(n, 5, '0')),
+    '$2b$10$1J1M099OCjYoDHgVnQdtmukX0KvtIjlxey1e1eEEEK9AFAcR2wVvC', -- Password: 123456
+    'guide',
+    'active',
+    'local',
+    0,
+    'bronze',
+    NOW(), NOW()
+FROM tmp_seq_guides s
+WHERE NOT EXISTS (
+    SELECT 1 FROM users u WHERE u.email = CONCAT('guide.pro.', s.n, '@travela.vn')
+);
+
+-- 1.2 Thêm vào bảng guides
+INSERT INTO guides (
+    user_id, full_name, phone, email, identity_number, 
+    languages, experience_years, status, note, created_at, updated_at
+)
+SELECT
+    u.id,
+    u.full_name,
+    u.phone,
+    u.email,
+    u.identity_number,
+    CASE MOD(s.n, 4)
+        WHEN 0 THEN 'Tiếng Việt, Tiếng Anh'
+        WHEN 1 THEN 'Tiếng Việt, Tiếng Trung'
+        WHEN 2 THEN 'Tiếng Việt, Tiếng Hàn'
+        ELSE 'Tiếng Việt, Tiếng Anh, Tiếng Nhật'
+    END,
+    3 + MOD(s.n, 8), -- Kinh nghiệm từ 3 đến 10 năm
+    'active',
+    'HDV bổ sung số lượng lớn để đảm bảo vận hành mùa cao điểm',
+    NOW(), NOW()
+FROM tmp_seq_guides s
+JOIN users u ON u.email = CONCAT('guide.pro.', s.n, '@travela.vn')
+WHERE NOT EXISTS (
+    SELECT 1 FROM guides g WHERE g.email = u.email
+);
+
+-- 1.3 Thêm Competencies (Năng lực / Thẻ HDV) cho các HDV mới để hợp lệ
+SET @admin_id := (SELECT id FROM users WHERE role='admin' AND status='active' ORDER BY id LIMIT 1);
+
+INSERT INTO guide_competencies (
+    guide_id, competency_type, name, level, certificate_no, issued_by,
+    issued_date, expiry_date, document_url, note, verification_status,
+    verified_by, verified_at, created_at, updated_at
+)
+SELECT 
+    g.id, 'language', 'Tiếng Anh giao tiếp', 'B2', CONCAT('ENG-PRO-', g.id), 'Travela Training',
+    DATE_SUB(CURDATE(), INTERVAL 1 YEAR), DATE_ADD(CURDATE(), INTERVAL 2 YEAR), 
+    CONCAT('https://picsum.photos/seed/lang-', g.id, '/800/600'), 'Cấp tự động', 'verified', @admin_id, NOW(), NOW(), NOW()
+FROM guides g WHERE g.email LIKE 'guide.pro.%' 
+AND NOT EXISTS (SELECT 1 FROM guide_competencies gc WHERE gc.guide_id = g.id AND gc.competency_type = 'language');
+
+INSERT INTO guide_competencies (
+    guide_id, competency_type, name, level, certificate_no, issued_by,
+    issued_date, expiry_date, document_url, note, verification_status,
+    verified_by, verified_at, created_at, updated_at
+)
+SELECT 
+    g.id, 'certificate', 'Thẻ hướng dẫn viên du lịch nội địa', 'Còn hiệu lực', CONCAT('HDV-PRO-', g.id), 'Sở Du lịch',
+    DATE_SUB(CURDATE(), INTERVAL 1 YEAR), DATE_ADD(CURDATE(), INTERVAL 4 YEAR), 
+    CONCAT('https://picsum.photos/seed/card-', g.id, '/800/600'), 'Cấp tự động', 'verified', @admin_id, NOW(), NOW(), NOW()
+FROM guides g WHERE g.email LIKE 'guide.pro.%' 
+AND NOT EXISTS (SELECT 1 FROM guide_competencies gc WHERE gc.guide_id = g.id AND gc.competency_type = 'certificate');
+
+-- =====================================================================
+-- 2. TÌM CÁC LỊCH KHỞI HÀNH (DEPARTURES) ĐANG THIẾU HDV
+-- =====================================================================
+
+DROP TEMPORARY TABLE IF EXISTS tmp_missing_assignments;
+CREATE TEMPORARY TABLE tmp_missing_assignments AS
+SELECT
+    td.id AS departure_id,
+    MIN(b.id) AS representative_booking_id,
+    td.tour_id,
+    td.departure_date AS start_date,
+    td.end_date
+FROM tour_departures td
+JOIN bookings b ON b.departure_id = td.id
+WHERE b.booking_status IN ('confirmed', 'completed', 'waiting_confirmation')
+  -- Tìm những lịch KHÔNG CÓ phân công HDV nào đang active/completed
+  AND NOT EXISTS (
+      SELECT 1 FROM guide_assignments ga
+      JOIN bookings b2 ON b2.id = ga.booking_id
+      WHERE b2.departure_id = td.id
+        AND ga.status IN ('assigned', 'accepted', 'in_progress', 'completed', 'issue')
+  )
+GROUP BY td.id, td.tour_id, td.departure_date, td.end_date;
+
+ALTER TABLE tmp_missing_assignments ADD PRIMARY KEY (departure_id);
+
+-- =====================================================================
+-- 3. TỰ ĐỘNG PHÂN CÔNG HDV MỚI VÀO CÁC LỊCH TRỐNG
+-- =====================================================================
+
+DROP PROCEDURE IF EXISTS fill_missing_guide_assignments;
+DELIMITER $$
+
+CREATE PROCEDURE fill_missing_guide_assignments()
+BEGIN
+    DECLARE v_done INT DEFAULT 0;
+    DECLARE v_departure_id BIGINT UNSIGNED;
+    DECLARE v_booking_id BIGINT UNSIGNED;
+    DECLARE v_tour_id BIGINT UNSIGNED;
+    DECLARE v_start_date DATE;
+    DECLARE v_end_date DATE;
+    DECLARE v_guide_id BIGINT UNSIGNED;
+
+    DECLARE cur CURSOR FOR SELECT departure_id, representative_booking_id, tour_id, start_date, end_date FROM tmp_missing_assignments;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done = 1;
+
+    OPEN cur;
+    read_loop: LOOP
+        FETCH cur INTO v_departure_id, v_booking_id, v_tour_id, v_start_date, v_end_date;
+        IF v_done THEN LEAVE read_loop; END IF;
+
+        -- Tìm 1 HDV đang rảnh (Active, Không cấn lịch Assignment, Không cấn lịch Availability)
+        SET v_guide_id = (
+            SELECT g.id FROM guides g
+            WHERE g.status = 'active'
+              -- Check cấn lịch tour
+              AND NOT EXISTS (
+                  SELECT 1 FROM guide_assignments ga
+                  WHERE ga.guide_id = g.id
+                    AND ga.status IN ('assigned', 'accepted', 'in_progress', 'completed', 'issue')
+                    AND ga.start_date <= v_end_date
+                    AND ga.end_date >= v_start_date
+              )
+              -- Check cấn lịch nghỉ phép
+              AND NOT EXISTS (
+                  SELECT 1 FROM guide_availabilities gav
+                  WHERE gav.guide_id = g.id
+                    AND gav.status = 'active'
+                    AND gav.availability_type IN ('unavailable', 'leave', 'training', 'personal')
+                    AND DATE(gav.start_at) <= v_end_date
+                    AND DATE(gav.end_at) >= v_start_date
+              )
+            -- Ưu tiên những người có ít tour nhất để chia đều việc
+            ORDER BY (SELECT COUNT(*) FROM guide_assignments ga2 WHERE ga2.guide_id = g.id) ASC, RAND()
+            LIMIT 1
+        );
+
+        IF v_guide_id IS NOT NULL THEN
+            INSERT INTO guide_assignments (
+                guide_id, booking_id, tour_id, start_date, end_date, status, note, created_at, updated_at
+            )
+            VALUES (
+                v_guide_id, v_booking_id, v_tour_id, v_start_date, v_end_date,
+                CASE
+                    WHEN v_end_date < CURDATE() THEN 'completed'
+                    WHEN v_start_date <= CURDATE() AND v_end_date >= CURDATE() THEN 'in_progress'
+                    ELSE 'assigned'
+                END,
+                '[AUTO_FILL] Phân công đại diện cho toàn bộ lịch khởi hành sau khi bổ sung HDV.',
+                NOW(), NOW()
+            );
+            
+            -- Xóa cảnh báo cũ nếu có
+            DELETE FROM guide_assignment_seed_warnings WHERE departure_id = v_departure_id;
+        ELSE
+            -- Ghi đè cảnh báo nếu vẫn thiếu (thường sẽ không xảy ra vì đã thêm 60 người)
+            INSERT IGNORE INTO guide_assignment_seed_warnings (departure_id, tour_id, start_date, end_date, warning_message)
+            VALUES (v_departure_id, v_tour_id, v_start_date, v_end_date, 'Vẫn thiếu HDV ngay cả khi đã add thêm 60 HDV mới.');
+        END IF;
+
+    END LOOP;
+    CLOSE cur;
+END$$
+
+DELIMITER ;
+
+-- Thực thi hàm
+CALL fill_missing_guide_assignments();
+
+-- Dọn dẹp
+DROP PROCEDURE IF EXISTS fill_missing_guide_assignments;
+
+-- =====================================================================
+-- 4. ĐỒNG BỘ LẠI BẢNG VẬN HÀNH (TRIP_OPERATIONS)
+-- =====================================================================
+
+UPDATE trip_operations op
+JOIN (
+    SELECT 
+        b.departure_id, 
+        ga.guide_id
+    FROM guide_assignments ga
+    JOIN bookings b ON b.id = ga.booking_id
+    WHERE ga.status IN ('assigned', 'accepted', 'in_progress', 'completed', 'issue')
+) active_guide ON active_guide.departure_id = op.departure_id
+SET 
+    op.guide_id = active_guide.guide_id,
+    op.updated_at = NOW()
+WHERE op.guide_id IS NULL OR op.guide_id <> active_guide.guide_id;
+
+SET FOREIGN_KEY_CHECKS = 1;
+SET SQL_SAFE_UPDATES = 1;
+
+SET SQL_SAFE_UPDATES = 0;
+
+-- 1. Tạo bảng tạm chứa 60 tên thật cho Hướng dẫn viên
+DROP TEMPORARY TABLE IF EXISTS tmp_real_guide_names;
+CREATE TEMPORARY TABLE tmp_real_guide_names (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    full_name VARCHAR(150),
+    email_slug VARCHAR(120)
+);
+
+INSERT INTO tmp_real_guide_names (full_name, email_slug) VALUES
+('Nguyễn Thế Anh', 'nguyen.the.anh'),
+('Trần Thái Bình', 'tran.thai.binh'),
+('Hoàng Thu Cúc', 'hoang.thu.cuc'),
+('Lê Việt Dũng', 'le.viet.dung'),
+('Phạm Đăng Khoa', 'pham.dang.khoa'),
+('Vũ Quốc Cường', 'vu.quoc.cuong'),
+('Đặng Thùy Dương', 'dang.thuy.duong'),
+('Bùi Gia Trí', 'bui.gia.tri'),
+('Ngô Tường Vy', 'ngo.tuong.vy'),
+('Hồ Bích Ngọc', 'ho.bich.ngoc'),
+('Lý Thành Hưng', 'ly.thanh.hung'),
+('Mai Tấn Phát', 'mai.tan.phat'),
+('Phan Trung Kiên', 'phan.trung.kien'),
+('Trịnh Trọng Tín', 'trinh.trong.tin'),
+('Đinh Bích Điệp', 'dinh.bich.diep'),
+('Dương Trọng Tấn', 'duong.trong.tan'),
+('Lưu Hoàng Vũ', 'luu.hoang.vu'),
+('Lương Mai Anh', 'luong.mai.anh'),
+('Vương Bảo Hân', 'vuong.bao.han'),
+('Đỗ Khắc Cường', 'do.khac.cuong'),
+('Nguyễn Diễm Quỳnh', 'nguyen.diem.quynh'),
+('Trần Đức Tài', 'tran.duc.tai'),
+('Lê Xuân Trường', 'le.xuan.truong'),
+('Phạm Quỳnh Hương', 'pham.quynh.huong'),
+('Vũ Cẩm Thu', 'vu.cam.thu'),
+('Đặng Thanh Tùng', 'dang.thanh.tung'),
+('Bùi Đức Hải', 'bui.duc.hai'),
+('Ngô Minh Phương', 'ngo.minh.phuong'),
+('Hồ Thành Đạt', 'ho.thanh.dat'),
+('Lâm Thúy Nga', 'lam.thuy.nga'),
+('Phùng Thiên Bảo', 'phung.thien.bao'),
+('Tô Mai Trang', 'to.mai.trang'),
+('Châu Quốc Huy', 'chau.quoc.huy'),
+('Khương Thu Hà', 'khuong.thu.ha'),
+('Trương Tuyết Mai', 'truong.tuyet.mai'),
+('Phan Minh Đăng', 'phan.minh.dang'),
+('Nguyễn Thu Thủy', 'nguyen.thu.thuy'),
+('Trần Công Lý', 'tran.cong.ly'),
+('Lê Thái Bảo', 'le.thai.bao'),
+('Phạm Việt Hùng', 'pham.viet.hung'),
+('Vũ Ngọc Sơn', 'vu.ngoc.son'),
+('Đặng Thu Thảo', 'dang.thu.thao'),
+('Bùi Hoàng Lâm', 'bui.hoang.lam'),
+('Ngô Bảo Châu', 'ngo.bao.chau'),
+('Hồ Ngọc Diệp', 'ho.ngoc.diep'),
+('Đinh Thanh Trúc', 'dinh.thanh.truc'),
+('Lương Đức Thiện', 'luong.duc.thien'),
+('Đỗ Phương Nam', 'do.phuong.nam'),
+('Nguyễn Hữu Trí', 'nguyen.huu.tri'),
+('Trần Quang Khải', 'tran.quang.khai'),
+('Lê Minh Hoàng', 'le.minh.hoang'),
+('Phạm Thùy Linh', 'pham.thuy.linh'),
+('Vũ Đức Vượng', 'vu.duc.vuong'),
+('Đặng Tuấn Anh', 'dang.tuan.anh'),
+('Bùi Minh Triết', 'bui.minh.triet'),
+('Ngô Thanh Hương', 'ngo.thanh.huong'),
+('Hồ Trung Đức', 'ho.trung.duc'),
+('Lâm Gia Huy', 'lam.gia.huy'),
+('Nguyễn Hải Đăng', 'nguyen.hai.dang'),
+('Trần Bảo Ngọc', 'tran.bao.ngoc');
+
+-- 2. Đánh số thứ tự cho các HDV 'Travela Pro' vừa được tạo để map với tên thật
+DROP TEMPORARY TABLE IF EXISTS tmp_guides_to_update;
+CREATE TEMPORARY TABLE tmp_guides_to_update AS
+SELECT 
+    g.id AS guide_id, 
+    u.id AS user_id, 
+    ROW_NUMBER() OVER(ORDER BY g.id) AS rn
+FROM guides g
+JOIN users u ON u.email = g.email
+WHERE g.email LIKE 'guide.pro.%';
+
+-- 3. Cập nhật thông tin thực tế vào bảng users
+UPDATE users u
+JOIN tmp_guides_to_update tu ON u.id = tu.user_id
+JOIN tmp_real_guide_names tn ON tn.id = tu.rn
+SET 
+    u.full_name = tn.full_name,
+    u.email = CONCAT(tn.email_slug, '.', tu.guide_id, '@travela.vn'),
+    u.updated_at = NOW();
+
+-- 4. Cập nhật thông tin thực tế vào bảng guides và xóa ghi chú ảo
+UPDATE guides g
+JOIN tmp_guides_to_update tu ON g.id = tu.guide_id
+JOIN tmp_real_guide_names tn ON tn.id = tu.rn
+SET 
+    g.full_name = tn.full_name,
+    g.email = CONCAT(tn.email_slug, '.', tu.guide_id, '@travela.vn'),
+    g.note = NULL,
+    g.updated_at = NOW();
+
+-- 5. Xóa các bảng tạm và hoàn tất
+DROP TEMPORARY TABLE IF EXISTS tmp_guides_to_update;
+DROP TEMPORARY TABLE IF EXISTS tmp_real_guide_names;
+
+SET SQL_SAFE_UPDATES = 1;
+
+SELECT 
+    op.id AS operation_id,
+    td.id AS departure_id,
+    t.code AS tour_code,
+    t.name AS tour_name,
+    td.departure_date,
+    td.end_date,
+    td.booked_slots AS so_khach_da_dat,
+    op.operation_status
+FROM trip_operations op
+JOIN tour_departures td ON td.id = op.departure_id
+JOIN tours t ON t.id = td.tour_id
+WHERE op.guide_id IS NULL
+  AND td.status NOT IN ('cancelled')
+  AND td.booked_slots > 0
+ORDER BY td.departure_date ASC;
+
+
+USE travela_full_mvc;
+
+
+SET SQL_SAFE_UPDATES = 0;
+
+-- 1. Phân công HDV ngẫu nhiên cho CÁC BOOKING HỢP LỆ bị sót chưa có HDV
+INSERT INTO guide_assignments (
+    guide_id, booking_id, tour_id, start_date, end_date, status, note, created_at, updated_at
+)
+SELECT 
+    (SELECT id FROM guides WHERE status = 'active' ORDER BY RAND() LIMIT 1) AS guide_id,
+    b.id,
+    b.tour_id,
+    td.departure_date,
+    td.end_date,
+    CASE 
+        WHEN td.end_date < CURDATE() THEN 'completed'
+        WHEN td.departure_date <= CURDATE() AND td.end_date >= CURDATE() THEN 'in_progress'
+        ELSE 'assigned'
+    END,
+    'Phân công tự động cho các booking bị sót HDV',
+    NOW(), 
+    NOW()
+FROM bookings b
+JOIN tour_departures td ON td.id = b.departure_id
+WHERE b.booking_status IN ('confirmed', 'completed', 'waiting_confirmation')
+  -- Lọc ra những booking hiện tại chưa có dữ liệu trong bảng guide_assignments
+  AND NOT EXISTS (
+      SELECT 1 
+      FROM guide_assignments ga 
+      WHERE ga.booking_id = b.id
+  );
+
+-- 2. Đồng bộ lại mã HDV lên bảng vận hành (trip_operations) để API có thể đọc được
+UPDATE trip_operations op
+JOIN bookings b ON b.departure_id = op.departure_id
+JOIN guide_assignments ga ON ga.booking_id = b.id
+SET op.guide_id = ga.guide_id
+WHERE op.guide_id IS NULL;
+
+SET SQL_SAFE_UPDATES = 1;
+
+
+SET SQL_SAFE_UPDATES = 0;
+START TRANSACTION;
+
+SET @departure_id := 16;
+SET @guide_id := 35;
+
+-- Chọn một booking đại diện hợp lệ.
+SET @representative_booking_id := (
+    SELECT MIN(b.id)
+    FROM bookings b
+    WHERE b.departure_id = @departure_id
+      AND b.booking_status IN (
+          'confirmed',
+          'waiting_confirmation',
+          'completed'
+      )
+);
+
+SET @tour_id := (
+    SELECT b.tour_id
+    FROM bookings b
+    WHERE b.id = @representative_booking_id
+);
+
+SET @start_date := (
+    SELECT td.departure_date
+    FROM tour_departures td
+    WHERE td.id = @departure_id
+);
+
+SET @end_date := (
+    SELECT td.end_date
+    FROM tour_departures td
+    WHERE td.id = @departure_id
+);
+
+-- 1. Đưa toàn bộ phân công đang hoạt động của lịch này về replaced.
+UPDATE guide_assignments ga
+JOIN bookings b
+    ON b.id = ga.booking_id
+SET
+    ga.status = 'replaced',
+    ga.note = CASE
+        WHEN ga.note IS NULL OR TRIM(ga.note) = ''
+        THEN 'Phân công cũ đã được thay thế khi chuẩn hóa theo lịch khởi hành.'
+        ELSE CONCAT(
+            TRIM(ga.note),
+            CHAR(10),
+            'Phân công cũ đã được thay thế khi chuẩn hóa theo lịch khởi hành.'
+        )
+    END,
+    ga.updated_at = NOW()
+WHERE b.departure_id = @departure_id
+  AND ga.status IN (
+      'assigned',
+      'accepted',
+      'confirmed',
+      'in_progress',
+      'issue'
+  );
+
+-- 2. Tạo một phân công chính duy nhất cho cả lịch.
+INSERT INTO guide_assignments (
+    guide_id,
+    booking_id,
+    tour_id,
+    start_date,
+    end_date,
+    status,
+    note,
+    created_at,
+    updated_at
+)
+VALUES (
+    @guide_id,
+    @representative_booking_id,
+    @tour_id,
+    @start_date,
+    @end_date,
+    'assigned',
+    'Phân công chính đại diện cho toàn bộ khách của lịch khởi hành.',
+    NOW(),
+    NOW()
+);
+
+-- 3. Đồng bộ HDV sang bảng vận hành.
+UPDATE trip_operations
+SET
+    guide_id = @guide_id,
+    operation_status = CASE
+        WHEN operation_status IN ('completed', 'cancelled')
+        THEN operation_status
+        ELSE 'preparing'
+    END,
+    updated_at = NOW()
+WHERE departure_id = @departure_id;
+
+COMMIT;
+SET SQL_SAFE_UPDATES = 1;
+
+
+
+SELECT
+    b.id AS booking_id,
+    b.booking_code,
+    b.departure_id,
+    booking_ga.status AS booking_assignment_status,
+    booking_ga.guide_id AS old_booking_guide_id,
+    op.guide_id AS departure_guide_id,
+    g.full_name AS departure_guide_name
+FROM bookings b
+LEFT JOIN guide_assignments booking_ga
+    ON booking_ga.booking_id = b.id
+LEFT JOIN trip_operations op
+    ON op.departure_id = b.departure_id
+LEFT JOIN guides g
+    ON g.id = op.guide_id
+WHERE b.booking_code = 'BK1782828238901';
+
+
+DROP TEMPORARY TABLE IF EXISTS tmp_seed_schedule;
+CREATE TEMPORARY TABLE tmp_seed_schedule (
+    seed_no INT PRIMARY KEY,
+    tour_id BIGINT UNSIGNED NOT NULL,
+    departure_date DATE NOT NULL
+);
+
+/*
+Chọn 16 tour published đầu tiên.
+Có thể thay các tour_id trong bảng tạm sau khi tạo nếu cần.
+*/
+INSERT INTO tmp_seed_schedule (seed_no, tour_id, departure_date)
+SELECT
+    x.seed_no,
+    x.tour_id,
+    x.departure_date
+FROM (
+    SELECT
+        ROW_NUMBER() OVER (ORDER BY t.id) AS seed_no,
+        t.id AS tour_id,
+        CASE ROW_NUMBER() OVER (ORDER BY t.id)
+            WHEN 1  THEN '2026-08-18'
+            WHEN 2  THEN '2026-08-18'
+            WHEN 3  THEN '2026-08-18'
+            WHEN 4  THEN '2026-08-18'
+            WHEN 5  THEN '2026-08-19'
+            WHEN 6  THEN '2026-08-19'
+            WHEN 7  THEN '2026-08-19'
+            WHEN 8  THEN '2026-08-19'
+            WHEN 9  THEN '2026-08-25'
+            WHEN 10 THEN '2026-08-28'
+            WHEN 11 THEN '2026-09-18'
+            WHEN 12 THEN '2026-09-18'
+            WHEN 13 THEN '2026-09-18'
+            WHEN 14 THEN '2026-09-19'
+            WHEN 15 THEN '2026-09-19'
+            WHEN 16 THEN '2026-09-19'
+        END AS departure_date
+    FROM tours t
+    WHERE t.status = 'published'
+    ORDER BY t.id
+    LIMIT 16
+) x;
+
+/*
+1. Tạo lịch khởi hành.
+*/
+INSERT INTO tour_departures (
+    tour_id,
+    departure_date,
+    end_date,
+    adult_price,
+    child_price,
+    total_slots,
+    booked_slots,
+    held_slots,
+    status,
+    created_at,
+    updated_at
+)
+SELECT
+    s.tour_id,
+    s.departure_date,
+    DATE_ADD(
+        s.departure_date,
+        INTERVAL (GREATEST(t.duration_days, 1) - 1) DAY
+    ),
+    t.base_price_adult,
+    t.base_price_child,
+    GREATEST(t.max_capacity_default, 20),
+    0,
+    0,
+    'open',
+    NOW(),
+    NOW()
+FROM tmp_seed_schedule s
+JOIN tours t ON t.id = s.tour_id
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM tour_departures td
+    WHERE td.tour_id = s.tour_id
+      AND td.departure_date = s.departure_date
+);
+
+/*
+2. Lấy lại đúng các departure vừa tạo hoặc đã tồn tại.
+*/
+DROP TEMPORARY TABLE IF EXISTS tmp_seed_departures;
+CREATE TEMPORARY TABLE tmp_seed_departures AS
+SELECT
+    s.seed_no,
+    td.id AS departure_id,
+    td.tour_id,
+    td.departure_date,
+    td.end_date,
+    td.adult_price,
+    td.child_price
+FROM tmp_seed_schedule s
+JOIN tour_departures td
+  ON td.tour_id = s.tour_id
+ AND td.departure_date = s.departure_date;
+
+/*
+3. Xếp danh sách user active để gán vào booking.
+*/
+DROP TEMPORARY TABLE IF EXISTS tmp_active_users;
+CREATE TEMPORARY TABLE tmp_active_users AS
+SELECT
+    u.id,
+    u.full_name,
+    u.email,
+    u.phone,
+    ROW_NUMBER() OVER (ORDER BY u.id) AS rn
+FROM users u
+WHERE u.role = 'user'
+  AND u.status = 'active';
+
+SET @user_count := (SELECT COUNT(*) FROM tmp_active_users);
+
+/*
+Mỗi departure có:
+- Nhóm A: 4 người lớn + 1 trẻ em = 5 khách
+- Nhóm B: 3 người lớn + 2 trẻ em = 5 khách
+*/
+DROP TEMPORARY TABLE IF EXISTS tmp_booking_groups;
+CREATE TEMPORARY TABLE tmp_booking_groups (
+    group_code CHAR(1) PRIMARY KEY,
+    adult_count INT NOT NULL,
+    child_count INT NOT NULL,
+    user_offset INT NOT NULL
+);
+
+INSERT INTO tmp_booking_groups VALUES
+('A', 4, 1, 0),
+('B', 3, 2, 20);
+
+/*
+4. Tạo booking confirmed.
+*/
+INSERT INTO bookings (
+    booking_code,
+    user_id,
+    tour_id,
+    departure_id,
+    voucher_id,
+    voucher_code,
+    pickup_point_id,
+    pickup_name,
+    pickup_address,
+    pickup_time,
+    pickup_note,
+    adult_count,
+    child_count,
+    original_amount,
+    discount_amount,
+    final_amount,
+    booking_status,
+    hold_expires_at,
+    contact_name,
+    contact_email,
+    contact_phone,
+    note,
+    created_at,
+    updated_at
+)
+SELECT
+    CONCAT(
+        'BKAUGSEP26-',
+        DATE_FORMAT(d.departure_date, '%m%d'),
+        '-',
+        d.departure_id,
+        '-',
+        g.group_code
+    ),
+    u.id,
+    d.tour_id,
+    d.departure_id,
+    NULL,
+    NULL,
+    NULL,
+    CASE
+        WHEN MOD(d.seed_no, 4) = 0 THEN 'Văn phòng Travela trung tâm'
+        WHEN MOD(d.seed_no, 4) = 1 THEN 'Bến xe trung tâm'
+        WHEN MOD(d.seed_no, 4) = 2 THEN 'Quảng trường trung tâm'
+        ELSE 'Khách sạn trung tâm'
+    END,
+    CASE
+        WHEN MOD(d.seed_no, 4) = 0 THEN 'Điểm đón trung tâm do Travela xác nhận'
+        WHEN MOD(d.seed_no, 4) = 1 THEN 'Cổng chính bến xe trung tâm'
+        WHEN MOD(d.seed_no, 4) = 2 THEN 'Khu vực cổng chính quảng trường'
+        ELSE 'Sảnh khách sạn trung tâm'
+    END,
+    '06:30:00',
+    'Vui lòng có mặt trước giờ đón 15 phút.',
+    g.adult_count,
+    g.child_count,
+    (
+        d.adult_price * g.adult_count
+        + d.child_price * g.child_count
+    ),
+    0,
+    (
+        d.adult_price * g.adult_count
+        + d.child_price * g.child_count
+    ),
+    'confirmed',
+    NULL,
+    u.full_name,
+    u.email,
+    COALESCE(u.phone, CONCAT('0999', LPAD(u.id, 6, '0'))),
+    CONCAT(
+        'Seed demo tháng ',
+        MONTH(d.departure_date),
+        '/2026, nhóm ',
+        g.group_code,
+        ', tổng 5 khách.'
+    ),
+    DATE_SUB(NOW(), INTERVAL (d.seed_no + IF(g.group_code = 'B', 1, 0)) DAY),
+    NOW()
+FROM tmp_seed_departures d
+CROSS JOIN tmp_booking_groups g
+JOIN tmp_active_users u
+  ON u.rn = (
+      MOD(
+          (d.seed_no - 1) + g.user_offset,
+          @user_count
+      ) + 1
+  )
+WHERE @user_count > 0
+  AND NOT EXISTS (
+      SELECT 1
+      FROM bookings b
+      WHERE b.booking_code = CONCAT(
+          'BKAUGSEP26-',
+          DATE_FORMAT(d.departure_date, '%m%d'),
+          '-',
+          d.departure_id,
+          '-',
+          g.group_code
+      )
+  );
+
+/*
+5. Tạo 5 hành khách cho mỗi booking seed.
+*/
+DROP TEMPORARY TABLE IF EXISTS tmp_guest_numbers;
+CREATE TEMPORARY TABLE tmp_guest_numbers (
+    guest_no INT PRIMARY KEY
+);
+
+INSERT INTO tmp_guest_numbers VALUES
+(1), (2), (3), (4), (5);
+
+INSERT INTO booking_guests (
+    booking_id,
+    full_name,
+    date_of_birth,
+    gender,
+    guest_type,
+    id_number,
+    created_at,
+    updated_at
+)
+SELECT
+    b.id,
+    CASE
+        WHEN n.guest_no = 1 THEN b.contact_name
+        ELSE CONCAT('Khách ', n.guest_no, ' - ', b.booking_code)
+    END,
+    CASE
+        WHEN n.guest_no <= b.adult_count
+            THEN DATE_SUB('1995-01-01', INTERVAL (n.guest_no * 500) DAY)
+        ELSE DATE_SUB('2018-01-01', INTERVAL (n.guest_no * 90) DAY)
+    END,
+    CASE WHEN MOD(n.guest_no, 2) = 0 THEN 'female' ELSE 'male' END,
+    CASE
+        WHEN n.guest_no <= b.adult_count THEN 'adult'
+        ELSE 'child'
+    END,
+    CONCAT('AUGSEP26-', b.id, '-', n.guest_no),
+    NOW(),
+    NOW()
+FROM bookings b
+JOIN tmp_seed_departures d
+  ON d.departure_id = b.departure_id
+CROSS JOIN tmp_guest_numbers n
+WHERE b.booking_code LIKE 'BKAUGSEP26-%'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM booking_guests bg
+      WHERE bg.booking_id = b.id
+  );
+
+/*
+6. Tạo payment đã thanh toán.
+Đúng thứ tự cột theo schema payments hiện tại.
+*/
+INSERT INTO payments (
+    booking_id,
+    payment_method,
+    payment_status,
+    amount,
+    internal_transaction_code,
+    gateway_transaction_id,
+    paid_at,
+    created_at,
+    updated_at
+)
+SELECT
+    b.id,
+    CASE MOD(b.id, 4)
+        WHEN 0 THEN 'momo'
+        WHEN 1 THEN 'vnpay'
+        WHEN 2 THEN 'bank_transfer'
+        ELSE 'card'
+    END,
+    'paid',
+    b.final_amount,
+    CONCAT('TXN-AUGSEP26-', b.id),
+    CONCAT('GW-AUGSEP26-', b.id),
+    DATE_ADD(b.created_at, INTERVAL 10 MINUTE),
+    b.created_at,
+    NOW()
+FROM bookings b
+JOIN tmp_seed_departures d
+  ON d.departure_id = b.departure_id
+WHERE b.booking_code LIKE 'BKAUGSEP26-%'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM payments p
+      WHERE p.booking_id = b.id
+         OR p.internal_transaction_code = CONCAT('TXN-AUGSEP26-', b.id)
+  );
+
+/*
+7. Tạo log confirmed.
+*/
+INSERT INTO booking_status_logs (
+    booking_id,
+    payment_id,
+    action_type,
+    old_status,
+    new_status,
+    changed_by_user_id,
+    source,
+    reason,
+    note,
+    created_at
+)
+SELECT
+    b.id,
+    p.id,
+    'seed_confirm',
+    'waiting_confirmation',
+    'confirmed',
+    1,
+    'system',
+    'Tạo dữ liệu demo lịch tháng 8 và tháng 9 năm 2026',
+    'Booking demo đã thanh toán và xác nhận.',
+    p.paid_at
+FROM bookings b
+JOIN tmp_seed_departures d
+  ON d.departure_id = b.departure_id
+JOIN payments p
+  ON p.booking_id = b.id
+WHERE b.booking_code LIKE 'BKAUGSEP26-%'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM booking_status_logs l
+      WHERE l.booking_id = b.id
+        AND l.action_type = 'seed_confirm'
+  );
+
+/*
+8. Đồng bộ booked_slots.
+Mỗi departure seed sẽ có tổng 10 khách.
+*/
+UPDATE tour_departures td
+JOIN tmp_seed_departures d
+  ON d.departure_id = td.id
+LEFT JOIN (
+    SELECT
+        b.departure_id,
+        SUM(b.adult_count + b.child_count) AS total_guests
+    FROM bookings b
+    WHERE b.booking_status IN (
+        'confirmed',
+        'completed',
+        'waiting_confirmation'
+    )
+    GROUP BY b.departure_id
+) x ON x.departure_id = td.id
+SET
+    td.booked_slots = LEAST(
+        COALESCE(x.total_guests, 0),
+        td.total_slots
+    ),
+    td.held_slots = 0,
+    td.status = CASE
+        WHEN COALESCE(x.total_guests, 0) >= td.total_slots THEN 'full'
+        ELSE 'open'
+    END,
+    td.updated_at = NOW();
+
+/*
+Không tạo guide_assignments.
+Không tạo trip_operations.
+Nhờ đó các departure mới vẫn là "Chưa phân công HDV".
+*/
+
+DROP TEMPORARY TABLE IF EXISTS tmp_guest_numbers;
+DROP TEMPORARY TABLE IF EXISTS tmp_booking_groups;
+DROP TEMPORARY TABLE IF EXISTS tmp_active_users;
+DROP TEMPORARY TABLE IF EXISTS tmp_seed_departures;
+DROP TEMPORARY TABLE IF EXISTS tmp_seed_schedule;
+
+COMMIT;
+
+SET SQL_SAFE_UPDATES = 0;
+
+/*
+============================================================
+KIỂM TRA KẾT QUẢ
+============================================================
+*/
+SELECT
+    td.id AS departure_id,
+    t.code AS tour_code,
+    t.name AS tour_name,
+    td.departure_date,
+    td.end_date,
+    COUNT(DISTINCT b.id) AS booking_count,
+    COALESCE(SUM(b.adult_count + b.child_count), 0) AS total_guests,
+    td.booked_slots,
+    td.held_slots,
+    td.total_slots,
+    td.status,
+    COUNT(DISTINCT p.id) AS paid_payments
+FROM tour_departures td
+JOIN tours t
+  ON t.id = td.tour_id
+LEFT JOIN bookings b
+  ON b.departure_id = td.id
+ AND b.booking_code LIKE 'BKAUGSEP26-%'
+LEFT JOIN payments p
+  ON p.booking_id = b.id
+ AND p.payment_status = 'paid'
+WHERE td.departure_date BETWEEN '2026-08-01' AND '2026-09-30'
+  AND EXISTS (
+      SELECT 1
+      FROM bookings bx
+      WHERE bx.departure_id = td.id
+        AND bx.booking_code LIKE 'BKAUGSEP26-%'
+  )
+GROUP BY
+    td.id,
+    t.code,
+    t.name,
+    td.departure_date,
+    td.end_date,
+    td.booked_slots,
+    td.held_slots,
+    td.total_slots,
+    td.status
+ORDER BY td.departure_date, td.id;
+
+UPDATE guide_assignments
+SET note = TRIM(
+    REGEXP_REPLACE(
+        note,
+        'Seed lại tự động cho lịch khởi hành #[0-9]+ - ([0-9]+) hành khách',
+        'Phân công hướng dẫn viên phụ trách đoàn gồm \\\\1 hành khách.'
+    )
+)
+WHERE note LIKE '%Seed lại tự động cho lịch khởi hành%';
+
+UPDATE guide_assignments
+SET note = TRIM(
+    REPLACE(
+        note,
+        'Phân công đại diện cho toàn bộ lịch khởi hành.',
+        ''
+    )
+)
+WHERE note LIKE '%Phân công đại diện cho toàn bộ lịch khởi hành.%';
+
+UPDATE guide_assignments
+SET note = 'Phân công hướng dẫn viên phụ trách toàn bộ khách của lịch khởi hành.'
+WHERE note LIKE '[AUTO_FILL]%';
+
+SELECT
+    @@global.time_zone AS global_timezone,
+    @@session.time_zone AS session_timezone,
+    NOW() AS mysql_now,
+    UTC_TIMESTAMP() AS utc_now;
+    
+
+DROP PROCEDURE IF EXISTS apply_vietnam_timestamp_defaults;
+DROP PROCEDURE IF EXISTS apply_vietnam_updated_at_defaults;
+
+SET SESSION time_zone = '+07:00';
+
+CREATE TABLE IF NOT EXISTS timezone_alter_errors (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    table_name VARCHAR(255) NOT NULL,
+    column_name VARCHAR(100) NOT NULL,
+    error_code INT NULL,
+    error_message TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+TRUNCATE TABLE timezone_alter_errors;
+
+DELIMITER $$
+
+CREATE PROCEDURE apply_vietnam_updated_at_defaults()
+BEGIN
+    DECLARE done INT DEFAULT 0;
+    DECLARE v_table_name VARCHAR(255);
+    DECLARE v_column_type VARCHAR(255);
+    DECLARE v_is_nullable VARCHAR(3);
+
+    DECLARE v_error_code INT DEFAULT NULL;
+    DECLARE v_error_message TEXT DEFAULT NULL;
+
+    DECLARE cur CURSOR FOR
+        SELECT
+            c.TABLE_NAME,
+            c.COLUMN_TYPE,
+            c.IS_NULLABLE
+        FROM information_schema.COLUMNS c
+        INNER JOIN information_schema.TABLES t
+            ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
+           AND t.TABLE_NAME = c.TABLE_NAME
+        WHERE c.TABLE_SCHEMA = DATABASE()
+          AND c.COLUMN_NAME = 'updated_at'
+          AND c.DATA_TYPE IN ('datetime', 'timestamp')
+          AND t.TABLE_TYPE = 'BASE TABLE'
+
+          -- Không chỉnh các bảng backup hoặc bảng kỹ thuật
+          AND c.TABLE_NAME NOT LIKE '%backup%'
+          AND c.TABLE_NAME NOT LIKE '%_backup_%'
+          AND c.TABLE_NAME NOT IN (
+              '_prisma_migrations',
+              'timezone_migrations',
+              'timezone_alter_errors'
+          )
+        ORDER BY c.TABLE_NAME;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    OPEN cur;
+
+    read_loop: LOOP
+        FETCH cur
+        INTO v_table_name, v_column_type, v_is_nullable;
+
+        IF done = 1 THEN
+            LEAVE read_loop;
+        END IF;
+
+        BEGIN
+            DECLARE alter_failed BOOLEAN DEFAULT FALSE;
+
+            DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
+            BEGIN
+                SET alter_failed = TRUE;
+
+                GET DIAGNOSTICS CONDITION 1
+                    v_error_code = MYSQL_ERRNO,
+                    v_error_message = MESSAGE_TEXT;
+
+                INSERT INTO timezone_alter_errors (
+                    table_name,
+                    column_name,
+                    error_code,
+                    error_message
+                )
+                VALUES (
+                    v_table_name,
+                    'updated_at',
+                    v_error_code,
+                    v_error_message
+                );
+            END;
+
+            /*
+             * Làm sạch dữ liệu ngày 0000-00-00 trước.
+             * YEAR(updated_at) = 0 giúp không phải ghi trực tiếp literal
+             * '0000-00-00 00:00:00' trong điều kiện.
+             */
+            IF v_is_nullable = 'YES' THEN
+                SET @cleanup_sql = CONCAT(
+                    'UPDATE `',
+                    REPLACE(v_table_name, '`', '``'),
+                    '` ',
+                    'SET `updated_at` = NULL ',
+                    'WHERE `updated_at` IS NOT NULL ',
+                    'AND YEAR(`updated_at`) = 0'
+                );
+            ELSE
+                SET @cleanup_sql = CONCAT(
+                    'UPDATE `',
+                    REPLACE(v_table_name, '`', '``'),
+                    '` ',
+                    'SET `updated_at` = CURRENT_TIMESTAMP ',
+                    'WHERE YEAR(`updated_at`) = 0'
+                );
+            END IF;
+
+            PREPARE cleanup_stmt FROM @cleanup_sql;
+            EXECUTE cleanup_stmt;
+            DEALLOCATE PREPARE cleanup_stmt;
+
+            IF alter_failed = FALSE THEN
+                IF v_is_nullable = 'YES' THEN
+                    SET @alter_sql = CONCAT(
+                        'ALTER TABLE `',
+                        REPLACE(v_table_name, '`', '``'),
+                        '` MODIFY COLUMN `updated_at` ',
+                        v_column_type,
+                        ' NULL DEFAULT CURRENT_TIMESTAMP ',
+                        'ON UPDATE CURRENT_TIMESTAMP'
+                    );
+                ELSE
+                    SET @alter_sql = CONCAT(
+                        'ALTER TABLE `',
+                        REPLACE(v_table_name, '`', '``'),
+                        '` MODIFY COLUMN `updated_at` ',
+                        v_column_type,
+                        ' NOT NULL DEFAULT CURRENT_TIMESTAMP ',
+                        'ON UPDATE CURRENT_TIMESTAMP'
+                    );
+                END IF;
+
+                PREPARE alter_stmt FROM @alter_sql;
+                EXECUTE alter_stmt;
+                DEALLOCATE PREPARE alter_stmt;
+            END IF;
+        END;
+    END LOOP;
+
+    CLOSE cur;
+END$$
+
+DELIMITER ;
+
+CALL apply_vietnam_updated_at_defaults();
+
+DROP PROCEDURE apply_vietnam_updated_at_defaults;
+
+
+UPDATE users
+SET member_tier = CASE
+  WHEN member_points >= 4000 THEN 'diamond'
+  WHEN member_points >= 1500 THEN 'gold'
+  WHEN member_points >= 500 THEN 'silver'
+  ELSE 'bronze'
+END
+WHERE role = 'user';
+
+
+USE travela_full_mvc;
+
+SET SESSION time_zone = '+07:00';
+SET SQL_SAFE_UPDATES = 0;
+
+START TRANSACTION;
+
+/* ============================================================
+   1. TẠO DANH SÁCH BOOKING CHƯA ĐƯỢC CỘNG ĐIỂM
+   ============================================================ */
+
+DROP TEMPORARY TABLE IF EXISTS tmp_missing_membership_rewards;
+
+CREATE TEMPORARY TABLE tmp_missing_membership_rewards (
+    booking_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+    booking_code VARCHAR(50) NOT NULL,
+    user_id BIGINT UNSIGNED NOT NULL,
+    old_booking_status VARCHAR(50) NOT NULL,
+    end_date DATE NOT NULL,
+    reward_points INT NOT NULL DEFAULT 100
+);
+
+/* Chỉ lấy:
+   - tour đã kết thúc;
+   - booking confirmed hoặc completed;
+   - có payment paid;
+   - chưa có log membership_reward.
+*/
+INSERT INTO tmp_missing_membership_rewards (
+    booking_id,
+    booking_code,
+    user_id,
+    old_booking_status,
+    end_date,
+    reward_points
+)
+SELECT DISTINCT
+    b.id,
+    b.booking_code,
+    b.user_id,
+    b.booking_status,
+    td.end_date,
+    100
+FROM bookings b
+INNER JOIN tour_departures td
+    ON td.id = b.departure_id
+WHERE b.user_id IS NOT NULL
+  AND b.booking_status IN ('confirmed', 'completed')
+  AND td.end_date < CURDATE()
+
+  AND EXISTS (
+      SELECT 1
+      FROM payments p
+      WHERE p.booking_id = b.id
+        AND p.payment_status = 'paid'
+  )
+
+  AND NOT EXISTS (
+      SELECT 1
+      FROM booking_status_logs l
+      WHERE l.booking_id = b.id
+        AND l.action_type = 'membership_reward'
+  );
+
+/* ============================================================
+   2. KIỂM TRA DANH SÁCH TRƯỚC KHI CỘNG
+   ============================================================ */
+
+SELECT
+    r.booking_id,
+    r.booking_code,
+    r.user_id,
+    r.old_booking_status,
+    r.end_date,
+    r.reward_points,
+    u.member_points AS current_points,
+    u.member_tier AS current_tier
+FROM tmp_missing_membership_rewards r
+INNER JOIN users u
+    ON u.id = r.user_id
+ORDER BY r.end_date DESC, r.booking_id;
+
+/* ============================================================
+   3. CHUYỂN CONFIRMED SANG COMPLETED
+   ============================================================ */
+
+UPDATE bookings b
+INNER JOIN tmp_missing_membership_rewards r
+    ON r.booking_id = b.id
+SET
+    b.booking_status = 'completed',
+    b.hold_expires_at = NULL,
+    b.updated_at = NOW()
+WHERE b.booking_status = 'confirmed';
+
+/* ============================================================
+   4. CỘNG ĐIỂM THEO TỪNG USER
+   Một user có nhiều booking thì cộng 100 điểm cho mỗi booking.
+   ============================================================ */
+
+UPDATE users u
+INNER JOIN (
+    SELECT
+        user_id,
+        SUM(reward_points) AS points_to_add
+    FROM tmp_missing_membership_rewards
+    GROUP BY user_id
+) x
+    ON x.user_id = u.id
+SET
+    u.member_points = COALESCE(u.member_points, 0) + x.points_to_add,
+    u.updated_at = NOW()
+WHERE u.role = 'user';
+
+/* ============================================================
+   5. TÍNH LẠI HẠNG THÀNH VIÊN
+   ============================================================ */
+
+UPDATE users u
+INNER JOIN (
+    SELECT DISTINCT user_id
+    FROM tmp_missing_membership_rewards
+) x
+    ON x.user_id = u.id
+SET
+    u.member_tier = CASE
+        WHEN u.member_points >= 4000 THEN 'diamond'
+        WHEN u.member_points >= 1500 THEN 'gold'
+        WHEN u.member_points >= 500 THEN 'silver'
+        ELSE 'bronze'
+    END,
+    u.updated_at = NOW();
+
+/* ============================================================
+   6. GHI LOG TỰ ĐỘNG HOÀN THÀNH
+   Chỉ áp dụng booking ban đầu là confirmed.
+   ============================================================ */
+
+INSERT INTO booking_status_logs (
+    booking_id,
+    payment_id,
+    action_type,
+    old_status,
+    new_status,
+    changed_by_user_id,
+    source,
+    reason,
+    note,
+    created_at
+)
+SELECT
+    r.booking_id,
+    NULL,
+    'auto_complete',
+    'confirmed',
+    'completed',
+    NULL,
+    'system',
+    'Trip end date has passed',
+    'Tự động hoàn thành booking sau ngày kết thúc chuyến đi.',
+    NOW()
+FROM tmp_missing_membership_rewards r
+WHERE r.old_booking_status = 'confirmed'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM booking_status_logs l
+      WHERE l.booking_id = r.booking_id
+        AND l.action_type = 'auto_complete'
+  );
+
+/* ============================================================
+   7. GHI LOG CHỐNG CỘNG TRÙNG
+   ============================================================ */
+
+INSERT INTO booking_status_logs (
+    booking_id,
+    payment_id,
+    action_type,
+    old_status,
+    new_status,
+    changed_by_user_id,
+    source,
+    reason,
+    note,
+    created_at
+)
+SELECT
+    r.booking_id,
+    NULL,
+    'membership_reward',
+    r.old_booking_status,
+    'completed',
+    NULL,
+    'system',
+    'Reward points after completed paid trip',
+    CONCAT(
+        'Cộng ',
+        r.reward_points,
+        ' điểm thành viên cho booking ',
+        r.booking_code,
+        '.'
+    ),
+    NOW()
+FROM tmp_missing_membership_rewards r
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM booking_status_logs l
+    WHERE l.booking_id = r.booking_id
+      AND l.action_type = 'membership_reward'
+);
+
+/* ============================================================
+   8. TẠO THÔNG BÁO
+   ============================================================ */
+
+INSERT INTO notifications (
+    title,
+    message,
+    content,
+    target_role,
+    target_user_id,
+    is_published,
+    created_by,
+    created_at,
+    updated_at
+)
+SELECT
+    'Cộng điểm sau chuyến đi',
+    CONCAT(
+        'Bạn được cộng ',
+        r.reward_points,
+        ' điểm thành viên.'
+    ),
+    CONCAT(
+        'Booking ',
+        r.booking_code,
+        ' đã hoàn thành. ',
+        'Travela đã cộng ',
+        r.reward_points,
+        ' điểm thành viên. ',
+        'Tổng điểm hiện tại: ',
+        u.member_points,
+        '. Hạng thành viên: ',
+        u.member_tier,
+        '.'
+    ),
+    'user',
+    r.user_id,
+    TRUE,
+    NULL,
+    NOW(),
+    NOW()
+FROM tmp_missing_membership_rewards r
+INNER JOIN users u
+    ON u.id = r.user_id;
+
+/* ============================================================
+   9. XEM KẾT QUẢ SAU KHI CỘNG
+   ============================================================ */
+
+SELECT
+    r.booking_id,
+    r.booking_code,
+    r.user_id,
+    b.booking_status,
+    r.reward_points,
+    u.member_points AS points_after_reward,
+    u.member_tier AS tier_after_reward,
+    EXISTS (
+        SELECT 1
+        FROM booking_status_logs l
+        WHERE l.booking_id = r.booking_id
+          AND l.action_type = 'membership_reward'
+    ) AS rewarded
+FROM tmp_missing_membership_rewards r
+INNER JOIN bookings b
+    ON b.id = r.booking_id
+INNER JOIN users u
+    ON u.id = r.user_id
+ORDER BY r.user_id, r.booking_id;
+
+/* Tổng cộng */
+SELECT
+    COUNT(*) AS total_rewarded_bookings,
+    COUNT(DISTINCT user_id) AS total_rewarded_users,
+    SUM(reward_points) AS total_points_added
+FROM tmp_missing_membership_rewards;
+
+COMMIT;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_missing_membership_rewards;
+
+

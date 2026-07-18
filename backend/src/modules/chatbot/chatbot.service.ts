@@ -281,7 +281,17 @@ export class ChatbotService {
     });
 
     const dbMemory = this.toMemoryState(conversation.memoryJson);
-    const clientMemory = this.toMemoryState((dto as any).memory);
+
+    // Chỉ nhận memory phía client khi conversationId thực sự thuộc đúng hội thoại
+    // vừa được backend xác thực. Nếu frontend còn giữ conversationId/memory của tài
+    // khoản trước trong localStorage, getOrCreateConversation sẽ tạo hội thoại mới
+    // và đoạn này sẽ bỏ toàn bộ memory cũ, tránh lộ/ngộ nhận lịch sử người dùng khác.
+    const canUseClientMemory =
+      Boolean(dto.conversationId) &&
+      String(dto.conversationId) === String(conversation.id);
+    const clientMemory = canUseClientMemory
+      ? this.toMemoryState((dto as any).memory)
+      : {};
     let currentMemory = this.mergeMemory(dbMemory, clientMemory);
     const recentForNlu = recentMessages.map((item: any) => ({
       role: item.role,
@@ -305,11 +315,17 @@ export class ChatbotService {
     const ruleMemory = this.extractMemory(userMessage, currentMemory);
     const preliminaryMemory = this.mergeMemory(currentMemory, ruleMemory);
 
-    const fallbackIntent = this.detectIntent(
+    let fallbackIntent = this.detectIntent(
       userMessage,
       preliminaryMemory,
       recentForNlu,
     );
+
+    // HARD GUARD hoàn tiền: mọi câu có mã BK và hành động hoàn/hủy/xác nhận hoàn
+    // phải đi thẳng vào state-machine refund_create, không để NLU/RAG đổi thành tour_policy.
+    if (this.isExplicitRefundAction(userMessage, preliminaryMemory)) {
+      fallbackIntent = "refund_create";
+    }
 
     const nlu = await this.nluService.analyze({
       message: userMessage,
@@ -335,6 +351,11 @@ export class ChatbotService {
 
     let intent = nlu.intent || fallbackIntent;
     const normalizedForIntentGuard = this.stripText(userMessage);
+
+    if (this.isExplicitRefundAction(userMessage, mergedMemory)) {
+      intent = "refund_create";
+      (nlu as any).intent = intent;
+    }
 
     // Guard quan trọng cho luồng đặt tour:
     // Nếu rule-based đã nhận đây là bước tiếp theo của booking thì KHÔNG để Gemini NLU
@@ -380,7 +401,13 @@ export class ChatbotService {
     }
 
     // Guard: yêu cầu tạo hoàn tiền phải đi vào refund_create; hỏi chính sách chung mới là tour_policy.
-    if (fallbackIntent === "refund_create") {
+    if (
+      fallbackIntent === "refund_create" ||
+      (mergedMemory.refundDraft?.started &&
+        /\b(hoan cho toi|hoàn cho tôi|hoan di|hoàn đi|tiep tuc hoan|tiếp tục hoàn|gui yeu cau|gửi yêu cầu|xac nhan|xác nhận|dong y|đồng ý|ngan hang|ngân hàng|stk|so tai khoan|số tài khoản|chu tai khoan|chủ tài khoản)\b/.test(
+          normalizedForIntentGuard,
+        ))
+    ) {
       intent = "refund_create";
       (nlu as any).intent = intent;
     } else if (fallbackIntent === "tour_policy") {
@@ -518,11 +545,10 @@ export class ChatbotService {
     // Các câu cần chặn/tra cứu nghiệp vụ phải chạy trước booking flow.
     // Nếu không, câu như "Tôi muốn đặt tour chưa có trong hệ thống" có thể bị kéo memory cũ
     // rồi nhảy sang hỏi điểm đón của tour cũ.
-    const earlyDirectBusinessAnswer = await this.tryEarlyBusinessAnswer(
-      promptContext,
-      intent,
-      user,
-    );
+    const earlyDirectBusinessAnswer =
+      intent === "refund_create"
+        ? null
+        : await this.tryEarlyBusinessAnswer(promptContext, intent, user);
 
     if (earlyDirectBusinessAnswer) {
       mergedMemory.bookingDraft = null;
@@ -905,13 +931,34 @@ export class ChatbotService {
   private detectAdminAdvancedIntent(message: string): string | null {
     const n = this.stripText(message);
 
+    // Các câu tổng quan/cảnh báo phải được xét trước doanh thu.
+    // Nếu không, cụm “hôm nay” sẽ làm “Hôm nay có gì cần xử lý?”
+    // bị nhận nhầm thành báo cáo doanh thu.
     if (
-      /\b(doanh thu|revenue|thang nay|thang truoc|so voi|hom nay|tuan nay|quy nay)\b/.test(
+      /\b(canh bao|van de van hanh|can xu ly|hom nay co gi|hom nay can lam gi|co gi can xu ly|viec nao can xu ly|bat thuong he thong|tong quan van hanh)\b/.test(
         n,
       )
     ) {
+      return "admin_operation_alert";
+    }
+
+    // Câu hỏi thiếu HDV phải đứng trước nhóm “booking nào”.
+    if (
+      /\b(chua co huong dan vien|khong co huong dan vien|chua co hdv|khong co hdv|chua phan cong huong dan vien|chua phan cong hdv|booking nao chua co huong dan vien|booking nao chua co hdv|tour nao chua co huong dan vien|tour nao chua co hdv)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_booking_without_guide";
+    }
+
+    if (
+      /\b(doanh thu|revenue|doanh so|thu nhap)\b/.test(n) ||
+      (/\b(thang nay|thang truoc|tuan nay|quy nay|hom nay)\b/.test(n) &&
+        /\b(tien|thu|doanh)\b/.test(n))
+    ) {
       return "admin_revenue_time_compare";
     }
+
     if (
       /\b(bao nhieu booking|booking nao|don nao|cho thanh toan|cho xac nhan|pending|confirmed|cancelled|da huy|trang thai booking|trang thai don)\b/.test(
         n,
@@ -954,13 +1001,6 @@ export class ChatbotService {
     ) {
       return "admin_refund_urgent";
     }
-    if (
-      /\b(canh bao|van de van hanh|can xu ly|hom nay co gi|bat thuong he thong|tong quan van hanh)\b/.test(
-        n,
-      )
-    ) {
-      return "admin_operation_alert";
-    }
 
     return null;
   }
@@ -971,6 +1011,8 @@ export class ChatbotService {
         return this.buildAdminRevenueCompareAnswer();
       case "admin_booking_status":
         return this.buildAdminBookingStatusAnswer(message);
+      case "admin_booking_without_guide":
+        return this.buildAdminBookingWithoutGuideAnswer();
       case "admin_tour_anomaly":
         return this.buildAdminTourAnomalyAnswer();
       case "admin_discount_action":
@@ -1104,6 +1146,72 @@ export class ChatbotService {
       diff < 0
         ? "Nhận xét: doanh thu đang giảm. Nên kiểm tra tour có lượt xem cao nhưng chưa đặt, booking chờ thanh toán và voucher đang ít được dùng."
         : "Nhận xét: doanh thu đang ổn. Nên tiếp tục đẩy các tour/voucher có tỷ lệ chuyển đổi tốt.",
+    ].join("\n");
+  }
+
+  private async buildAdminBookingWithoutGuideAnswer() {
+    const now = new Date();
+
+    const rows = await this.prisma.booking.findMany({
+      where: {
+        bookingStatus: {
+          in: ["waiting_confirmation", "confirmed"] as any,
+        },
+        departure: {
+          departureDate: { gte: now },
+        },
+        guideAssignments: {
+          none: {
+            status: { in: ["assigned", "confirmed"] as any },
+          },
+        },
+      },
+      include: {
+        tour: true,
+        departure: true,
+        user: {
+          select: {
+            fullName: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: {
+        departure: {
+          departureDate: "asc",
+        },
+      },
+      take: 20,
+    });
+
+    if (!rows.length) {
+      return [
+        "Booking chưa có hướng dẫn viên:",
+        "✅ Hiện không có booking sắp khởi hành cần phân công HDV.",
+      ].join("\n");
+    }
+
+    return [
+      `Booking chưa có hướng dẫn viên: ${rows.length} booking cần xử lý`,
+      "",
+      ...rows.map((booking: any, index: number) =>
+        [
+          `${index + 1}. ${booking.bookingCode} - ${booking.tour?.name || "Tour"}`,
+          `   Khởi hành: ${this.formatDate(
+            booking.departure?.departureDate
+              ? new Date(booking.departure.departureDate).toISOString()
+              : null,
+          )}`,
+          `   Trạng thái: ${booking.bookingStatus}`,
+          booking.user?.fullName
+            ? `   Khách đặt: ${booking.user.fullName}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      ),
+      "",
+      "Ưu tiên phân công theo ngày khởi hành gần nhất.",
     ].join("\n");
   }
 
@@ -1630,36 +1738,40 @@ export class ChatbotService {
     const scope =
       String(user?.role || "").toLowerCase() === "admin" ? "admin" : "user";
 
-    if (conversationId) {
-      if (!/^\d+$/.test(String(conversationId))) {
-        throw new NotFoundException("Mã hội thoại không hợp lệ.");
-      }
+    const createNewConversation = () =>
+      this.prisma.chatConversation.create({
+        data: {
+          userId: user?.userId ?? null,
+          scope,
+          title: this.buildConversationTitle(firstMessage),
+          summary: null,
+          lastIntent: null,
+          memoryJson: {},
+        } as any,
+      });
 
+    if (conversationId && /^\d+$/.test(String(conversationId))) {
       const conversation = await this.prisma.chatConversation.findUnique({
         where: { id: BigInt(conversationId) },
       });
 
-      if (
-        !conversation ||
-        String(conversation.userId || "") !== String(user?.userId || "") ||
-        String((conversation as any).scope || scope) !== scope
-      ) {
-        throw new NotFoundException("Không tìm thấy hội thoại chat.");
+      const belongsToCurrentUser =
+        Boolean(conversation) &&
+        String(conversation?.userId || "") === String(user?.userId || "") &&
+        String((conversation as any)?.scope || scope) === scope;
+
+      if (belongsToCurrentUser) {
+        return conversation!;
       }
 
-      return conversation;
+      // Frontend có thể còn giữ conversationId của tài khoản trước trong localStorage.
+      // Tuyệt đối không mở hội thoại đó và cũng không báo lỗi làm UI kẹt; tạo một
+      // hội thoại sạch cho tài khoản hiện tại.
+      return createNewConversation();
     }
 
-    return this.prisma.chatConversation.create({
-      data: {
-        userId: user?.userId ?? null,
-        scope,
-        title: this.buildConversationTitle(firstMessage),
-        summary: null,
-        lastIntent: null,
-        memoryJson: {},
-      } as any,
-    });
+    // ID rỗng hoặc sai định dạng cũng được xem là bắt đầu hội thoại mới.
+    return createNewConversation();
   }
 
   private toMemoryState(input: unknown): MemoryState {
@@ -2350,10 +2462,15 @@ export class ChatbotService {
     current: MemoryState,
   ): ChatBookingDraft | null {
     const normalized = this.stripText(message);
+    const passengerInfoSignal =
+      /\b(?:nguoi lon|người lớn|adult|tre em|trẻ em|child|be|bé)\s*\d+\s*(?::|-|ten la|tên là|la|là)?\s*[a-z]/i.test(
+        normalized,
+      );
+
     const bookingFollowUpSignal =
       /\b(thanh toan|thanh toán|qr|vietqr|sepay|chuyen khoan|chuyển khoản|bank|momo|vnpay|vn pay|tien mat|tiền mặt|cash|the|card|chon|chọn|diem don|điểm đón|pickup|voucher|khong dung|không dùng|khong co voucher|không có voucher|bo qua|bỏ qua|tiep tuc|tiếp tục|xac nhan|xác nhận|dong y|đồng ý|ok|oke|doi thanh|đổi thành|doi so luong|đổi số lượng|doi so nguoi|đổi số người|them nguoi|thêm người|giam nguoi|giảm người|\d+\s*(nguoi|người|khach|khách|nguoi lon|người lớn|tre em|trẻ em))\b/.test(
         normalized,
-      );
+      ) || passengerInfoSignal;
 
     const hasBookingSignal =
       /\b(dat tour|dat cho|giu cho|chot tour|toi muon dat|muon dat tour|dat luon|thanh toan tour|tao booking|book tour|booking tour|lay tour|chon tour)\b/.test(
@@ -2875,6 +2992,24 @@ export class ChatbotService {
     return Array.from(new Set(found));
   }
 
+  private isExplicitRefundAction(message: string, memory: MemoryState) {
+    const normalized = this.stripText(message);
+    const hasBookingCode = /\bbk[a-z0-9-]+\b/i.test(normalized);
+    const hasRefundWords =
+      /\b(hoan|hoan tien|xin hoan|yeu cau hoan|gui yeu cau|xac nhan hoan|xac nhan hoan tien|dong y hoan|tiep tuc hoan|huy booking|huy don|refund)\b/.test(
+        normalized,
+      );
+
+    if (hasBookingCode && hasRefundWords) return true;
+
+    return Boolean(
+      memory.refundDraft?.started &&
+      /\b(hoan|hoan cho toi|hoan di|xac nhan|dong y|gui yeu cau|tiep tuc|ngan hang|stk|so tai khoan|chu tai khoan)\b/.test(
+        normalized,
+      ),
+    );
+  }
+
   private detectIntent(
     message: string,
     memory: MemoryState,
@@ -2912,13 +3047,10 @@ export class ChatbotService {
       );
 
     const hasRefundCreateCommand =
-      /\b(gui yeu cau hoan tien|tao yeu cau hoan tien|yeu cau hoan tien|toi muon hoan tien|muon hoan tien|xin hoan tien|hoan tien don|hoan tien booking|refund booking|request refund)\b/.test(
+      this.isExplicitRefundAction(message, memory) ||
+      /\b(gui yeu cau hoan tien|tao yeu cau hoan tien|yeu cau hoan tien|toi muon hoan tien|muon hoan tien|xin hoan tien|hoan tien don|hoan tien booking|xac nhan hoan tien|refund booking|request refund)\b/.test(
         normalized,
-      ) ||
-      (/\bbk[a-z0-9\-]+\b/i.test(message) &&
-        /\b(hoan tien|hoan lai|refund|huy don|huy booking|huy tour|lay lai tien)\b/.test(
-          normalized,
-        ));
+      );
 
     const hasPickupCommand =
       /\b(diem don|don o dau|don tai dau|noi don|cho don|ben xe|pickup|xe don|gio don|dia diem don)\b/.test(
@@ -2968,10 +3100,17 @@ export class ChatbotService {
 
     const hasTourDetailQuestion = this.isTourDetailQuestion(message);
 
+    const passengerInfoSignal =
+      /\b(?:nguoi lon|adult|tre em|child|be)\s*\d+\s*(?::|-|ten la|la)?\s*[a-z]/i.test(
+        normalized,
+      );
+
     const hasBookingFollowUpSignal =
       /\b(momo|vnpay|vn pay|chuyen khoan|bank|tien mat|cash|chon|diem don|pickup|khong dung voucher|khong co voucher|bo qua voucher|lich|ngay khoi hanh|khoi hanh|tiep tuc|xac nhan|dong y|ok|oke|doi thanh|doi so luong|doi so nguoi|them nguoi|giam nguoi|\d+\s*(nguoi|khach|nguoi lon|tre em))\b/.test(
         normalized,
-      ) || this.isVoucherApplicationMessage(message);
+      ) ||
+      passengerInfoSignal ||
+      this.isVoucherApplicationMessage(message);
 
     // Nếu đang có draft đặt tour, câu “1 người lớn”, “chọn điểm đón...”, “momo”
     // phải tiếp tục draft hiện tại trước. Không được nhảy sang booking_change chỉ
@@ -3043,12 +3182,18 @@ export class ChatbotService {
 
     const hasRefundFollowUpCommand =
       Boolean(memory.refundDraft?.started) &&
-      /\b(ngan hang|ngân hàng|stk|so tai khoan|số tài khoản|chu tai khoan|chủ tài khoản|xac nhan hoan tien|xác nhận hoàn tiền|dong y hoan tien|đồng ý hoàn tiền)\b/.test(
+      /\b(ngan hang|ngân hàng|stk|so tai khoan|số tài khoản|chu tai khoan|chủ tài khoản|xac nhan hoan tien|xác nhận hoàn tiền|dong y hoan tien|đồng ý hoàn tiền|hoan cho toi|hoàn cho tôi|hoan di|hoàn đi|tiep tuc hoan|tiếp tục hoàn|gui yeu cau|gửi yêu cầu|ok hoan|oke hoan|dong y|đồng ý|xac nhan|xác nhận)\b/.test(
         normalized,
       );
 
     if (hasRefundCreateCommand || hasRefundFollowUpCommand) {
       return "refund_create";
+    }
+
+    // Tên hành khách là dữ liệu tiếp tục của booking, phải ưu tiên trước policy/RAG.
+    // Ví dụ: “Người lớn 2: Hà Gia Huy”.
+    if (memory.bookingDraft?.started && passengerInfoSignal) {
+      return "booking_create";
     }
 
     if (hasPolicyCommand) {
@@ -6240,6 +6385,7 @@ YÊU CẦU TRẢ LỜI:
 
     // Câu hoàn tiền theo mã booking phải kiểm tra booking, không trả policy tour gần nhất.
     if (
+      intent !== "refund_create" &&
       bookingCode &&
       /\b(hoan tien|hoan|duoc hoan|refund|huy|huy tour|huy don|cancel|lay lai tien|lay lai duoc|tra tien|du dieu kien|dieu kien|co duoc hoan khong|co lay lai duoc khong)\b/.test(
         normalized,
@@ -6682,7 +6828,7 @@ YÊU CẦU TRẢ LỜI:
   private isRefundConfirmMessage(message: string) {
     const normalized = this.stripText(message);
 
-    return /\b(xac nhan hoan tien|dong y hoan tien|gui yeu cau hoan tien|tao yeu cau hoan tien|xac nhan huy|dong y huy|ok hoan tien|oke hoan tien)\b/.test(
+    return /\b(xac nhan hoan tien|dong y hoan tien|gui yeu cau hoan tien|tao yeu cau hoan tien|xac nhan huy|dong y huy|ok hoan tien|oke hoan tien|hoan cho toi|hoàn cho tôi|hoan di|hoàn đi|tiep tuc hoan|tiếp tục hoàn|gui yeu cau|gửi yêu cầu|ok hoan|oke hoan)\b/.test(
       normalized,
     );
   }

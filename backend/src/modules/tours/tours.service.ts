@@ -300,7 +300,19 @@ export class ToursService {
       where: { id: BigInt(tourId) },
       include: {
         destination: true,
-        media: { orderBy: { displayOrder: "asc" } },
+        media: {
+          orderBy: [
+            {
+              isCover: "desc",
+            },
+            {
+              displayOrder: "asc",
+            },
+            {
+              id: "asc",
+            },
+          ],
+        },
         itinerary: { orderBy: [{ dayNumber: "asc" }, { itemOrder: "asc" }] },
         departures: {
           orderBy: { departureDate: "asc" },
@@ -344,7 +356,19 @@ export class ToursService {
       where: { slug },
       include: {
         destination: true,
-        media: { orderBy: { displayOrder: "asc" } },
+        media: {
+          orderBy: [
+            {
+              isCover: "desc",
+            },
+            {
+              displayOrder: "asc",
+            },
+            {
+              id: "asc",
+            },
+          ],
+        },
         itinerary: { orderBy: [{ dayNumber: "asc" }, { itemOrder: "asc" }] },
         departures: {
           orderBy: { departureDate: "asc" },
@@ -564,7 +588,7 @@ export class ToursService {
 
     const items = await this.prisma.tourMedia.findMany({
       where: { tourId: BigInt(tourId) },
-      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+      orderBy: [{ isCover: "desc" }, { displayOrder: "asc" }, { id: "asc" }],
     });
 
     return {
@@ -678,24 +702,87 @@ export class ToursService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // Bỏ cover cũ.
       await tx.tourMedia.updateMany({
-        where: { tourId: BigInt(tourId) },
-        data: { isCover: false },
+        where: {
+          tourId: BigInt(tourId),
+        },
+        data: {
+          isCover: false,
+        },
       });
 
+      // Đặt ảnh mới làm cover và đưa lên vị trí đầu tiên.
       await tx.tourMedia.update({
-        where: { id: BigInt(mediaId) },
-        data: { isCover: true },
+        where: {
+          id: BigInt(mediaId),
+        },
+        data: {
+          isCover: true,
+          displayOrder: 1,
+        },
+      });
+
+      // Sắp lại các ảnh còn lại từ vị trí số 2.
+      const remainingMedia = await tx.tourMedia.findMany({
+        where: {
+          tourId: BigInt(tourId),
+          id: {
+            not: BigInt(mediaId),
+          },
+        },
+        orderBy: [
+          {
+            displayOrder: "asc",
+          },
+          {
+            id: "asc",
+          },
+        ],
+      });
+
+      for (let index = 0; index < remainingMedia.length; index += 1) {
+        await tx.tourMedia.update({
+          where: {
+            id: remainingMedia[index].id,
+          },
+          data: {
+            displayOrder: index + 2,
+          },
+        });
+      }
+
+      // Cập nhật tour để frontend có version mới, tránh cache ảnh cũ.
+      await tx.tour.update({
+        where: {
+          id: BigInt(tourId),
+        },
+        data: {
+          updatedAt: new Date(),
+        },
       });
     });
 
     const items = await this.prisma.tourMedia.findMany({
-      where: { tourId: BigInt(tourId) },
-      orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+      where: {
+        tourId: BigInt(tourId),
+      },
+      orderBy: [
+        {
+          isCover: "desc",
+        },
+        {
+          displayOrder: "asc",
+        },
+        {
+          id: "asc",
+        },
+      ],
     });
 
     return {
       message: "Đã đặt ảnh bìa cho tour.",
+      coverMediaId: String(mediaId),
       items: items.map((item) => this.mapTourMediaItem(item)),
     };
   }

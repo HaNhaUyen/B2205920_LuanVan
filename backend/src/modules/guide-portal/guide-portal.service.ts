@@ -50,13 +50,28 @@ export class GuidePortalService {
           lt: today,
         },
         status: {
-          in: ["assigned", "accepted", "in_progress"],
+          in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
         },
       },
       data: {
         status: "completed",
       },
     });
+
+    const whereGuide = guideId ? " AND op.guide_id=?" : "";
+    const params = guideId ? [guideId] : [];
+
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE trip_operations op
+       JOIN tour_departures td ON td.id=op.departure_id
+       SET op.operation_status='completed',
+           op.completed_at=COALESCE(op.completed_at,NOW()),
+           op.updated_at=NOW()
+       WHERE td.end_date < CURDATE()
+         AND op.operation_status NOT IN ('completed','cancelled')
+         ${whereGuide}`,
+      ...params,
+    );
   }
 
   private ensureGuideRole(user: CurrentUserLike) {

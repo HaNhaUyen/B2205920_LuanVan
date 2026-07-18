@@ -21,6 +21,8 @@ type AdminReviewQuery = ReviewListQuery & {
   search?: string;
   status?: string;
   tourId?: string;
+  sortBy?: string;
+  sortOrder?: string;
 };
 
 @Injectable()
@@ -28,9 +30,12 @@ export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
 
   private calculateMemberTier(points: number) {
-    if (points >= 15000) return "diamond";
-    if (points >= 5000) return "gold";
-    if (points >= 1000) return "silver";
+    const safePoints = Math.max(Number(points || 0), 0);
+
+    if (safePoints >= 4000) return "diamond";
+    if (safePoints >= 1500) return "gold";
+    if (safePoints >= 500) return "silver";
+
     return "bronze";
   }
 
@@ -685,7 +690,7 @@ export class ReviewsService {
     const rating = Number(query.rating || 0);
     if (rating >= 1 && rating <= 5) where.rating = rating;
 
-    if (this.toBool(query.hasMedia)) {
+    if (query.hasMedia === "true" || query.hasMedia === "1") {
       const ids = await this.getReviewIdsWithMediaAll();
 
       if (!ids.length) {
@@ -701,6 +706,11 @@ export class ReviewsService {
       }
 
       where.id = { in: ids };
+    } else if (query.hasMedia === "false" || query.hasMedia === "0") {
+      const ids = await this.getReviewIdsWithMediaAll();
+      if (ids.length) {
+        where.id = { notIn: ids };
+      }
     }
 
     if (query.search) {
@@ -713,12 +723,28 @@ export class ReviewsService {
       ];
     }
 
+    const allowedSortFields = new Set([
+      "createdAt",
+      "rating",
+      "status",
+      "updatedAt",
+    ]);
+    const requestedSortBy = String(query.sortBy || "createdAt");
+    const sortBy = allowedSortFields.has(requestedSortBy)
+      ? requestedSortBy
+      : "createdAt";
+    const sortOrder =
+      String(query.sortOrder || "desc").toLowerCase() === "asc"
+        ? "asc"
+        : "desc";
+
     const [rawItems, total] = await Promise.all([
       this.prisma.review.findMany({
         where,
         skip,
         take: pageSize,
-        orderBy: { createdAt: "desc" },
+        // Sắp xếp toàn bộ dữ liệu trước khi skip/take.
+        orderBy: [{ [sortBy]: sortOrder } as any, { id: sortOrder }],
         include: {
           tour: { select: { id: true, name: true } },
           user: {

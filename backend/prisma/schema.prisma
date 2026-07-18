@@ -25,7 +25,7 @@ model User {
   memberPoints                                                            Int                       @default(0) @map("member_points") @db.UnsignedInt
   memberTier                                                              MemberTier                @default(bronze) @map("member_tier")
   createdAt                                                               DateTime                  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                                                               DateTime                  @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt                                                               DateTime                  @default(now()) @map("updated_at") @db.DateTime(0)
   passwordChangedAt                                                       DateTime?                 @map("password_changed_at") @db.DateTime(0)
   failedLoginAttempts                                                     Int                       @default(0) @map("failed_login_attempts")
   lockedUntil                                                             DateTime?                 @map("locked_until") @db.DateTime(0)
@@ -84,7 +84,7 @@ model Destination {
   coverImage  String?  @map("cover_image") @db.VarChar(500)
   status      String   @default("active") @db.VarChar(20)
   createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.DateTime(0)
   tours       Tour[]
 
   @@map("destinations")
@@ -110,7 +110,7 @@ model Tour {
   isTrending           Boolean                   @default(false) @map("is_trending")
   isBestDeal           Boolean                   @default(false) @map("is_best_deal")
   createdAt            DateTime                  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt            DateTime                  @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt            DateTime                  @default(now()) @map("updated_at") @db.DateTime(0)
   bookings             Booking[]
   favorites            FavoriteTour[]
   guideAssignments     GuideAssignment[]
@@ -154,7 +154,7 @@ model TourItinerary {
   description          String?             @db.Text
   locationName         String?             @map("location_name") @db.VarChar(200)
   createdAt            DateTime            @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt            DateTime            @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt            DateTime            @default(now()) @map("updated_at") @db.DateTime(0)
   tour                 Tour                @relation(fields: [tourId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "tour_itinerary_ibfk_1")
   trip_itinerary_items TripItineraryItem[]
 
@@ -174,7 +174,7 @@ model TourDeparture {
   heldSlots                                                                             Int                      @default(0) @map("held_slots") @db.UnsignedInt
   status                                                                                DepartureStatus          @default(open)
   createdAt                                                                             DateTime                 @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                                                                             DateTime                 @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt                                                                             DateTime                 @default(now()) @map("updated_at") @db.DateTime(0)
   bookings                                                                              Booking[]
   departure_change_requests_departure_change_requests_new_departure_idTotour_departures DepartureChangeRequest[] @relation("departure_change_requests_new_departure_idTotour_departures")
   departure_change_requests_departure_change_requests_old_departure_idTotour_departures DepartureChangeRequest[] @relation("departure_change_requests_old_departure_idTotour_departures")
@@ -198,7 +198,7 @@ model TourPickupPoint {
   note           String?         @db.Text
   status         String          @default("active") @db.VarChar(30)
   createdAt      DateTime?       @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt      DateTime?       @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt      DateTime?       @default(now()) @map("updated_at") @db.DateTime(0)
   bookings       Booking[]
   tour           Tour            @relation(fields: [tourId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "tour_pickup_points_ibfk_1")
   departure      TourDeparture?  @relation(fields: [departureId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "tour_pickup_points_ibfk_2")
@@ -216,7 +216,7 @@ model TourPolicy {
   content      String   @db.Text
   displayOrder Int      @default(1) @map("display_order") @db.UnsignedSmallInt
   createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.DateTime(0)
   tour         Tour     @relation(fields: [tourId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "tour_policies_ibfk_1")
 
   @@index([tourId], map: "tour_id")
@@ -237,7 +237,7 @@ model TourAccommodation {
   amenities         String?   @db.Text
   status            String    @default("active") @db.VarChar(30)
   createdAt         DateTime  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
   supplier          Supplier? @relation("SupplierAccommodations", fields: [supplierId], references: [id], map: "fk_tour_accommodations_supplier")
   tour              Tour      @relation(fields: [tourId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "tour_accommodations_ibfk_1")
 
@@ -261,7 +261,7 @@ model TourTransport {
   imageUrl         String?   @map("image_url") @db.VarChar(500)
   status           String    @default("active") @db.VarChar(30)
   createdAt        DateTime  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
   supplier         Supplier? @relation("SupplierTransports", fields: [supplierId], references: [id], map: "fk_tour_transports_supplier")
   tour             Tour      @relation(fields: [tourId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "tour_transports_ibfk_1")
 
@@ -295,7 +295,7 @@ model Booking {
   contactPhone              String                   @map("contact_phone") @db.VarChar(20)
   note                      String?                  @db.Text
   createdAt                 DateTime                 @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                 DateTime                 @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt                 DateTime                 @default(now()) @map("updated_at") @db.DateTime(0)
   guests                    BookingGuest[]
   logs                      BookingStatusLog[]
   user                      User?                    @relation(fields: [userId], references: [id], onUpdate: NoAction, map: "bookings_ibfk_1")
@@ -330,7 +330,7 @@ model BookingGuest {
   guestType             String             @map("guest_type") @db.VarChar(20)
   idNumber              String?            @map("id_number") @db.VarChar(50)
   createdAt             DateTime           @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt             DateTime           @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt             DateTime           @default(now()) @map("updated_at") @db.DateTime(0)
   savedTravelerId       BigInt?            @map("saved_traveler_id") @db.UnsignedBigInt
   nationality           String?            @db.VarChar(80)
   phone                 String?            @db.VarChar(20)
@@ -358,7 +358,7 @@ model Payment {
   gatewayTransactionId    String?            @map("gateway_transaction_id") @db.VarChar(120)
   paidAt                  DateTime?          @map("paid_at") @db.DateTime(0)
   createdAt               DateTime           @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt               DateTime           @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt               DateTime           @default(now()) @map("updated_at") @db.DateTime(0)
   logs                    BookingStatusLog[]
   booking                 Booking            @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "payments_ibfk_1")
 
@@ -399,7 +399,7 @@ model Review {
   adminReplyAt DateTime?     @map("admin_reply_at") @db.DateTime(0)
   status       ReviewStatus  @default(approved)
   createdAt    DateTime      @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt    DateTime      @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt    DateTime      @default(now()) @map("updated_at") @db.DateTime(0)
   media        ReviewMedia[]
   user         User?         @relation(fields: [userId], references: [id], onUpdate: NoAction, map: "reviews_ibfk_1")
   tour         Tour          @relation(fields: [tourId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "reviews_ibfk_2")
@@ -445,7 +445,7 @@ model Faq {
   status       String    @default("active") @db.VarChar(30)
   displayOrder Int       @default(1) @map("display_order")
   createdAt    DateTime? @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt    DateTime? @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt    DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
 
   @@map("faqs")
 }
@@ -465,7 +465,7 @@ model Contact {
   replyEmailSentAt DateTime?         @map("reply_email_sent_at") @db.DateTime(0)
   replyEmailError  String?           @map("reply_email_error") @db.VarChar(255)
   createdAt        DateTime?         @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt        DateTime?         @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt        DateTime?         @default(now()) @map("updated_at") @db.DateTime(0)
   emailLogs        ContactEmailLog[]
   user             User?             @relation("ContactOwner", fields: [userId], references: [id], onUpdate: NoAction, map: "contacts_ibfk_1")
   handler          User?             @relation("ContactHandler", fields: [handledBy], references: [id], onUpdate: NoAction, map: "contacts_ibfk_2")
@@ -505,7 +505,7 @@ model Notification {
   isPublished   Boolean?               @default(true) @map("is_published")
   createdBy     BigInt?                @map("created_by") @db.UnsignedBigInt
   createdAt     DateTime?              @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt     DateTime?              @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt     DateTime?              @default(now()) @map("updated_at") @db.DateTime(0)
   reads         NotificationRead[]
   targetUser    User?                  @relation("NotificationTargetUser", fields: [targetUserId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "notifications_ibfk_1")
   createdByUser User?                  @relation("NotificationCreator", fields: [createdBy], references: [id], onUpdate: NoAction, map: "notifications_ibfk_2")
@@ -540,7 +540,7 @@ model Guide {
   status            String              @default("active") @db.VarChar(30)
   note              String?             @db.Text
   createdAt         DateTime            @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt         DateTime            @default(now()) @map("updated_at") @db.DateTime(0)
   assignments       GuideAssignment[]
   availabilities    GuideAvailability[]
   competencies      GuideCompetency[]
@@ -564,7 +564,7 @@ model GuideAssignment {
   status               String              @default("assigned") @db.VarChar(30)
   note                 String?             @db.Text
   createdAt            DateTime            @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt            DateTime            @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt            DateTime            @default(now()) @map("updated_at") @db.DateTime(0)
   guide                Guide               @relation(fields: [guideId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "guide_assignments_ibfk_1")
   booking              Booking             @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "guide_assignments_ibfk_2")
   tour                 Tour                @relation(fields: [tourId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "guide_assignments_ibfk_3")
@@ -592,7 +592,7 @@ model Voucher {
   usedCount      Int                    @default(0) @map("used_count") @db.UnsignedInt
   status         String                 @default("active") @db.VarChar(30)
   createdAt      DateTime               @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt      DateTime               @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt      DateTime               @default(now()) @map("updated_at") @db.DateTime(0)
   bookings       Booking[]
   userVouchers   UserVoucher[]
 
@@ -629,7 +629,7 @@ model RefundRequest {
   reviewedBy                               BigInt?      @map("reviewed_by") @db.UnsignedBigInt
   reviewedAt                               DateTime?    @map("reviewed_at") @db.DateTime(0)
   createdAt                                DateTime     @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                                DateTime     @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt                                DateTime     @default(now()) @map("updated_at") @db.DateTime(0)
   booking                                  Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "refund_requests_ibfk_1")
   user                                     User?        @relation(fields: [userId], references: [id], onUpdate: NoAction, map: "refund_requests_ibfk_2")
   users_refund_requests_reviewed_byTousers User?        @relation("refund_requests_reviewed_byTousers", fields: [reviewedBy], references: [id], onUpdate: NoAction, map: "refund_requests_ibfk_3")
@@ -679,7 +679,7 @@ model ChatConversation {
   lastIntent String?       @map("last_intent") @db.VarChar(100)
   memoryJson Json?         @map("memory_json")
   createdAt  DateTime?     @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt  DateTime?     @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt  DateTime?     @default(now()) @map("updated_at") @db.DateTime(0)
   user       User?         @relation(fields: [userId], references: [id], onUpdate: NoAction, map: "chat_conversations_ibfk_1")
   messages   ChatMessage[]
 
@@ -711,7 +711,7 @@ model RagDocument {
   embedding  Json?
   status     String   @default("active") @db.VarChar(30)
   createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.DateTime(0)
 
   @@index([sourceType, sourceId], map: "idx_rag_source")
   @@index([status], map: "idx_rag_status")
@@ -740,7 +740,7 @@ model TourEmbedding {
   tourId         BigInt   @id @map("tour_id") @db.UnsignedBigInt
   textEmbedding  Json?    @map("text_embedding")
   imageEmbedding Json?    @map("image_embedding")
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedAt      DateTime @default(now()) @map("updated_at")
   tour           Tour     @relation(fields: [tourId], references: [id], onDelete: Cascade)
 
   @@map("tour_embeddings")
@@ -779,7 +779,7 @@ model SavedTraveler {
   healthNotes  String?                @map("health_notes") @db.VarChar(500)
   isDefault    Boolean                @default(false) @map("is_default")
   createdAt    DateTime               @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt    DateTime               @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt    DateTime               @default(now()) @map("updated_at") @db.DateTime(0)
   user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_saved_travelers_user")
 
   @@index([userId, fullName], map: "idx_saved_travelers_name")
@@ -799,7 +799,7 @@ model TripOperation {
   completedAt               DateTime?                @map("completed_at") @db.DateTime(0)
   createdBy                 BigInt?                  @map("created_by") @db.UnsignedBigInt
   createdAt                 DateTime                 @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                 DateTime                 @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt                 DateTime                 @default(now()) @map("updated_at") @db.DateTime(0)
   incidents                 IncidentTicket[]
   itinerary_change_requests ItineraryChangeRequest[]
   journeyLogs               JourneyLog[]
@@ -829,7 +829,7 @@ model PassengerCheckin {
   checkedInBy     BigInt?                @map("checked_in_by") @db.UnsignedBigInt
   note            String?                @db.VarChar(500)
   createdAt       DateTime               @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt       DateTime               @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt       DateTime               @default(now()) @map("updated_at") @db.DateTime(0)
   tripOperation   TripOperation          @relation(fields: [tripOperationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "passenger_checkins_ibfk_1")
   bookingGuest    BookingGuest           @relation(fields: [bookingGuestId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "passenger_checkins_ibfk_2")
   checkedByUser   User?                  @relation("PassengerCheckinUser", fields: [checkedInBy], references: [id], onUpdate: NoAction, map: "passenger_checkins_ibfk_3")
@@ -854,7 +854,7 @@ model JourneyLog {
   mediaUrls       Json?          @map("media_urls")
   occurredAt      DateTime       @default(now()) @map("occurred_at") @db.DateTime(0)
   createdAt       DateTime       @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt       DateTime       @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt       DateTime       @default(now()) @map("updated_at") @db.DateTime(0)
   tripOperation   TripOperation  @relation(fields: [tripOperationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "journey_logs_ibfk_1")
   guide           Guide          @relation(fields: [guideId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "journey_logs_ibfk_2")
 
@@ -885,7 +885,7 @@ model IncidentTicket {
   resolvedAt           DateTime?               @map("resolved_at") @db.DateTime(0)
   closedAt             DateTime?               @map("closed_at") @db.DateTime(0)
   createdAt            DateTime                @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt            DateTime                @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt            DateTime                @default(now()) @map("updated_at") @db.DateTime(0)
   incident_attachments IncidentAttachment[]
   incident_status_logs IncidentStatusLog[]
   comments             IncidentTicketComment[]
@@ -979,7 +979,7 @@ model TripReport {
   reviewedAt           DateTime?           @map("reviewed_at") @db.DateTime(0)
   adminNote            String?             @map("admin_note") @db.Text
   createdAt            DateTime            @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt            DateTime            @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt            DateTime            @default(now()) @map("updated_at") @db.DateTime(0)
   trip_report_expenses TripReportExpense[]
   tripOperation        TripOperation       @relation(fields: [tripOperationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "trip_reports_ibfk_1")
   guide                Guide               @relation(fields: [guideId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "trip_reports_ibfk_2")
@@ -1007,7 +1007,7 @@ model GuideCompetency {
   verifiedAt         DateTime?                         @map("verified_at") @db.DateTime(0)
   rejectionReason    String?                           @map("rejection_reason") @db.VarChar(500)
   createdAt          DateTime                          @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt          DateTime                          @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt          DateTime                          @default(now()) @map("updated_at") @db.DateTime(0)
   guide              Guide                             @relation(fields: [guideId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "guide_competencies_ibfk_1")
   verifier           User?                             @relation("GuideCompetencyVerifier", fields: [verifiedBy], references: [id], onUpdate: NoAction, map: "guide_competencies_ibfk_2")
 
@@ -1030,7 +1030,7 @@ model TripChecklistItem {
   note            String?       @db.Text
   displayOrder    Int           @default(1) @map("display_order")
   createdAt       DateTime      @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt       DateTime      @default(now()) @map("updated_at") @db.DateTime(0)
   trip_operations TripOperation @relation(fields: [tripOperationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_checklist_operation")
   users           User?         @relation(fields: [completedBy], references: [id], onUpdate: NoAction, map: "fk_checklist_user")
 
@@ -1056,7 +1056,7 @@ model Supplier {
   status                 String                @default("active") @db.VarChar(30)
   note                   String?               @db.Text
   createdAt              DateTime              @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt              DateTime              @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt              DateTime              @default(now()) @map("updated_at") @db.DateTime(0)
   supplier_contacts      SupplierContact[]
   supplier_contracts     SupplierContract[]
   supplier_services      SupplierService[]
@@ -1094,7 +1094,7 @@ model SupplierService {
   description            String?               @db.Text
   status                 String                @default("active") @db.VarChar(30)
   createdAt              DateTime              @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt              DateTime              @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt              DateTime              @default(now()) @map("updated_at") @db.DateTime(0)
   suppliers              Supplier              @relation(fields: [supplierId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_supplier_service")
   trip_supplier_bookings TripSupplierBooking[]
 
@@ -1113,7 +1113,7 @@ model SupplierContract {
   status       String    @default("active") @db.VarChar(30)
   note         String?   @db.Text
   createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
   suppliers    Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_supplier_contract")
 
   @@index([supplierId, status], map: "idx_supplier_contract")
@@ -1136,7 +1136,7 @@ model TripSupplierBooking {
   note              String?          @db.Text
   confirmedAt       DateTime?        @map("confirmed_at") @db.DateTime(0)
   createdAt         DateTime         @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt         DateTime         @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt         DateTime         @default(now()) @map("updated_at") @db.DateTime(0)
   suppliers         Supplier         @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_trip_supplier")
   trip_operations   TripOperation    @relation(fields: [tripOperationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_trip_supplier_operation")
   supplier_services SupplierService? @relation(fields: [supplierServiceId], references: [id], onUpdate: NoAction, map: "fk_trip_supplier_service")
@@ -1164,7 +1164,7 @@ model DepartureChangeRequest {
   reviewedAt                                                                  DateTime?     @map("reviewed_at") @db.DateTime(0)
   completedAt                                                                 DateTime?     @map("completed_at") @db.DateTime(0)
   createdAt                                                                   DateTime      @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                                                                   DateTime      @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt                                                                   DateTime      @default(now()) @map("updated_at") @db.DateTime(0)
   bookings                                                                    Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_dc_booking")
   tour_departures_departure_change_requests_new_departure_idTotour_departures TourDeparture @relation("departure_change_requests_new_departure_idTotour_departures", fields: [newDepartureId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dc_new")
   tour_departures_departure_change_requests_old_departure_idTotour_departures TourDeparture @relation("departure_change_requests_old_departure_idTotour_departures", fields: [oldDepartureId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_dc_old")
@@ -1193,7 +1193,7 @@ model ElectronicTicket {
   cancelledAt        DateTime?       @map("cancelled_at") @db.DateTime(0)
   cancellationReason String?         @map("cancellation_reason") @db.Text
   createdAt          DateTime        @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt          DateTime        @default(now()) @map("updated_at") @db.DateTime(0)
   bookings           Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ticket_booking")
   tour_departures    TourDeparture   @relation(fields: [departureId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ticket_departure")
   booking_guests     BookingGuest    @relation(fields: [bookingGuestId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ticket_guest")
@@ -1242,7 +1242,7 @@ model TripItineraryItem {
   changeReason              String?                  @map("change_reason") @db.Text
   updatedBy                 BigInt?                  @map("updated_by") @db.UnsignedBigInt
   createdAt                 DateTime                 @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                 DateTime                 @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt                 DateTime                 @default(now()) @map("updated_at") @db.DateTime(0)
   itinerary_change_requests ItineraryChangeRequest[]
   trip_operations           TripOperation            @relation(fields: [tripOperationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_trip_itinerary_operation")
   tour_itinerary            TourItinerary?           @relation(fields: [sourceItineraryItemId], references: [id], onUpdate: NoAction, map: "fk_trip_itinerary_source")
@@ -1271,7 +1271,7 @@ model ItineraryChangeRequest {
   adminNote                                           String?            @map("admin_note") @db.Text
   appliedAt                                           DateTime?          @map("applied_at") @db.DateTime(0)
   createdAt                                           DateTime           @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                                           DateTime           @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt                                           DateTime           @default(now()) @map("updated_at") @db.DateTime(0)
   trip_itinerary_items                                TripItineraryItem? @relation(fields: [itineraryItemId], references: [id], onUpdate: NoAction, map: "fk_ic_item")
   trip_operations                                     TripOperation      @relation(fields: [tripOperationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_ic_operation")
   users_itinerary_change_requests_requested_byTousers User               @relation("itinerary_change_requests_requested_byTousers", fields: [requestedBy], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ic_requester")
@@ -1300,7 +1300,7 @@ model TripDocument {
   uploadedAt      DateTime      @default(now()) @map("uploaded_at") @db.DateTime(0)
   expiresAt       DateTime?     @map("expires_at") @db.DateTime(0)
   createdAt       DateTime      @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt       DateTime      @default(now()) @map("updated_at") @db.DateTime(0)
   trip_operations TripOperation @relation(fields: [tripOperationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_document_operation")
   users           User?         @relation(fields: [uploadedBy], references: [id], onUpdate: NoAction, map: "fk_document_user")
 
@@ -1323,7 +1323,7 @@ model GuideAvailability {
   approvedBy        BigInt?                 @map("approved_by") @db.UnsignedBigInt
   approvedAt        DateTime?               @map("approved_at") @db.DateTime(0)
   createdAt         DateTime                @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt         DateTime                @default(now()) @map("updated_at") @db.DateTime(0)
   approver          User?                   @relation("GuideAvailabilityApprover", fields: [approvedBy], references: [id], onUpdate: NoAction, map: "fk_availability_approver")
   creator           User?                   @relation("GuideAvailabilityCreator", fields: [createdBy], references: [id], onUpdate: NoAction, map: "fk_availability_creator")
   guide             Guide                   @relation(fields: [guideId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_availability_guide")
@@ -1399,7 +1399,7 @@ model OperationalAlert {
   deduplicationKey String?   @map("deduplication_key") @db.VarChar(255)
   metadata         Json?
   createdAt        DateTime  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
 
   @@index([assignedTo, status], map: "idx_alert_assignee")
   @@index([deduplicationKey], map: "idx_alert_dedupe")
@@ -1417,7 +1417,7 @@ model OperationalAlertRule {
   checkInterval  Int      @default(60) @map("check_interval")
   config         Json?
   createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.DateTime(0)
 
   @@map("operational_alert_rules")
 }
@@ -1500,7 +1500,7 @@ model GuideCredential {
   reviewedBy     BigInt?   @map("reviewed_by") @db.UnsignedBigInt
   reviewedAt     DateTime? @map("reviewed_at")
   createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+  updatedAt      DateTime  @default(now()) @map("updated_at")
   guide          Guide     @relation(fields: [guideId], references: [id], onDelete: Cascade)
 
   @@index([guideId, status])

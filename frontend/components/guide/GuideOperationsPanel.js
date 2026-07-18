@@ -43,6 +43,7 @@ const operationLabels = {
   boarding: "Đang đón khách",
   departed: "Đã khởi hành",
   in_progress: "Đang diễn ra",
+  awaiting_report: "Chờ gửi báo cáo",
   completed: "Đã hoàn thành",
   cancelled: "Đã hủy",
 };
@@ -129,16 +130,29 @@ function isPrimaryPassenger(guest, firstGuestIdByBooking) {
 function statusTone(status) {
   if (
     ["present", "ready", "completed", "resolved", "verified"].includes(status)
-  )
+  ) {
     return "success";
+  }
+
   if (
-    ["late", "boarding", "in_progress", "acknowledged", "pending"].includes(
-      status,
-    )
-  )
+    [
+      "late",
+      "boarding",
+      "in_progress",
+      "acknowledged",
+      "pending",
+      "awaiting_report",
+    ].includes(status)
+  ) {
     return "warning";
-  if (["absent", "cancelled", "critical", "rejected", "open"].includes(status))
+  }
+
+  if (
+    ["absent", "cancelled", "critical", "rejected", "open"].includes(status)
+  ) {
     return "danger";
+  }
+
   return "info";
 }
 
@@ -273,6 +287,103 @@ function sortNewestActionFirst(items) {
   });
 }
 
+function startOfToday() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+function hasPassedTripEndDate(value) {
+  if (!value) return false;
+
+  const endDate = new Date(value);
+
+  if (Number.isNaN(endDate.getTime())) {
+    return false;
+  }
+
+  endDate.setHours(0, 0, 0, 0);
+  return endDate.getTime() < startOfToday().getTime();
+}
+
+function isTripPast(trip) {
+  const departure = getTripDeparture(trip);
+
+  return hasPassedTripEndDate(departure?.endDate || trip?.endDate);
+}
+
+function getTripDisplayStatus(trip) {
+  const status = String(trip?.operationStatus || "preparing");
+
+  if (status === "cancelled") {
+    return "cancelled";
+  }
+
+  // Tour đã qua toàn bộ ngày kết thúc được hiển thị là đã hoàn thành.
+  if (status === "completed" || isTripPast(trip)) {
+    return "completed";
+  }
+
+  return status;
+}
+
+function getTripSortGroup(trip) {
+  const status = getTripDisplayStatus(trip);
+
+  if (["in_progress", "departed", "boarding"].includes(status)) {
+    return 1;
+  }
+
+  if (["ready", "preparing"].includes(status)) {
+    return 2;
+  }
+
+  if (status === "completed") {
+    return 4;
+  }
+
+  if (status === "cancelled") {
+    return 5;
+  }
+
+  return 3;
+}
+
+function getTripStartTimestamp(trip) {
+  const departure = getTripDeparture(trip);
+  const value = departure?.departureDate || trip?.departureDate || null;
+
+  if (!value) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? Number.MAX_SAFE_INTEGER : timestamp;
+}
+
+function sortTripsForOperations(items) {
+  return [...safeArray(items)].sort((first, second) => {
+    const firstGroup = getTripSortGroup(first);
+    const secondGroup = getTripSortGroup(second);
+
+    if (firstGroup !== secondGroup) {
+      return firstGroup - secondGroup;
+    }
+
+    const firstDate = getTripStartTimestamp(first);
+    const secondDate = getTripStartTimestamp(second);
+    const firstStatus = getTripDisplayStatus(first);
+
+    // Chuyến đã hoàn thành/hủy: chuyến mới hơn nằm trước trong nhóm cuối.
+    if (["completed", "cancelled"].includes(firstStatus)) {
+      return secondDate - firstDate;
+    }
+
+    // Chuyến đang chạy/sắp tới: ngày gần nhất nằm trước.
+    return firstDate - secondDate;
+  });
+}
+
 export default function GuideOperationsPanel({ guide }) {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -338,10 +449,13 @@ export default function GuideOperationsPanel({ guide }) {
 
   const filteredTrips = useMemo(() => {
     const keyword = normalizeText(tripKeyword);
-    if (!keyword) return trips;
+
     return trips.filter((trip) => {
+      if (!keyword) return true;
+
       const tour = getTripTour(trip);
       const destination = tour.destination || {};
+
       return [
         tour.name,
         tour.code,
@@ -469,7 +583,7 @@ export default function GuideOperationsPanel({ guide }) {
 
   const loadTrips = async () => {
     const result = await apiFetch("/trip-operations/my-trips");
-    const next = safeArray(result);
+    const next = sortTripsForOperations(safeArray(result));
     setTrips(next);
     return next;
   };
@@ -637,7 +751,19 @@ export default function GuideOperationsPanel({ guide }) {
     const current = next.find(
       (trip) => String(trip.id) === String(selectedTrip?.id),
     );
-    if (current) await openTrip(current, true);
+
+    if (current) {
+      await openTrip(current, true);
+      return;
+    }
+
+    if (next.length) {
+      await openTrip(next[0], true);
+      return;
+    }
+
+    setSelectedTrip(null);
+    setData(null);
   };
 
   useEffect(() => {
@@ -753,6 +879,19 @@ export default function GuideOperationsPanel({ guide }) {
   };
 
   const updateCheckin = async (guestId, status) => {
+    const currentEndDate =
+      data?.dashboard?.departure?.endDate ||
+      selectedTrip?.departure?.endDate ||
+      selectedTrip?.endDate;
+
+    if (hasPassedTripEndDate(currentEndDate)) {
+      showToast(
+        "Chuyến đi đã qua ngày kết thúc. Kết quả điểm danh chỉ được xem.",
+        "warning",
+      );
+      return;
+    }
+
     const currentStatus = String(
       data?.dashboard?.operationStatus ||
         data?.dashboard?.trip?.operationStatus ||
@@ -798,10 +937,28 @@ export default function GuideOperationsPanel({ guide }) {
       selectedTrip?.operationStatus ||
       "preparing",
   );
-  const isCompletedTrip = operationStatus === "completed";
-  const isCancelledTrip = operationStatus === "cancelled";
-  const isReadOnlyTrip = isCompletedTrip || isCancelledTrip;
+
+  const tripEndDate =
+    departure.endDate ||
+    selectedTrip?.departure?.endDate ||
+    selectedTrip?.endDate ||
+    null;
+
+  const hasTripEnded = hasPassedTripEndDate(tripEndDate);
   const hasSavedReport = Boolean(data?.report);
+  const isCancelledTrip = operationStatus === "cancelled";
+  const isAwaitingReport = hasTripEnded && !hasSavedReport && !isCancelledTrip;
+  const isCompletedTrip =
+    operationStatus === "completed" || (hasTripEnded && hasSavedReport);
+  const isReadOnlyTrip =
+    isCancelledTrip || hasTripEnded || operationStatus === "completed";
+  const displayOperationStatus = isCancelledTrip
+    ? "cancelled"
+    : isAwaitingReport
+      ? "awaiting_report"
+      : isCompletedTrip
+        ? "completed"
+        : operationStatus;
   const present = Number(
     stats.present ?? stats.presentCount ?? stats.checkedIn ?? 0,
   );
@@ -864,18 +1021,20 @@ export default function GuideOperationsPanel({ guide }) {
               const tripTour = getTripTour(trip);
               const tripDeparture = getTripDeparture(trip);
               const active = String(trip.id) === String(selectedTrip?.id);
+              const displayStatus = getTripDisplayStatus(trip);
+              const pastTrip = isTripPast(trip);
               return (
                 <button
                   key={trip.id}
                   type="button"
-                  className={`ops-trip-card ${active ? "active" : ""}`}
+                  className={`ops-trip-card ${
+                    active ? "active" : ""
+                  } ${pastTrip ? "past" : ""}`}
                   onClick={() => openTrip(trip)}
                 >
                   <div className="ops-trip-top">
-                    <Badge tone={statusTone(trip.operationStatus)}>
-                      {operationLabels[trip.operationStatus] ||
-                        trip.operationStatus ||
-                        "Đang chuẩn bị"}
+                    <Badge tone={statusTone(displayStatus)}>
+                      {operationLabels[displayStatus] || displayStatus}
                     </Badge>
                     {active && (
                       <span className="ops-selected-mark">Đang chọn</span>
@@ -923,9 +1082,9 @@ export default function GuideOperationsPanel({ guide }) {
             <div className="ops-hero-bg-pattern"></div>
             <div className="ops-hero-content">
               <div className="ops-hero-meta">
-                <Badge tone={statusTone(operationStatus)}>
-                  {operationLabels[operationStatus] ||
-                    operationStatus ||
+                <Badge tone={statusTone(displayOperationStatus)}>
+                  {operationLabels[displayOperationStatus] ||
+                    displayOperationStatus ||
                     "Đang chuẩn bị"}
                 </Badge>
                 <span className="ops-hero-code">
@@ -1035,24 +1194,42 @@ export default function GuideOperationsPanel({ guide }) {
             </div>
 
             <div className="ops-tab-content">
-              {isReadOnlyTrip ? (
+              {isAwaitingReport ? (
+                <div className="ops-report-required-alert">
+                  <FileText size={20} />
+                  <div>
+                    <strong>Chuyến đi đã kết thúc, cần gửi báo cáo</strong>
+                    <span>
+                      Điểm danh, nhật ký, sự cố và thông báo đoàn đã được khóa.
+                      Hãy hoàn thành báo cáo để kết thúc chuyến đi và gửi về ban
+                      quản trị.
+                    </span>
+                  </div>
+                  <button type="button" onClick={() => setActiveTab("report")}>
+                    <FileText size={16} />
+                    Viết báo cáo
+                  </button>
+                </div>
+              ) : null}
+
+              {isReadOnlyTrip && !isAwaitingReport ? (
                 <div className="ops-readonly-alert">
                   <LockKeyhole size={18} />
+
                   <div>
                     <strong>
-                      {isCompletedTrip
-                        ? "Chuyến đi đã hoàn thành"
-                        : "Chuyến đi đã bị hủy"}
+                      {isCancelledTrip
+                        ? "Chuyến đi đã bị hủy"
+                        : "Chuyến đi đã hoàn thành"}
                     </strong>
+
                     <span>
                       Dữ liệu vận hành đã khóa: không thể điểm danh, thêm nhật
-                      ký, báo sự cố hoặc gửi thông báo mới. Bạn vẫn có thể xem
-                      và gửi báo cáo kết thúc tour nếu báo cáo chưa được lưu.
+                      ký, báo sự cố hoặc gửi thông báo mới.
                     </span>
                   </div>
                 </div>
               ) : null}
-
               {activeTab === "availability" && (
                 <div className="ops-two-col ops-availability-layout">
                   <div className="ops-form-panel">
@@ -2040,14 +2217,28 @@ export default function GuideOperationsPanel({ guide }) {
 
               {activeTab === "report" && (
                 <form
-                  className={`ops-form-card ops-report ${isCancelledTrip || hasSavedReport ? "readonly" : ""}`}
+                  className={`ops-form-card ops-report ${
+                    isCancelledTrip || hasSavedReport || !hasTripEnded
+                      ? "readonly"
+                      : ""
+                  }`}
                   onSubmit={(e) => {
                     e.preventDefault();
+
                     if (isCancelledTrip || hasSavedReport) return;
+
+                    if (!hasTripEnded) {
+                      showToast(
+                        "Chỉ được gửi báo cáo sau khi chuyến đi đã qua ngày kết thúc.",
+                        "warning",
+                      );
+                      return;
+                    }
+
                     postAndReload(
                       `/trip-operations/${selectedTrip.id}/report`,
                       reportForm,
-                      "Đã lưu báo cáo sau tour.",
+                      "Đã gửi báo cáo kết thúc chuyến đi.",
                     );
                   }}
                 >
@@ -2062,14 +2253,16 @@ export default function GuideOperationsPanel({ guide }) {
                     <button
                       className="ops-btn-primary"
                       type="submit"
-                      disabled={isCancelledTrip || hasSavedReport}
+                      disabled={
+                        isCancelledTrip || hasSavedReport || !hasTripEnded
+                      }
                     >
                       <CheckCircle2 size={16} />
                       {hasSavedReport
                         ? "Báo cáo đã hoàn tất"
-                        : isCompletedTrip
-                          ? "Gửi báo cáo kết thúc tour"
-                          : "Hoàn tất báo cáo"}
+                        : !hasTripEnded
+                          ? "Chưa đến thời điểm báo cáo"
+                          : "Gửi báo cáo kết thúc tour"}
                     </button>
                   </div>
 
@@ -2625,6 +2818,26 @@ export default function GuideOperationsPanel({ guide }) {
           border-color: var(--primary-color);
           box-shadow: 0 4px 12px rgba(14, 165, 233, 0.15);
           background-color: #f0f9ff;
+        }
+        .ops-trip-card.past {
+          background: #f8fafc;
+          border-color: #e2e8f0;
+        }
+
+        .ops-trip-card.past:not(.active) {
+          opacity: 0.82;
+        }
+
+        .ops-trip-card.past:hover {
+          opacity: 1;
+        }
+
+        .ops-trip-card.past .ops-trip-title {
+          color: #475569;
+        }
+
+        .ops-trip-card.past .ops-trip-foot {
+          color: #94a3b8;
         }
         .ops-trip-top {
           display: flex;
@@ -3589,6 +3802,46 @@ export default function GuideOperationsPanel({ guide }) {
           justify-content: center;
         }
 
+        .ops-report-required-alert {
+          margin-bottom: 18px;
+          padding: 15px 16px;
+          border: 1px solid #fdba74;
+          border-radius: 13px;
+          background: #fff7ed;
+          color: #c2410c;
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 12px;
+        }
+        .ops-report-required-alert > div {
+          display: grid;
+          gap: 4px;
+        }
+        .ops-report-required-alert strong {
+          color: #9a3412;
+          font-size: 14px;
+        }
+        .ops-report-required-alert span {
+          color: #7c2d12;
+          font-size: 12px;
+          line-height: 1.55;
+        }
+        .ops-report-required-alert button {
+          min-height: 38px;
+          padding: 0 13px;
+          border: 0;
+          border-radius: 10px;
+          background: #ea580c;
+          color: #fff;
+          font-weight: 800;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          cursor: pointer;
+        }
+
         .ops-readonly-alert {
           margin-bottom: 18px;
           padding: 14px 16px;
@@ -3866,6 +4119,13 @@ export default function GuideOperationsPanel({ guide }) {
           }
           .ops-passenger-modal-backdrop {
             padding: 10px;
+          }
+          .ops-report-required-alert {
+            grid-template-columns: auto minmax(0, 1fr);
+          }
+          .ops-report-required-alert button {
+            grid-column: 1 / -1;
+            width: 100%;
           }
         }
       `}</style>

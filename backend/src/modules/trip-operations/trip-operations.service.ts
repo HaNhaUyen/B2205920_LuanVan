@@ -62,22 +62,88 @@ export class TripOperationsService {
     throw new ForbiddenException("Bạn không có quyền truy cập chuyến này.");
   }
 
+  private async syncExpiredOperations(
+    guideId?: number | null,
+    operationId?: number | null,
+  ) {
+    const operationConditions: string[] = [
+      "td.end_date < CURDATE()",
+      "op.operation_status NOT IN ('completed','cancelled')",
+    ];
+    const operationParams: any[] = [];
+
+    if (guideId) {
+      operationConditions.push("op.guide_id=?");
+      operationParams.push(guideId);
+    }
+
+    if (operationId) {
+      operationConditions.push("op.id=?");
+      operationParams.push(operationId);
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE trip_operations op
+       JOIN tour_departures td ON td.id=op.departure_id
+       SET op.operation_status='completed',
+           op.completed_at=COALESCE(op.completed_at,NOW()),
+           op.updated_at=NOW()
+       WHERE ${operationConditions.join(" AND ")}`,
+      ...operationParams,
+    );
+
+    const assignmentConditions: string[] = [
+      "td.end_date < CURDATE()",
+      "ga.status IN ('assigned','accepted','in_progress','confirmed','issue')",
+    ];
+    const assignmentParams: any[] = [];
+
+    if (guideId) {
+      assignmentConditions.push("ga.guide_id=?");
+      assignmentParams.push(guideId);
+    }
+
+    if (operationId) {
+      assignmentConditions.push("op.id=?");
+      assignmentParams.push(operationId);
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE guide_assignments ga
+       JOIN bookings b ON b.id=ga.booking_id
+       JOIN tour_departures td ON td.id=b.departure_id
+       LEFT JOIN trip_operations op ON op.departure_id=td.id
+       SET ga.status='completed',
+           ga.updated_at=NOW()
+       WHERE ${assignmentConditions.join(" AND ")}`,
+      ...assignmentParams,
+    );
+  }
+
   private async assertWritableOperation(user: any, operationId: number) {
     const operation = await this.assertAccess(user, operationId);
+    await this.syncExpiredOperations(null, operationId);
+
     const rows = await this.prisma.$queryRawUnsafe<any[]>(
-      `SELECT operation_status AS operationStatus
-       FROM trip_operations
-       WHERE id=?
+      `SELECT
+         op.operation_status AS operationStatus,
+         td.end_date AS endDate,
+         td.end_date < CURDATE() AS hasEnded
+       FROM trip_operations op
+       JOIN tour_departures td ON td.id=op.departure_id
+       WHERE op.id=?
        LIMIT 1`,
       operationId,
     );
 
     const status = String(rows[0]?.operationStatus || "");
-    if (["completed", "cancelled"].includes(status)) {
+    const hasEnded = Number(rows[0]?.hasEnded || 0) === 1;
+
+    if (hasEnded || ["completed", "cancelled"].includes(status)) {
       throw new BadRequestException(
-        status === "completed"
-          ? "Chuyến đi đã hoàn thành. Dữ liệu vận hành chỉ được xem."
-          : "Chuyến đi đã bị hủy. Không thể cập nhật dữ liệu vận hành.",
+        status === "cancelled"
+          ? "Chuyến đi đã bị hủy. Không thể cập nhật dữ liệu vận hành."
+          : "Chuyến đi đã qua ngày kết thúc. Dữ liệu vận hành chỉ được xem và chờ gửi báo cáo.",
       );
     }
 
@@ -138,6 +204,7 @@ export class TripOperationsService {
 
   async listTrips(user: any, query: any) {
     const gid = await this.guideId(user);
+    await this.syncExpiredOperations(gid);
     const status = String(query?.status || "").trim();
     let sql = `SELECT op.id, op.operation_status AS operationStatus, op.vehicle_info AS vehicleInfo,
       op.emergency_phone AS emergencyPhone, op.started_at AS startedAt, op.completed_at AS completedAt,
@@ -145,8 +212,10 @@ export class TripOperationsService {
       td.total_slots AS totalSlots, td.booked_slots AS bookedSlots, t.id AS tourId, t.code AS tourCode,
       t.name AS tourName, d.name AS destinationName, d.province,
       g.id AS guideId, g.full_name AS guideName,
+      MAX(tr.id) AS reportId,
       COUNT(DISTINCT CASE WHEN b.booking_status IN ('confirmed','completed','waiting_confirmation') THEN b.id END) AS bookingCount,
-      COUNT(DISTINCT bg.id) AS passengerCount
+      COUNT(DISTINCT bg.id) AS passengerCount,
+      MAX(CASE WHEN tr.id IS NOT NULL THEN 1 ELSE 0 END) AS hasReport
       FROM trip_operations op
       JOIN tour_departures td ON td.id=op.departure_id
       JOIN tours t ON t.id=td.tour_id JOIN destinations d ON d.id=t.destination_id
@@ -158,12 +227,6 @@ export class TripOperationsService {
     if (gid) {
       sql += ` AND op.guide_id=?`;
       params.push(gid);
-
-      // Sau khi HDV đã gửi báo cáo kết thúc, chuyến hoàn thành biến khỏi danh sách vận hành.
-      // Có thể truyền includeCompleted=1 khi cần xem lịch sử.
-      if (String(query?.includeCompleted || "") !== "1") {
-        sql += ` AND NOT (op.operation_status='completed' AND tr.id IS NOT NULL)`;
-      }
     }
     if (status && status !== "all") {
       sql += ` AND op.operation_status=?`;
@@ -184,6 +247,7 @@ export class TripOperationsService {
 
     return rows.map((row) => ({
       ...row,
+      hasReport: Number(row.hasReport || 0) === 1,
       totalGuests: Number(row.passengerCount || 0),
       tour: {
         id: row.tourId,
@@ -210,6 +274,7 @@ export class TripOperationsService {
 
   async dashboard(user: any, operationId: number) {
     await this.assertAccess(user, operationId);
+    await this.syncExpiredOperations(null, operationId);
     const trip = await this.prisma.$queryRawUnsafe<any[]>(
       `SELECT op.*, td.departure_date AS departureDate, td.end_date AS endDate, td.status AS departureStatus,
        t.name AS tourName, t.code AS tourCode, t.slug, d.name AS destinationName, d.province,
@@ -748,14 +813,31 @@ export class TripOperationsService {
 
   async saveReport(user: any, operationId: number, body: any) {
     const op = await this.assertAccess(user, operationId);
+    await this.syncExpiredOperations(null, operationId);
+
     const operationRows = await this.prisma.$queryRawUnsafe<any[]>(
-      `SELECT operation_status AS operationStatus FROM trip_operations WHERE id=? LIMIT 1`,
+      `SELECT
+         op.operation_status AS operationStatus,
+         td.end_date AS endDate,
+         td.end_date < CURDATE() AS hasEnded
+       FROM trip_operations op
+       JOIN tour_departures td ON td.id=op.departure_id
+       WHERE op.id=?
+       LIMIT 1`,
       operationId,
     );
     const currentStatus = String(operationRows[0]?.operationStatus || "");
+    const hasEnded = Number(operationRows[0]?.hasEnded || 0) === 1;
+
     if (currentStatus === "cancelled") {
       throw new BadRequestException(
         "Chuyến đi đã bị hủy. Không thể gửi báo cáo kết thúc tour.",
+      );
+    }
+
+    if (!hasEnded) {
+      throw new BadRequestException(
+        "Chỉ được gửi báo cáo sau khi chuyến đi đã qua ngày kết thúc.",
       );
     }
 
@@ -793,10 +875,49 @@ export class TripOperationsService {
       body?.extraCostNote || null,
       body?.recommendations || null,
     );
-    await this.prisma.$executeRawUnsafe(
-      `UPDATE trip_operations SET operation_status='completed',completed_at=NOW() WHERE id=?`,
-      operationId,
-    );
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `UPDATE trip_operations
+         SET operation_status='completed',
+             completed_at=COALESCE(completed_at,NOW()),
+             updated_at=NOW()
+         WHERE id=?`,
+        operationId,
+      );
+
+      await tx.$executeRawUnsafe(
+        `UPDATE guide_assignments ga
+         JOIN bookings b ON b.id=ga.booking_id
+         JOIN trip_operations op ON op.departure_id=b.departure_id
+         SET ga.status='completed',
+             ga.updated_at=NOW()
+         WHERE op.id=?
+           AND ga.status NOT IN ('cancelled','replaced')`,
+        operationId,
+      );
+
+      await tx.$executeRawUnsafe(
+        `UPDATE tour_departures td
+         JOIN trip_operations op ON op.departure_id=td.id
+         SET td.status=CASE
+               WHEN td.status='cancelled' THEN td.status
+               ELSE 'closed'
+             END,
+             td.updated_at=NOW()
+         WHERE op.id=?`,
+        operationId,
+      );
+
+      await tx.$executeRawUnsafe(
+        `UPDATE bookings b
+         JOIN trip_operations op ON op.departure_id=b.departure_id
+         SET b.booking_status='completed',
+             b.updated_at=NOW()
+         WHERE op.id=?
+           AND b.booking_status='confirmed'`,
+        operationId,
+      );
+    });
 
     const reportRows = await this.prisma.$queryRawUnsafe<any[]>(
       `SELECT tr.id, tr.actual_guest_count AS actualGuestCount, tr.absent_guest_count AS absentGuestCount,

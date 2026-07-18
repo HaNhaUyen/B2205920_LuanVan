@@ -94,6 +94,121 @@ function bookingTone(status) {
   return "default";
 }
 
+function getBookingStatusLabel(status) {
+  const labels = {
+    draft: "Bản nháp",
+    pending_payment: "Chờ thanh toán",
+    waiting_confirmation: "Chờ xác nhận",
+    confirmed: "Đã xác nhận",
+    completed: "Đã hoàn thành",
+    cancelled: "Đã hủy",
+    expired: "Đã hết hạn",
+  };
+
+  return labels[String(status || "").toLowerCase()] || "Đang cập nhật";
+}
+
+function getLatestPaymentStatus(booking) {
+  const latestPayment = Array.isArray(booking?.payments)
+    ? booking.payments[0]
+    : null;
+
+  return String(
+    latestPayment?.paymentStatus ||
+      booking?.paymentStatus ||
+      booking?.payment_status ||
+      "",
+  ).toLowerCase();
+}
+
+function getRefundEligibility(booking) {
+  if (!booking) {
+    return { eligible: false, reason: "Không có thông tin booking." };
+  }
+
+  const bookingStatus = String(booking.bookingStatus || "").toLowerCase();
+  const paymentStatus = getLatestPaymentStatus(booking);
+  const createdAt = booking.createdAt ? new Date(booking.createdAt) : null;
+  const departureDate = booking?.departure?.departureDate
+    ? new Date(booking.departure.departureDate)
+    : null;
+
+  if (booking.refundRequests?.length) {
+    return {
+      eligible: false,
+      reason: "Booking đã có yêu cầu hoàn tiền.",
+    };
+  }
+
+  if (!["confirmed", "waiting_confirmation"].includes(bookingStatus)) {
+    return {
+      eligible: false,
+      reason:
+        bookingStatus === "completed"
+          ? "Tour đã hoàn thành nên không còn đủ điều kiện hoàn."
+          : "Trạng thái booking chưa phù hợp để yêu cầu hoàn.",
+    };
+  }
+
+  if (
+    !["paid", "waiting_confirmation", "refunded"].includes(paymentStatus) &&
+    bookingStatus !== "confirmed"
+  ) {
+    return {
+      eligible: false,
+      reason: "Booking chưa có tín hiệu thanh toán hợp lệ.",
+    };
+  }
+
+  if (!createdAt || Number.isNaN(createdAt.getTime())) {
+    return {
+      eligible: false,
+      reason: "Không xác định được thời điểm đặt tour.",
+    };
+  }
+
+  if (!departureDate || Number.isNaN(departureDate.getTime())) {
+    return {
+      eligible: false,
+      reason: "Không xác định được ngày khởi hành.",
+    };
+  }
+
+  const now = new Date();
+  const hoursAfterBooking =
+    (now.getTime() - createdAt.getTime()) / (60 * 60 * 1000);
+
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  const departureStart = new Date(departureDate);
+  departureStart.setHours(0, 0, 0, 0);
+
+  const daysBeforeDeparture =
+    (departureStart.getTime() - todayStart.getTime()) / (24 * 60 * 60 * 1000);
+
+  if (hoursAfterBooking > 48) {
+    return {
+      eligible: false,
+      reason: "Đã quá 48 giờ kể từ thời điểm đặt tour.",
+    };
+  }
+
+  if (daysBeforeDeparture < 3) {
+    return {
+      eligible: false,
+      reason: "Không còn đủ 3 ngày trước ngày khởi hành.",
+    };
+  }
+
+  return {
+    eligible: true,
+    reason: "Đủ điều kiện gửi yêu cầu hoàn tiền.",
+    hoursAfterBooking,
+    daysBeforeDeparture,
+  };
+}
+
 function PaginationBar({ page, totalPages, onPageChange }) {
   if (totalPages <= 1) return null;
 
@@ -605,6 +720,16 @@ export default function ProfilePage() {
   });
 
   const openRefundModal = (booking) => {
+    const eligibility = getRefundEligibility(booking);
+
+    if (!eligibility.eligible) {
+      showToast(
+        eligibility.reason || "Booking không đủ điều kiện hoàn tiền.",
+        "error",
+      );
+      return;
+    }
+
     setRefundModalBooking(booking);
     setRefundForm(emptyRefundForm(String(booking.id)));
   };
@@ -1260,6 +1385,7 @@ export default function ProfilePage() {
                           </th>
                           <th style={styles.th}>Tour</th>
                           <th style={styles.th}>Ngày đi</th>
+                          <th style={styles.th}>Ngày về</th>
                           <th style={styles.th}>Số khách</th>
                           <th style={styles.th}>Tổng tiền</th>
                           <th style={styles.th}>Trạng thái</th>
@@ -1299,6 +1425,10 @@ export default function ProfilePage() {
                             </td>
 
                             <td style={styles.td}>
+                              {formatDate(b.departure?.endDate)}
+                            </td>
+
+                            <td style={styles.td}>
                               {Number(b.adultCount || 0) +
                                 Number(b.childCount || 0)}
                             </td>
@@ -1315,7 +1445,7 @@ export default function ProfilePage() {
 
                             <td style={styles.td}>
                               <StatusPill tone={bookingTone(b.bookingStatus)}>
-                                {b.bookingStatus}
+                                {getBookingStatusLabel(b.bookingStatus)}
                               </StatusPill>
                             </td>
 
@@ -1331,30 +1461,49 @@ export default function ProfilePage() {
                                         : "warning"
                                   }
                                 >
-                                  {b.refundRequests[0].status}
+                                  {b.refundRequests[0].status === "approved"
+                                    ? "Đã duyệt"
+                                    : b.refundRequests[0].status === "rejected"
+                                      ? "Đã từ chối"
+                                      : "Đang chờ"}
                                 </StatusPill>
-                              ) : [
-                                  "confirmed",
-                                  "waiting_confirmation",
-                                  "completed",
-                                ].includes(b.bookingStatus) ? (
-                                <button
-                                  onClick={() => openRefundModal(b)}
-                                  style={{
-                                    padding: "8px 12px",
-                                    background: "#fff",
-                                    border: "1px solid #cbd5e1",
-                                    borderRadius: "8px",
-                                    fontSize: "13px",
-                                    fontWeight: 600,
-                                    color: "#334155",
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  Yêu cầu hoàn
-                                </button>
                               ) : (
-                                <span style={{ color: "#94a3b8" }}>--</span>
+                                (() => {
+                                  const refundEligibility =
+                                    getRefundEligibility(b);
+
+                                  return refundEligibility.eligible ? (
+                                    <button
+                                      onClick={() => openRefundModal(b)}
+                                      style={{
+                                        padding: "8px 12px",
+                                        background: "#fff",
+                                        border: "1px solid #cbd5e1",
+                                        borderRadius: "8px",
+                                        fontSize: "13px",
+                                        fontWeight: 600,
+                                        color: "#334155",
+                                        cursor: "pointer",
+                                      }}
+                                      title={refundEligibility.reason}
+                                    >
+                                      Yêu cầu hoàn
+                                    </button>
+                                  ) : (
+                                    <span
+                                      style={{
+                                        display: "inline-block",
+                                        maxWidth: "190px",
+                                        color: "#94a3b8",
+                                        fontSize: "12px",
+                                        lineHeight: 1.4,
+                                      }}
+                                      title={refundEligibility.reason}
+                                    >
+                                      Không đủ điều kiện
+                                    </span>
+                                  );
+                                })()
                               )}
                             </td>
                           </tr>
@@ -2568,6 +2717,21 @@ export default function ProfilePage() {
                     </p>
                     <strong style={{ color: "#0f172a" }}>
                       {formatDate(refundModalBooking.departure?.departureDate)}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <p
+                      style={{
+                        margin: "0 0 4px",
+                        fontSize: "13px",
+                        color: "#64748b",
+                      }}
+                    >
+                      Ngày về
+                    </p>
+                    <strong style={{ color: "#0f172a" }}>
+                      {formatDate(refundModalBooking.departure?.endDate)}
                     </strong>
                   </div>
 

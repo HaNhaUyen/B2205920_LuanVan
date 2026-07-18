@@ -83,6 +83,8 @@ export class ContactsService {
     search?: string;
     status?: string;
     emailStatus?: string;
+    sortBy?: string;
+    sortOrder?: string;
   }) {
     const page = Math.max(Number(query.page || 1), 1);
     const pageSize = Math.min(Math.max(Number(query.pageSize || 10), 1), 100);
@@ -90,12 +92,30 @@ export class ContactsService {
 
     const where = this.buildAdminWhere(query);
 
+    const allowedSortFields = new Set([
+      "createdAt",
+      "fullName",
+      "email",
+      "subject",
+      "status",
+      "repliedAt",
+    ]);
+    const requestedSortBy = String(query.sortBy || "createdAt");
+    const sortBy = allowedSortFields.has(requestedSortBy)
+      ? requestedSortBy
+      : "createdAt";
+    const sortOrder =
+      String(query.sortOrder || "desc").toLowerCase() === "asc"
+        ? "asc"
+        : "desc";
+
     const [items, total] = await Promise.all([
       this.prisma.contact.findMany({
         where,
         skip,
         take: pageSize,
-        orderBy: { createdAt: "desc" },
+        // Sắp xếp ở database trước khi phân trang.
+        orderBy: [{ [sortBy]: sortOrder } as any, { id: sortOrder }],
         include: {
           user: { select: { id: true, fullName: true, email: true } },
           handler: { select: { id: true, fullName: true, email: true } },

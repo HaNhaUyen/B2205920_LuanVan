@@ -389,179 +389,457 @@ function MiniDonutChart({
   );
 }
 
+function formatCompactCurrency(value) {
+  const amount = Number(value || 0);
+
+  if (amount >= 1_000_000_000) {
+    return `${(amount / 1_000_000_000).toLocaleString("vi-VN", {
+      maximumFractionDigits: 1,
+    })} tỷ`;
+  }
+
+  if (amount >= 1_000_000) {
+    return `${(amount / 1_000_000).toLocaleString("vi-VN", {
+      maximumFractionDigits: 1,
+    })} triệu`;
+  }
+
+  if (amount >= 1_000) {
+    return `${(amount / 1_000).toLocaleString("vi-VN", {
+      maximumFractionDigits: 0,
+    })} nghìn`;
+  }
+
+  return formatNumber(amount);
+}
+
+function RevenueMetricCard({ label, value, note, tone = "default" }) {
+  const tones = {
+    success: {
+      background: "#ecfdf5",
+      border: "#a7f3d0",
+      value: "#047857",
+    },
+    danger: {
+      background: "#fef2f2",
+      border: "#fecaca",
+      value: "#b91c1c",
+    },
+    primary: {
+      background: "#eff6ff",
+      border: "#bfdbfe",
+      value: "#1d4ed8",
+    },
+    default: {
+      background: "#ffffff",
+      border: "#e2e8f0",
+      value: "#0f172a",
+    },
+  };
+
+  const palette = tones[tone] || tones.default;
+
+  return (
+    <article
+      style={{
+        minWidth: 0,
+        padding: "18px 20px",
+        borderRadius: 14,
+        border: `1px solid ${palette.border}`,
+        background: palette.background,
+        boxShadow: "0 8px 24px rgba(15, 23, 42, 0.04)",
+      }}
+    >
+      <span
+        style={{
+          display: "block",
+          marginBottom: 10,
+          color: "#64748b",
+          fontSize: 12,
+          fontWeight: 800,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+        }}
+      >
+        {label}
+      </span>
+
+      <strong
+        style={{
+          display: "block",
+          color: palette.value,
+          fontSize: 24,
+          lineHeight: 1.2,
+          overflowWrap: "anywhere",
+        }}
+      >
+        {value}
+      </strong>
+
+      {note ? (
+        <small
+          style={{
+            display: "block",
+            marginTop: 8,
+            color: "#64748b",
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}
+        >
+          {note}
+        </small>
+      ) : null}
+    </article>
+  );
+}
+
 function MiniLineChart({
   title,
   items = [],
   valueKey = "revenue",
-  suffix = "",
+  details = null,
+  showSummary = false,
 }) {
-  const values = items.map((item) => Number(item?.[valueKey] || 0));
-  const max = Math.max(1, ...values);
-  const min = Math.min(...values, 0);
+  const [hoveredIndex, setHoveredIndex] = useState(null);
 
-  // Tính toán tọa độ (thêm lề để điểm không bị cắt lẹm ở các viền)
-  const coords = items.map((item, index) => {
-    // x chạy từ 2 đến 98 (chừa 2% lề trái/phải)
+  const safeItems = Array.isArray(items) ? items : [];
+  const values = safeItems.map((item) => Number(item?.[valueKey] || 0));
+  const maxValue = Math.max(1, ...values);
+  const chartMax = maxValue * 1.18;
+
+  const width = 760;
+  const height = 290;
+  const padding = {
+    top: 26,
+    right: 24,
+    bottom: 48,
+    left: 78,
+  };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+
+  const coords = safeItems.map((item, index) => {
+    const value = Number(item?.[valueKey] || 0);
     const x =
-      items.length === 1
-        ? 50
-        : 2 + (index / Math.max(items.length - 1, 1)) * 96;
-    // y chạy từ 10 đến 90 (chừa trên/dưới để không dính trần)
+      safeItems.length <= 1
+        ? padding.left + innerWidth / 2
+        : padding.left + (index / (safeItems.length - 1)) * innerWidth;
     const y =
-      90 -
-      ((Number(item?.[valueKey] || 0) - min) / Math.max(max - min, 1)) * 80;
-    return { x, y, value: Number(item?.[valueKey] || 0), label: item.month };
+      padding.top + innerHeight - (value / Math.max(chartMax, 1)) * innerHeight;
+
+    return {
+      x,
+      y,
+      value,
+      label: item.month,
+      isCurrentMonth: Boolean(item.isCurrentMonth),
+    };
   });
 
-  // Tạo chuỗi points cho SVG
-  const linePoints = coords.map((p) => `${p.x},${p.y}`).join(" ");
-  // Tạo polygon point cho vùng gradient (kéo xuống đáy y=100)
-  const areaPoints =
-    coords.length > 0
-      ? `${coords[0].x},100 ${linePoints} ${coords[coords.length - 1].x},100`
-      : "";
+  const linePoints = coords.map((point) => `${point.x},${point.y}`).join(" ");
+  const areaPoints = coords.length
+    ? `${coords[0].x},${padding.top + innerHeight} ${linePoints} ${
+        coords[coords.length - 1].x
+      },${padding.top + innerHeight}`
+    : "";
+
+  const gridValues = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    return chartMax - chartMax * ratio;
+  });
+
+  const growth = Number(details?.growthRate || 0);
+  const growthAvailable =
+    details?.growthRate !== null && details?.growthRate !== undefined;
+  const growthTone = !growthAvailable
+    ? "default"
+    : growth >= 0
+      ? "success"
+      : "danger";
+
+  const currentMonthLabel =
+    details?.monthLabel ||
+    new Date().toLocaleDateString("vi-VN", {
+      month: "long",
+      year: "numeric",
+    });
 
   return (
     <article
       className="admin-card"
-      style={{ display: "flex", flexDirection: "column", gap: 24 }}
+      style={{ display: "flex", flexDirection: "column", gap: 22 }}
     >
-      <div>
-        <h3 style={{ margin: "0 0 6px", color: "#0f172a", fontSize: "17px" }}>
-          {title}
-        </h3>
-        <p style={{ margin: 0, color: "#64748b", fontSize: "13px" }}>
-          Theo dõi tổng doanh thu được ghi nhận trong 6 tháng gần nhất.
-        </p>
-      </div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <h3
+            style={{
+              margin: "0 0 6px",
+              color: "#0f172a",
+              fontSize: 18,
+            }}
+          >
+            {title}
+          </h3>
+          <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
+            Doanh thu chỉ tính từ các giao dịch đã thanh toán thành công.
+          </p>
+        </div>
 
-      {/* Container của Chart */}
-      <div style={{ position: "relative", paddingTop: "10px" }}>
-        <svg
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
+        <span
           style={{
-            width: "100%",
-            height: 240,
-            overflow: "visible", // Quan trọng để các điểm chấm không bị cắt
+            padding: "7px 11px",
+            borderRadius: 999,
+            background: "#eff6ff",
+            color: "#1d4ed8",
+            fontSize: 12,
+            fontWeight: 800,
           }}
         >
+          Cập nhật theo thời gian thực
+        </span>
+      </div>
+
+      {showSummary && details ? (
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+            gap: 14,
+          }}
+        >
+          <RevenueMetricCard
+            label={`Doanh thu ${currentMonthLabel}`}
+            value={formatCurrency(details.currentMonthRevenue || 0)}
+            note={`${formatNumber(details.paidBookings || 0)} booking đã ghi nhận doanh thu`}
+            tone="primary"
+          />
+
+          <RevenueMetricCard
+            label="So với tháng trước"
+            value={
+              growthAvailable
+                ? `${growth >= 0 ? "+" : ""}${growth.toLocaleString("vi-VN", {
+                    maximumFractionDigits: 2,
+                  })}%`
+                : "Chưa đủ dữ liệu"
+            }
+            note={`Tháng trước: ${formatCurrency(details.previousMonthRevenue || 0)}`}
+            tone={growthTone}
+          />
+
+          <RevenueMetricCard
+            label="Giá trị trung bình"
+            value={formatCurrency(details.averageOrderValue || 0)}
+            note="Trung bình trên mỗi booking có giao dịch đã thanh toán"
+          />
+
+          <RevenueMetricCard
+            label="Tiến độ tháng"
+            value={`${formatNumber(details.daysElapsed || 0)}/${formatNumber(
+              details.daysInMonth || 0,
+            )} ngày`}
+            note={`${formatNumber(details.remainingDays || 0)} ngày còn lại trong tháng`}
+          />
+        </section>
+      ) : null}
+
+      <div
+        style={{
+          position: "relative",
+          border: "1px solid #e2e8f0",
+          borderRadius: 16,
+          background:
+            "linear-gradient(180deg, rgba(239,246,255,0.7) 0%, rgba(255,255,255,1) 72%)",
+          padding: "12px 12px 4px",
+          overflowX: "auto",
+        }}
+      >
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          style={{
+            display: "block",
+            width: "100%",
+            minWidth: 680,
+            height: 330,
+          }}
+          role="img"
+          aria-label={title}
+        >
           <defs>
-            {/* Tạo Gradient màu xanh đổ xuống trong suốt */}
-            <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.3" />
-              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.0" />
+            <linearGradient
+              id="revenueAreaGradient"
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="1"
+            >
+              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.01" />
             </linearGradient>
-            {/* Tạo hiệu ứng phát sáng nhẹ cho đường line */}
-            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="1.5" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
           </defs>
 
-          {/* Vẽ các đường lưới ngang (Grid lines) */}
-          {[10, 30, 50, 70, 90].map((y) => (
-            <line
-              key={y}
-              x1="0"
-              y1={y}
-              x2="100"
-              y2={y}
-              stroke="#e2e8f0"
-              strokeWidth="0.5"
-              strokeDasharray="2 2"
-            />
-          ))}
+          {gridValues.map((value, index) => {
+            const y = padding.top + (index / 4) * innerHeight;
 
-          {/* Vẽ vùng màu Gradient (Area) */}
-          {coords.length > 0 && (
-            <polygon points={areaPoints} fill="url(#revenueGradient)" />
-          )}
+            return (
+              <g key={`grid-${index}`}>
+                <line
+                  x1={padding.left}
+                  y1={y}
+                  x2={padding.left + innerWidth}
+                  y2={y}
+                  stroke="#dbe4f0"
+                  strokeWidth="1"
+                  strokeDasharray="5 6"
+                />
+                <text
+                  x={padding.left - 12}
+                  y={y + 4}
+                  textAnchor="end"
+                  fill="#64748b"
+                  fontSize="11"
+                  fontWeight="600"
+                >
+                  {formatCompactCurrency(value)}
+                </text>
+              </g>
+            );
+          })}
 
-          {/* Vẽ đường line chính */}
-          {coords.length > 0 && (
-            <polyline
-              fill="none"
-              stroke="#3b82f6"
-              strokeWidth="2.5"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              points={linePoints}
-              filter="url(#glow)"
-            />
-          )}
+          <line
+            x1={padding.left}
+            y1={padding.top + innerHeight}
+            x2={padding.left + innerWidth}
+            y2={padding.top + innerHeight}
+            stroke="#cbd5e1"
+            strokeWidth="1.2"
+          />
 
-          {/* Vẽ các điểm chấm tròn (Data points) */}
-          {coords.map((p, i) => (
-            <g key={i} style={{ cursor: "crosshair" }}>
-              {/* Lớp viền ngoài vô hình để dễ hover hơn */}
-              <circle cx={p.x} cy={p.y} r="6" fill="transparent" />
-              {/* Chấm tròn thật */}
-              <circle
-                cx={p.x}
-                cy={p.y}
-                r="3.5"
-                fill="#ffffff"
+          {coords.length ? (
+            <>
+              <polygon points={areaPoints} fill="url(#revenueAreaGradient)" />
+
+              <polyline
+                points={linePoints}
+                fill="none"
                 stroke="#2563eb"
-                strokeWidth="2"
-                style={{ transition: "all 0.2s ease" }}
-                onMouseEnter={(e) => {
-                  e.target.setAttribute("r", "5");
-                  e.target.setAttribute("fill", "#eff6ff");
-                  e.target.setAttribute("stroke-width", "3");
-                }}
-                onMouseLeave={(e) => {
-                  e.target.setAttribute("r", "3.5");
-                  e.target.setAttribute("fill", "#ffffff");
-                  e.target.setAttribute("stroke-width", "2");
-                }}
+                strokeWidth="3"
+                strokeLinejoin="round"
+                strokeLinecap="round"
               />
-            </g>
-          ))}
+            </>
+          ) : null}
+
+          {coords.map((point, index) => {
+            const active = hoveredIndex === index;
+            const isLatest =
+              point.isCurrentMonth || index === coords.length - 1;
+
+            return (
+              <g
+                key={`${point.label}-${index}`}
+                onMouseEnter={() => setHoveredIndex(index)}
+                onMouseLeave={() => setHoveredIndex(null)}
+                style={{ cursor: "pointer" }}
+              >
+                <line
+                  x1={point.x}
+                  y1={point.y}
+                  x2={point.x}
+                  y2={padding.top + innerHeight}
+                  stroke={active ? "#93c5fd" : "transparent"}
+                  strokeWidth="1"
+                  strokeDasharray="4 5"
+                />
+
+                <circle
+                  cx={point.x}
+                  cy={point.y}
+                  r={active ? 7 : isLatest ? 6 : 5}
+                  fill={isLatest ? "#2563eb" : "#ffffff"}
+                  stroke="#2563eb"
+                  strokeWidth="3"
+                />
+
+                <circle cx={point.x} cy={point.y} r="16" fill="transparent" />
+
+                <text
+                  x={point.x}
+                  y={padding.top + innerHeight + 28}
+                  textAnchor="middle"
+                  fill={isLatest ? "#1d4ed8" : "#64748b"}
+                  fontSize="11"
+                  fontWeight={isLatest ? "800" : "600"}
+                >
+                  {point.label}
+                </text>
+
+                {active ? (
+                  <g>
+                    <rect
+                      x={Math.min(
+                        Math.max(point.x - 77, padding.left),
+                        width - padding.right - 154,
+                      )}
+                      y={Math.max(point.y - 58, 4)}
+                      width="154"
+                      height="42"
+                      rx="10"
+                      fill="#0f172a"
+                    />
+                    <text
+                      x={Math.min(
+                        Math.max(point.x, padding.left + 77),
+                        width - padding.right - 77,
+                      )}
+                      y={Math.max(point.y - 33, 29)}
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize="11"
+                      fontWeight="700"
+                    >
+                      {formatCurrency(point.value)}
+                    </text>
+                  </g>
+                ) : null}
+              </g>
+            );
+          })}
+
+          {!coords.length ? (
+            <text
+              x={width / 2}
+              y={height / 2}
+              textAnchor="middle"
+              fill="#94a3b8"
+              fontSize="14"
+              fontWeight="600"
+            >
+              Chưa có dữ liệu doanh thu
+            </text>
+          ) : null}
         </svg>
       </div>
 
-      {/* Box hiển thị dữ liệu text phía dưới */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(auto-fit, minmax(100px, 1fr))`,
+          display: "flex",
+          justifyContent: "space-between",
           gap: 12,
-          marginTop: 8,
+          flexWrap: "wrap",
+          color: "#64748b",
+          fontSize: 12,
         }}
       >
-        {items.map((item) => (
-          <div
-            key={item.month}
-            style={{
-              background: "#f8fafc",
-              border: "1px solid #e2e8f0",
-              borderRadius: "10px",
-              padding: "12px",
-              textAlign: "center",
-              transition: "border-color 0.2s",
-            }}
-          >
-            <strong
-              style={{
-                display: "block",
-                color: "#64748b",
-                marginBottom: 6,
-                fontSize: "13px",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-              }}
-            >
-              {item.month}
-            </strong>
-            <span
-              style={{ color: "#0f172a", fontSize: "15px", fontWeight: 700 }}
-            >
-              {formatCurrency(item?.[valueKey] || 0)}
-              {suffix}
-            </span>
-          </div>
-        ))}
+        <span>Đơn vị hiển thị: VNĐ</span>
       </div>
     </article>
   );
@@ -602,6 +880,33 @@ function formatDaysUntilDeparture(days) {
   if (days < 0) return `Đã qua ${Math.abs(days)} ngày`;
   if (days === 0) return "Hôm nay";
   return `Còn ${days} ngày`;
+}
+
+function formatPickupTime(value) {
+  if (!value) return "Travela sẽ liên hệ";
+
+  const raw = String(value).trim();
+
+  // API có thể trả ISO cho cột MySQL TIME, ví dụ 1970-01-01T07:00:00.000Z.
+  const isoMatch = raw.match(/T(\d{2}):(\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[1]}:${isoMatch[2]}`;
+  }
+
+  // Hoặc trả trực tiếp HH:mm:ss / HH:mm.
+  const directMatch = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (directMatch) {
+    return `${String(directMatch[1]).padStart(2, "0")}:${directMatch[2]}`;
+  }
+
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${String(parsed.getUTCHours()).padStart(2, "0")}:${String(
+      parsed.getUTCMinutes(),
+    ).padStart(2, "0")}`;
+  }
+
+  return "Travela sẽ liên hệ";
 }
 function toneForContact(item) {
   if (item?.replyEmailSentAt) return "success";
@@ -879,9 +1184,10 @@ export default function AdminPage({ initialTab = "overview" }) {
     setContactsData(await apiFetch(`/admin/contacts?${buildQuery(filters)}`));
   }
   async function loadDestinationsPage(filters = destinationFilters) {
-    setDestinationsData(
-      await apiFetch(`/admin/destinations?${buildQuery(filters)}`),
-    );
+    // Backend chịu trách nhiệm lọc + sắp xếp toàn bộ dữ liệu trước khi phân trang.
+    // Không sort result.items ở frontend vì như vậy chỉ đúng trong từng trang.
+    const result = await apiFetch(`/admin/destinations?${buildQuery(filters)}`);
+    setDestinationsData(result || emptyPage);
   }
   async function loadSuppliers() {
     try {
@@ -1004,7 +1310,12 @@ export default function AdminPage({ initialTab = "overview" }) {
       const va = getValue(a);
       const vb = getValue(b);
       if (typeof va === "string" || typeof vb === "string") {
-        return String(va).localeCompare(String(vb), "vi") * dir;
+        return (
+          String(va).localeCompare(String(vb), "vi", {
+            sensitivity: "base",
+            numeric: true,
+          }) * dir
+        );
       }
       return (Number(va) - Number(vb)) * dir;
     });
@@ -2095,6 +2406,240 @@ export default function AdminPage({ initialTab = "overview" }) {
           border: none;
           gap: 8px;
         }
+        .destination-filter-grid {
+          display: grid;
+          grid-template-columns:
+            minmax(260px, 2fr)
+            minmax(170px, 0.8fr)
+            minmax(180px, 1fr)
+            minmax(150px, 0.7fr);
+          gap: 12px;
+          align-items: center;
+          flex: 1;
+        }
+        .tour-filter-grid {
+          display: grid;
+          grid-template-columns:
+            minmax(280px, 2fr)
+            minmax(190px, 1fr)
+            minmax(180px, 1fr)
+            minmax(150px, 0.75fr);
+          gap: 12px;
+          align-items: center;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .tour-filter-grid input,
+        .tour-filter-grid select {
+          width: 100%;
+          min-width: 0;
+          min-height: 42px;
+          padding: 10px 14px;
+          border: 1px solid #cbd5e1;
+          border-radius: 9px;
+          background: #ffffff;
+          color: #0f172a;
+          font-size: 14px;
+          outline: none;
+          transition:
+            border-color 0.2s,
+            box-shadow 0.2s;
+        }
+
+        .tour-filter-grid input:focus,
+        .tour-filter-grid select:focus {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .tour-toolbar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+
+        .tour-toolbar-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex-shrink: 0;
+        }
+
+        @media (max-width: 1250px) {
+          .tour-filter-grid {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .tour-toolbar-actions {
+            width: 100%;
+            justify-content: flex-end;
+          }
+        }
+
+        @media (max-width: 680px) {
+          .tour-filter-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .tour-toolbar-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .tour-toolbar-actions .btn {
+            width: 100%;
+          }
+        }
+
+        .destination-filter-grid input,
+        .destination-filter-grid select {
+          width: 100%;
+          min-height: 42px;
+          padding: 10px 14px;
+          border: 1px solid #cbd5e1;
+          border-radius: 9px;
+          background: #fff;
+          color: #0f172a;
+          outline: none;
+        }
+
+        .destination-filter-grid input:focus,
+        .destination-filter-grid select:focus {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        @media (max-width: 1100px) {
+          .destination-filter-grid {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+
+        @media (max-width: 680px) {
+          .destination-filter-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .admin-filter-toolbar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+
+        .admin-filter-grid {
+          display: grid;
+          gap: 12px;
+          align-items: center;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .admin-filter-grid input,
+        .admin-filter-grid select {
+          width: 100%;
+          min-width: 0;
+          min-height: 42px;
+          padding: 10px 13px;
+          border: 1px solid #cbd5e1;
+          border-radius: 9px;
+          background: #ffffff;
+          color: #0f172a;
+          font-size: 14px;
+          outline: none;
+          box-sizing: border-box;
+        }
+
+        .admin-filter-grid input:focus,
+        .admin-filter-grid select:focus {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .admin-filter-actions {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+          flex-shrink: 0;
+        }
+
+        .booking-filter-grid {
+          grid-auto-flow: column;
+          grid-auto-columns: minmax(155px, 1fr);
+          grid-template-columns: minmax(235px, 1.55fr);
+          overflow-x: auto;
+          padding-bottom: 4px;
+        }
+
+        .booking-filter-grid input,
+        .booking-filter-grid select {
+          min-width: 155px;
+        }
+
+        .booking-filter-grid input:first-child {
+          min-width: 235px;
+        }
+
+        .review-filter-grid {
+          grid-template-columns:
+            minmax(235px, 1.7fr)
+            minmax(220px, 1.45fr)
+            minmax(120px, 0.7fr)
+            minmax(145px, 0.85fr)
+            minmax(160px, 0.95fr)
+            minmax(125px, 0.7fr);
+        }
+
+        .contact-filter-grid {
+          grid-template-columns:
+            minmax(280px, 2fr)
+            minmax(170px, 1fr)
+            minmax(170px, 1fr)
+            minmax(125px, 0.7fr);
+        }
+
+        @media (max-width: 1450px) {
+          .review-filter-grid {
+            grid-template-columns: repeat(3, minmax(180px, 1fr));
+          }
+
+          .contact-filter-grid {
+            grid-template-columns: repeat(2, minmax(180px, 1fr));
+          }
+
+          .admin-filter-actions {
+            width: 100%;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .review-filter-grid,
+          .contact-filter-grid {
+            grid-template-columns: repeat(2, minmax(160px, 1fr));
+          }
+        }
+
+        @media (max-width: 640px) {
+          .review-filter-grid,
+          .contact-filter-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .admin-filter-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+          }
+
+          .admin-filter-actions .btn {
+            width: 100%;
+          }
+        }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .btn-primary { background: #3b82f6; color: white; box-shadow: 0 2px 4px rgba(59,130,246,0.3); }
         .btn-primary:hover:not(:disabled) { background: #2563eb; }
@@ -2323,8 +2868,9 @@ export default function AdminPage({ initialTab = "overview" }) {
                 />
 
                 <MiniLineChart
-                  title="Doanh thu 6 tháng qua"
+                  title="Xu hướng doanh thu 6 tháng"
                   items={overview?.charts?.monthlyRevenue || []}
+                  details={overview?.revenueDetails}
                 />
               </section>
             </div>
@@ -2332,8 +2878,10 @@ export default function AdminPage({ initialTab = "overview" }) {
           {dashboardTab === "revenue" && (
             <section style={{ marginBottom: 24 }}>
               <MiniLineChart
-                title="Doanh thu 6 tháng qua"
+                title="Phân tích doanh thu 6 tháng"
                 items={overview?.charts?.monthlyRevenue || []}
+                details={overview?.revenueDetails}
+                showSummary
               />
             </section>
           )}
@@ -2545,21 +3093,14 @@ export default function AdminPage({ initialTab = "overview" }) {
           </div>
 
           <div className="admin-card" style={{ display: "grid", gap: 14 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 16,
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
+            <div className="admin-filter-toolbar">
               <div>
                 <h3 style={{ margin: 0, color: "#0f172a" }}>
                   Bộ lọc điều hành thông minh
                 </h3>
               </div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+
+              <div className="admin-filter-actions">
                 <button
                   type="button"
                   className="btn btn-light btn-sm"
@@ -2567,6 +3108,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                 >
                   Xóa lọc
                 </button>
+
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
@@ -2583,13 +3125,7 @@ export default function AdminPage({ initialTab = "overview" }) {
               </div>
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: 12,
-              }}
-            >
+            <div className="admin-filter-grid booking-filter-grid">
               <input
                 value={bookingFilters.search}
                 onChange={(e) =>
@@ -2601,6 +3137,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                 }
                 placeholder="Mã đơn, khách, email, SĐT..."
               />
+
               <select
                 value={bookingFilters.status}
                 onChange={(e) =>
@@ -2625,6 +3162,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                   </option>
                 ))}
               </select>
+
               <select
                 value={bookingFilters.paymentStatus}
                 onChange={(e) =>
@@ -2649,6 +3187,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                   </option>
                 ))}
               </select>
+
               <select
                 value={bookingFilters.destinationId}
                 onChange={(e) =>
@@ -2660,34 +3199,21 @@ export default function AdminPage({ initialTab = "overview" }) {
                 }
               >
                 <option value="">Tất cả điểm đến</option>
-                {destinations.map((dest) => (
-                  <option key={dest.id} value={dest.id}>
-                    {dest.name} · {dest.province}
-                  </option>
-                ))}
+                {[...(destinations || [])]
+                  .sort((a, b) =>
+                    String(a?.name || "").localeCompare(
+                      String(b?.name || ""),
+                      "vi",
+                      { sensitivity: "base", numeric: true },
+                    ),
+                  )
+                  .map((dest) => (
+                    <option key={dest.id} value={dest.id}>
+                      {dest.name} · {dest.province}
+                    </option>
+                  ))}
               </select>
-              <input
-                type="date"
-                value={bookingFilters.departureFrom}
-                onChange={(e) =>
-                  setBookingFilters((prev) => ({
-                    ...prev,
-                    departureFrom: e.target.value,
-                    page: 1,
-                  }))
-                }
-              />
-              <input
-                type="date"
-                value={bookingFilters.departureTo}
-                onChange={(e) =>
-                  setBookingFilters((prev) => ({
-                    ...prev,
-                    departureTo: e.target.value,
-                    page: 1,
-                  }))
-                }
-              />
+
               <select
                 value={bookingFilters.guideStatus}
                 onChange={(e) =>
@@ -2702,6 +3228,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                 <option value="assigned">Đã có HDV</option>
                 <option value="unassigned">Chưa có HDV</option>
               </select>
+
               <select
                 value={bookingFilters.urgency}
                 onChange={(e) =>
@@ -2717,17 +3244,63 @@ export default function AdminPage({ initialTab = "overview" }) {
                 <option value="upcoming">Sắp khởi hành 7 ngày</option>
                 <option value="payment_review">Cần đối soát thanh toán</option>
               </select>
-              <AdminSortControls
-                value={bookingFilters}
-                onChange={setBookingFilters}
-                options={[
-                  { value: "createdAt", label: "Ngày đặt" },
-                  { value: "bookingCode", label: "Mã booking" },
-                  { value: "contactName", label: "Tên khách" },
-                  { value: "finalAmount", label: "Tổng tiền" },
-                  { value: "bookingStatus", label: "Trạng thái" },
-                ]}
+
+              <input
+                type="date"
+                value={bookingFilters.departureFrom}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    departureFrom: e.target.value,
+                    page: 1,
+                  }))
+                }
+                title="Ngày khởi hành từ"
               />
+
+              <input
+                type="date"
+                value={bookingFilters.departureTo}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    departureTo: e.target.value,
+                    page: 1,
+                  }))
+                }
+                title="Ngày khởi hành đến"
+              />
+
+              <select
+                value={bookingFilters.sortBy}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    sortBy: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="createdAt">Ngày đặt</option>
+                <option value="bookingCode">Mã booking</option>
+                <option value="contactName">Tên khách</option>
+                <option value="finalAmount">Tổng tiền</option>
+                <option value="bookingStatus">Trạng thái</option>
+              </select>
+
+              <select
+                value={bookingFilters.sortOrder}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    sortOrder: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="desc">Giảm dần</option>
+                <option value="asc">Tăng dần</option>
+              </select>
             </div>
           </div>
 
@@ -2930,18 +3503,8 @@ export default function AdminPage({ initialTab = "overview" }) {
           className="admin-card"
           style={{ display: "flex", flexDirection: "column", gap: "24px" }}
         >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: "16px",
-            }}
-          >
-            <div
-              className="table-search-row"
-              style={{ flex: 1, maxWidth: 600 }}
-            >
+          <div className="tour-toolbar">
+            <div className="tour-filter-grid">
               <input
                 value={tourFilters.search}
                 onChange={(e) =>
@@ -2951,10 +3514,10 @@ export default function AdminPage({ initialTab = "overview" }) {
                     page: 1,
                   }))
                 }
-                placeholder="Tìm mã tour, tên, slug..."
+                placeholder="Tìm mã tour, tên tour, slug..."
               />
+
               <select
-                style={{ width: "200px" }}
                 value={tourFilters.destinationId}
                 onChange={(e) =>
                   setTourFilters((prev) => ({
@@ -2965,31 +3528,75 @@ export default function AdminPage({ initialTab = "overview" }) {
                 }
               >
                 <option value="">Tất cả điểm đến</option>
-                {destinations.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
+
+                {[...(destinations || [])]
+                  .sort((first, second) =>
+                    String(first?.name || "").localeCompare(
+                      String(second?.name || ""),
+                      "vi",
+                      {
+                        sensitivity: "base",
+                      },
+                    ),
+                  )
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
               </select>
-              <AdminSortControls
-                value={tourFilters}
-                onChange={setTourFilters}
-                options={[
-                  { value: "createdAt", label: "Ngày thêm" },
-                  { value: "name", label: "Tên tour" },
-                  { value: "basePriceAdult", label: "Giá người lớn" },
-                  { value: "hotelStars", label: "Số sao KS" },
-                  { value: "durationDays", label: "Số ngày" },
-                  { value: "status", label: "Trạng thái" },
-                ]}
-              />
+
+              <select
+                value={tourFilters.sortBy}
+                onChange={(e) =>
+                  setTourFilters((prev) => ({
+                    ...prev,
+                    sortBy: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="createdAt">Ngày thêm</option>
+                <option value="name">Tên tour</option>
+                <option value="basePriceAdult">Giá người lớn</option>
+                <option value="hotelStars">Số sao khách sạn</option>
+                <option value="durationDays">Số ngày</option>
+                <option value="status">Trạng thái</option>
+              </select>
+
+              <select
+                value={tourFilters.sortOrder}
+                onChange={(e) =>
+                  setTourFilters((prev) => ({
+                    ...prev,
+                    sortOrder: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="desc">Giảm dần</option>
+                <option value="asc">Tăng dần</option>
+              </select>
             </div>
-            <div style={{ display: "flex", gap: "12px" }}>
+
+            <div className="tour-toolbar-actions">
+              <StatusBadge>
+                {formatNumber(visibleTours.length)} tour
+              </StatusBadge>
+
               <button
                 type="button"
                 className="btn btn-light"
+                disabled={exportingKey === "tours"}
                 onClick={() =>
-                  runExport("tours", () => exportAdminSmartReport("tours"))
+                  runExport("tours", () =>
+                    exportAdminSmartReport("tours", {
+                      search: tourFilters.search,
+                      destinationId: tourFilters.destinationId,
+                      sortBy: tourFilters.sortBy,
+                      sortOrder: tourFilters.sortOrder,
+                    }),
+                  )
                 }
               >
                 <svg
@@ -3002,12 +3609,14 @@ export default function AdminPage({ initialTab = "overview" }) {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                Xuất Excel
+
+                {exportingKey === "tours" ? "Đang xuất..." : "Xuất Excel"}
               </button>
+
               <button
                 type="button"
                 className="btn btn-primary"
@@ -3129,10 +3738,7 @@ export default function AdminPage({ initialTab = "overview" }) {
               gap: "16px",
             }}
           >
-            <div
-              className="table-search-row"
-              style={{ flex: 1, maxWidth: 720 }}
-            >
+            <div className="destination-filter-grid" style={{ flex: 1 }}>
               <input
                 value={destinationFilters.search}
                 onChange={(e) =>
@@ -3322,18 +3928,8 @@ export default function AdminPage({ initialTab = "overview" }) {
           className="admin-card"
           style={{ display: "flex", flexDirection: "column", gap: "24px" }}
         >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: "16px",
-            }}
-          >
-            <div
-              className="table-search-row"
-              style={{ flex: 1, maxWidth: 600 }}
-            >
+          <div className="admin-filter-toolbar">
+            <div className="admin-filter-grid review-filter-grid">
               <input
                 value={reviewFilters.search}
                 onChange={(e) =>
@@ -3343,10 +3939,10 @@ export default function AdminPage({ initialTab = "overview" }) {
                     page: 1,
                   }))
                 }
-                placeholder="Tìm nội dung đánh giá..."
+                placeholder="Tìm nội dung, tên khách..."
               />
+
               <select
-                style={{ width: "260px" }}
                 value={reviewFilters.tourId}
                 onChange={(e) =>
                   setReviewFilters((prev) => ({
@@ -3357,14 +3953,22 @@ export default function AdminPage({ initialTab = "overview" }) {
                 }
               >
                 <option value="">Tất cả tour</option>
-                {(allTours || []).map((tour) => (
-                  <option key={tour.id} value={tour.id}>
-                    {tour.name}
-                  </option>
-                ))}
+                {[...(allTours || [])]
+                  .sort((a, b) =>
+                    String(a?.name || "").localeCompare(
+                      String(b?.name || ""),
+                      "vi",
+                      { sensitivity: "base", numeric: true },
+                    ),
+                  )
+                  .map((tour) => (
+                    <option key={tour.id} value={tour.id}>
+                      {tour.name}
+                    </option>
+                  ))}
               </select>
+
               <select
-                style={{ width: "150px" }}
                 value={reviewFilters.rating}
                 onChange={(e) =>
                   setReviewFilters((prev) => ({
@@ -3381,8 +3985,8 @@ export default function AdminPage({ initialTab = "overview" }) {
                   </option>
                 ))}
               </select>
+
               <select
-                style={{ width: "170px" }}
                 value={reviewFilters.hasMedia}
                 onChange={(e) =>
                   setReviewFilters((prev) => ({
@@ -3392,13 +3996,55 @@ export default function AdminPage({ initialTab = "overview" }) {
                   }))
                 }
               >
-                <option value="">Tất cả ảnh</option>
+                <option value="">Tất cả hình ảnh</option>
                 <option value="true">Có hình ảnh</option>
+                <option value="false">Không có hình ảnh</option>
+              </select>
+
+              <select
+                value={reviewFilters.sortBy}
+                onChange={(e) =>
+                  setReviewFilters((prev) => ({
+                    ...prev,
+                    sortBy: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="createdAt">Ngày đánh giá</option>
+                <option value="rating">Số sao</option>
+                <option value="status">Trạng thái</option>
+                <option value="updatedAt">Ngày cập nhật</option>
+              </select>
+
+              <select
+                value={reviewFilters.sortOrder}
+                onChange={(e) =>
+                  setReviewFilters((prev) => ({
+                    ...prev,
+                    sortOrder: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="desc">Giảm dần</option>
+                <option value="asc">Tăng dần</option>
               </select>
             </div>
-            <StatusBadge>
-              {formatNumber(reviewsData.pagination.total)} đánh giá
-            </StatusBadge>
+
+            <div className="admin-filter-actions">
+              <StatusBadge>
+                {formatNumber(reviewsData.pagination.total)} đánh giá
+              </StatusBadge>
+
+              <button
+                type="button"
+                className="btn btn-light"
+                onClick={() => setReviewFilters(initialReviewFilter)}
+              >
+                Xóa lọc
+              </button>
+            </div>
           </div>
           <div className="table-wrap">
             <table className="console-table">
@@ -3526,18 +4172,8 @@ export default function AdminPage({ initialTab = "overview" }) {
           className="admin-card"
           style={{ display: "flex", flexDirection: "column", gap: "24px" }}
         >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: "16px",
-            }}
-          >
-            <div
-              className="table-search-row"
-              style={{ flex: 1, maxWidth: 760 }}
-            >
+          <div className="admin-filter-toolbar">
+            <div className="admin-filter-grid contact-filter-grid">
               <input
                 value={contactFilters.search}
                 onChange={(e) =>
@@ -3547,8 +4183,9 @@ export default function AdminPage({ initialTab = "overview" }) {
                     page: 1,
                   }))
                 }
-                placeholder="Tìm tên, email khách hàng..."
+                placeholder="Tìm tên, email, chủ đề..."
               />
+
               <select
                 value={contactFilters.status}
                 onChange={(e) =>
@@ -3566,10 +4203,53 @@ export default function AdminPage({ initialTab = "overview" }) {
                   </option>
                 ))}
               </select>
+
+              <select
+                value={contactFilters.sortBy}
+                onChange={(e) =>
+                  setContactFilters((prev) => ({
+                    ...prev,
+                    sortBy: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="createdAt">Ngày tạo</option>
+                <option value="fullName">Tên khách</option>
+                <option value="email">Email</option>
+                <option value="subject">Chủ đề</option>
+                <option value="status">Trạng thái</option>
+                <option value="repliedAt">Ngày phản hồi</option>
+              </select>
+
+              <select
+                value={contactFilters.sortOrder}
+                onChange={(e) =>
+                  setContactFilters((prev) => ({
+                    ...prev,
+                    sortOrder: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="desc">Giảm dần</option>
+                <option value="asc">Tăng dần</option>
+              </select>
             </div>
-            <StatusBadge>
-              {formatNumber(contactsData.pagination.total)} liên hệ
-            </StatusBadge>
+
+            <div className="admin-filter-actions">
+              <StatusBadge>
+                {formatNumber(contactsData.pagination.total)} liên hệ
+              </StatusBadge>
+
+              <button
+                type="button"
+                className="btn btn-light"
+                onClick={() => setContactFilters(initialContactFilter)}
+              >
+                Xóa lọc
+              </button>
+            </div>
           </div>
           <div className="table-wrap">
             <table className="console-table">
@@ -3662,7 +4342,7 @@ export default function AdminPage({ initialTab = "overview" }) {
         open={destinationModalOpen}
         onClose={() => !submitting && setDestinationModalOpen(false)}
         title={destinationForm.id ? "Cập nhật điểm đến" : "Thêm điểm đến"}
-        size="lg"
+        size="xl"
         footer={
           <>
             <button
@@ -3805,18 +4485,35 @@ export default function AdminPage({ initialTab = "overview" }) {
               </div>
               <div
                 style={{
-                  height: 200,
+                  width: "100%",
+                  minHeight: 360,
+                  maxHeight: 540,
+                  padding: 12,
                   borderRadius: 16,
-                  backgroundImage: `url(${
+                  border: "1px solid #e2e8f0",
+                  background: "#f8fafc",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden",
+                }}
+              >
+                <img
+                  src={
                     destinationForm.coverImagePreview ||
                     mapImageUrl(destinationForm.coverImage, API_URL)
-                  })`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                  backgroundRepeat: "no-repeat",
-                  border: "1px solid #e2e8f0",
-                }}
-              />
+                  }
+                  alt={`Ảnh điểm đến ${destinationForm.name || ""}`}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    height: "auto",
+                    maxHeight: 510,
+                    objectFit: "contain",
+                    borderRadius: 12,
+                  }}
+                />
+              </div>
             </div>
           ) : null}
 
@@ -3985,39 +4682,47 @@ export default function AdminPage({ initialTab = "overview" }) {
 
               <div className="detail-card">
                 <h4>Hướng dẫn viên</h4>
-                {bookingDetail.activeGuideAssignment ? (
+                {bookingDetail.activeGuideAssignment || bookingDetail.guide ? (
                   <ul className="detail-list">
                     <li>
                       <span>Họ tên</span>
                       <strong>
-                        {bookingDetail.activeGuideAssignment.guide?.fullName}
+                        {bookingDetail.activeGuideAssignment?.guide?.fullName ||
+                          bookingDetail.guide?.fullName ||
+                          "-"}
                       </strong>
                     </li>
                     <li>
                       <span>Điện thoại</span>
                       <strong>
-                        {bookingDetail.activeGuideAssignment.guide?.phone ||
+                        {bookingDetail.activeGuideAssignment?.guide?.phone ||
+                          bookingDetail.guide?.phone ||
                           "-"}
                       </strong>
                     </li>
                     <li>
                       <span>Email</span>
                       <strong>
-                        {bookingDetail.activeGuideAssignment.guide?.email ||
+                        {bookingDetail.activeGuideAssignment?.guide?.email ||
+                          bookingDetail.guide?.email ||
                           "-"}
                       </strong>
                     </li>
                     <li>
                       <span>Ngôn ngữ</span>
                       <strong>
-                        {bookingDetail.activeGuideAssignment.guide?.languages ||
+                        {bookingDetail.activeGuideAssignment?.guide
+                          ?.languages ||
+                          bookingDetail.guide?.languages ||
                           "-"}
                       </strong>
                     </li>
                     <li>
                       <span>Trạng thái</span>
                       <strong>
-                        {bookingDetail.activeGuideAssignment.status}
+                        {bookingDetail.activeGuideAssignment?.status ||
+                          bookingDetail.tripOperation?.operationStatus ||
+                          "assigned"}
                       </strong>
                     </li>
                   </ul>
@@ -4061,9 +4766,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                   <li>
                     <span>Giờ đón</span>
                     <strong>
-                      {bookingDetail.pickupTime
-                        ? formatDateTime(bookingDetail.pickupTime).slice(-5)
-                        : "Travela sẽ liên hệ"}
+                      {formatPickupTime(bookingDetail.pickupTime)}
                     </strong>
                   </li>
                   <li>
@@ -4093,9 +4796,30 @@ export default function AdminPage({ initialTab = "overview" }) {
                       {(bookingDetail.pickupOptions || []).map((point) => (
                         <option key={point.id} value={point.id}>
                           {point.name} · {point.address}
+                          {point.departureId &&
+                          String(point.departureId) !==
+                            String(bookingDetail.departureId)
+                            ? " · Điểm đón chung từ dữ liệu tour"
+                            : ""}
                         </option>
                       ))}
                     </select>
+
+                    {!(bookingDetail.pickupOptions || []).length ? (
+                      <div
+                        style={{
+                          padding: 12,
+                          borderRadius: 10,
+                          border: "1px solid #fecaca",
+                          background: "#fef2f2",
+                          color: "#b91c1c",
+                          fontSize: 13,
+                        }}
+                      >
+                        Tour này chưa có điểm đón đang hoạt động trong dữ liệu.
+                        Hãy vào Quản lý Tour để thêm hoặc bật lại điểm đón.
+                      </div>
+                    ) : null}
                     <button
                       type="button"
                       className="btn btn-primary"

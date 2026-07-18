@@ -126,6 +126,13 @@ export class BookingsController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("admin")
+  @Post("admin/operations/sync-completed-bookings")
+  syncCompletedBookings(@CurrentUser() user: { userId: bigint }) {
+    return this.bookingsService.syncCompletedBookingsAndRewards(user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @Get("admin/operations/dashboard")
   adminOperationsDashboard() {
     return this.bookingsService.adminOperationsDashboard();

@@ -224,7 +224,7 @@ export class AdminDashboardService {
       }),
       this.prisma.payment.findMany({
         where: { paymentStatus: "paid" as any, paidAt: { not: null } },
-        select: { amount: true, paidAt: true },
+        select: { amount: true, paidAt: true, bookingId: true },
       }),
       this.prisma.user.groupBy({
         by: ["memberTier"],
@@ -278,9 +278,79 @@ export class AdminDashboardService {
       if (monthlyMap.has(key))
         monthlyMap.set(key, (monthlyMap.get(key) || 0) + money(row.amount));
     }
-    const monthlyRevenue = Array.from(monthlyMap.entries()).map(
-      ([month, revenue]) => ({ month, revenue }),
+    const currentMonthKey = monthKey(today);
+    const previousMonthDate = new Date(
+      today.getFullYear(),
+      today.getMonth() - 1,
+      1,
     );
+    const previousMonthKey = monthKey(previousMonthDate);
+
+    const monthlyRevenue = Array.from(monthlyMap.entries()).map(
+      ([month, revenue]) => ({
+        month,
+        revenue,
+        isCurrentMonth: month === currentMonthKey,
+      }),
+    );
+
+    const currentMonthRows = paidPaymentRows.filter(
+      (row) => monthKey(new Date(row.paidAt)) === currentMonthKey,
+    );
+    const previousMonthRows = paidPaymentRows.filter(
+      (row) => monthKey(new Date(row.paidAt)) === previousMonthKey,
+    );
+
+    const currentMonthRevenue = currentMonthRows.reduce(
+      (sum, row) => sum + money(row.amount),
+      0,
+    );
+    const previousMonthRevenue = previousMonthRows.reduce(
+      (sum, row) => sum + money(row.amount),
+      0,
+    );
+
+    const paidBookingIds = new Set(
+      currentMonthRows
+        .map((row) => toId(row.bookingId))
+        .filter((value): value is string => Boolean(value)),
+    );
+    const paidBookings = paidBookingIds.size;
+    const averageOrderValue = paidBookings
+      ? Math.round(currentMonthRevenue / paidBookings)
+      : 0;
+    const growthRate = previousMonthRevenue
+      ? Number(
+          (
+            ((currentMonthRevenue - previousMonthRevenue) /
+              previousMonthRevenue) *
+            100
+          ).toFixed(2),
+        )
+      : null;
+
+    const daysInMonth = new Date(
+      today.getFullYear(),
+      today.getMonth() + 1,
+      0,
+    ).getDate();
+    const daysElapsed = today.getDate();
+    const remainingDays = Math.max(daysInMonth - daysElapsed, 0);
+
+    const revenueDetails = {
+      month: currentMonthKey,
+      monthLabel: `tháng ${today.getMonth() + 1}/${today.getFullYear()}`,
+      currentMonthRevenue,
+      previousMonthRevenue,
+      paidBookings,
+      paidTransactions: currentMonthRows.length,
+      averageOrderValue,
+      growthRate,
+      daysElapsed,
+      daysInMonth,
+      remainingDays,
+    };
+
     const paidCount =
       paymentsByStatus.find((item) => item.status === "paid")?.total ?? 0;
     const paymentSuccessRate =
@@ -310,6 +380,7 @@ export class AdminDashboardService {
         pendingReviews,
         paymentSuccessRate,
       },
+      revenueDetails,
       smartInsights,
       charts: {
         bookingsByStatus,

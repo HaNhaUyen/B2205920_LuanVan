@@ -31,30 +31,8 @@ const initialForm = {
 };
 
 function Badge({ children, tone = "default" }) {
-  const palette = {
-    success: ["#dcfce7", "#166534"],
-    warning: ["#fef3c7", "#92400e"],
-    danger: ["#fee2e2", "#991b1b"],
-    default: ["#e2e8f0", "#334155"],
-  };
-
-  const [bg, color] = palette[tone] || palette.default;
-
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        padding: "6px 12px",
-        borderRadius: 999,
-        background: bg,
-        color,
-        fontWeight: 700,
-        fontSize: 12,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </span>
+    <span className={`voucher-badge voucher-badge--${tone}`}>{children}</span>
   );
 }
 
@@ -85,6 +63,40 @@ function discountTypeLabel(type) {
   return type || "";
 }
 
+function normalizePercentValue(value) {
+  const number = Number(value || 0);
+
+  if (!Number.isFinite(number)) return 0;
+
+  // Tương thích dữ liệu cũ: 10000 được hiểu là 10%.
+  if (number > 100 && number % 1000 === 0) {
+    return number / 1000;
+  }
+
+  return number;
+}
+
+function formatVoucherDiscountValue(voucher) {
+  if (!voucher) return "0";
+
+  if (voucher.discountType === "percent") {
+    return `${normalizePercentValue(voucher.discountValue)}%`;
+  }
+
+  return formatCurrency(voucher.discountValue || 0);
+}
+
+function getTierTone(tier) {
+  const tones = {
+    bronze: "bronze",
+    silver: "silver",
+    gold: "gold",
+    diamond: "diamond",
+  };
+
+  return tones[String(tier || "").toLowerCase()] || "default";
+}
+
 export default function AdminVouchersPage() {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -96,6 +108,7 @@ export default function AdminVouchersPage() {
     pageSize: 10,
     search: "",
     status: "",
+    memberTier: "",
     sortBy: "createdAt",
     sortOrder: "desc",
   });
@@ -178,7 +191,10 @@ export default function AdminVouchersPage() {
       const payload = {
         ...form,
         code: form.code || undefined,
-        discountValue: Number(form.discountValue || 0),
+        discountValue:
+          form.discountType === "percent"
+            ? normalizePercentValue(form.discountValue)
+            : Number(form.discountValue || 0),
         maxDiscount: form.maxDiscount ? Number(form.maxDiscount) : null,
         minOrderAmount: Number(form.minOrderAmount || 0),
         quota: Number(form.quota || 0),
@@ -238,22 +254,340 @@ export default function AdminVouchersPage() {
   return (
     <AdminLayout current="/admin/vouchers" title="Quản lý Voucher">
       <style jsx global>{`
-        /* Bổ sung CSS Grid cho bộ lọc */
-        .filter-grid {
+        .voucher-toolbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+
+        .voucher-filter-grid {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns:
+            minmax(240px, 1.7fr)
+            minmax(145px, 0.85fr)
+            minmax(145px, 0.85fr)
+            minmax(170px, 1fr)
+            minmax(135px, 0.75fr);
           gap: 12px;
+          align-items: center;
           flex: 1;
-          width: 100%;
+          min-width: 0;
         }
-        .filter-grid > input,
-        .filter-grid > select {
+
+        .voucher-filter-grid > input,
+        .voucher-filter-grid > select {
           width: 100%;
+          min-width: 0;
+          min-height: 42px;
+          padding: 10px 13px;
+          border: 1px solid #cbd5e1;
+          border-radius: 9px;
+          background: #ffffff;
+          color: #0f172a;
+          font-size: 14px;
           box-sizing: border-box;
+          outline: none;
         }
+
+        .voucher-filter-grid > input:focus,
+        .voucher-filter-grid > select:focus {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .voucher-toolbar-actions {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+          flex-shrink: 0;
+        }
+
+        .voucher-page-card {
+          border-radius: 24px;
+          border: 1px solid #e2e8f0;
+          background: #ffffff;
+          box-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+          overflow: hidden;
+        }
+
+        .voucher-toolbar-shell {
+          padding: 18px;
+          border-bottom: 1px solid #eef2f7;
+          background:
+            radial-gradient(
+              circle at top right,
+              rgba(59, 130, 246, 0.08),
+              transparent 34%
+            ),
+            #ffffff;
+        }
+
+        .voucher-table-wrap {
+          overflow-x: auto;
+          padding: 0 18px 18px;
+        }
+
+        .voucher-table {
+          width: 100%;
+          min-width: 1180px;
+          border-collapse: separate;
+          border-spacing: 0;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          overflow: hidden;
+        }
+
+        .voucher-table thead th {
+          position: sticky;
+          top: 0;
+          z-index: 1;
+          background: #f8fafc;
+          color: #475569;
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          padding: 15px 14px;
+          border-bottom: 1px solid #e2e8f0;
+          text-align: left;
+          white-space: nowrap;
+        }
+
+        .voucher-table tbody td {
+          padding: 16px 14px;
+          border-bottom: 1px solid #eef2f7;
+          color: #334155;
+          vertical-align: middle;
+        }
+
+        .voucher-table tbody tr {
+          transition:
+            background 0.18s ease,
+            transform 0.18s ease;
+        }
+
+        .voucher-table tbody tr:hover {
+          background: #f8fbff;
+        }
+
+        .voucher-table tbody tr:last-child td {
+          border-bottom: none;
+        }
+
+        .voucher-code {
+          display: inline-flex;
+          align-items: center;
+          min-height: 32px;
+          padding: 6px 10px;
+          border-radius: 10px;
+          background: #eff6ff;
+          color: #1d4ed8;
+          font-size: 13px;
+          font-weight: 900;
+          letter-spacing: 0.03em;
+        }
+
+        .voucher-name {
+          max-width: 260px;
+          color: #0f172a;
+          font-weight: 700;
+          line-height: 1.4;
+        }
+
+        .voucher-discount {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .voucher-discount strong {
+          color: #ea580c;
+          font-size: 16px;
+        }
+
+        .voucher-discount span {
+          color: #94a3b8;
+          font-size: 12px;
+        }
+
+        .voucher-quota {
+          display: flex;
+          flex-direction: column;
+          gap: 7px;
+          min-width: 110px;
+        }
+
+        .voucher-quota-bar {
+          width: 100%;
+          height: 7px;
+          border-radius: 999px;
+          background: #e2e8f0;
+          overflow: hidden;
+        }
+
+        .voucher-quota-bar > div {
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(90deg, #3b82f6, #22c55e);
+        }
+
+        .voucher-date {
+          min-width: 180px;
+          line-height: 1.5;
+          color: #475569;
+        }
+
+        .voucher-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 28px;
+          padding: 5px 11px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 800;
+          white-space: nowrap;
+          border: 1px solid transparent;
+        }
+
+        .voucher-badge--success {
+          background: #dcfce7;
+          color: #166534;
+          border-color: #bbf7d0;
+        }
+
+        .voucher-badge--warning {
+          background: #fef3c7;
+          color: #92400e;
+          border-color: #fde68a;
+        }
+
+        .voucher-badge--danger {
+          background: #fee2e2;
+          color: #991b1b;
+          border-color: #fecaca;
+        }
+
+        .voucher-badge--default {
+          background: #f1f5f9;
+          color: #475569;
+          border-color: #e2e8f0;
+        }
+
+        .voucher-badge--bronze {
+          background: #fff7ed;
+          color: #9a3412;
+          border-color: #fed7aa;
+        }
+
+        .voucher-badge--silver {
+          background: #f8fafc;
+          color: #475569;
+          border-color: #cbd5e1;
+        }
+
+        .voucher-badge--gold {
+          background: #fefce8;
+          color: #a16207;
+          border-color: #fde68a;
+        }
+
+        .voucher-badge--diamond {
+          background: #eef2ff;
+          color: #4338ca;
+          border-color: #c7d2fe;
+        }
+
+        .voucher-pagination {
+          padding: 0 18px 18px;
+        }
+
+        .voucher-toolbar-actions .btn {
+          min-height: 42px;
+          border-radius: 12px;
+          font-weight: 800;
+        }
+
+        .voucher-toolbar-actions .btn-primary {
+          background: linear-gradient(135deg, #f59e0b, #fb923c);
+          border: none;
+          color: #ffffff;
+          box-shadow: 0 10px 24px rgba(249, 115, 22, 0.24);
+        }
+
+        .voucher-toolbar-actions .btn-primary:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 14px 30px rgba(249, 115, 22, 0.28);
+        }
+
+        .voucher-empty {
+          padding: 52px 20px !important;
+          text-align: center;
+          color: #64748b;
+          background: #f8fafc;
+        }
+
+        .voucher-toolbar-summary {
+          display: flex;
+          justify-content: flex-end;
+          align-items: center;
+          margin-top: 12px;
+          color: #64748b;
+          font-size: 13px;
+        }
+
+        .voucher-toolbar-summary strong {
+          color: #1d4ed8;
+          font-size: 14px;
+        }
+
+        .voucher-table th:last-child,
+        .voucher-table td:last-child {
+          min-width: 210px;
+          width: 210px;
+          text-align: right;
+        }
+
+        .row-actions .btn {
+          flex: 0 0 auto;
+        }
+
+        @media (max-width: 1280px) {
+          .voucher-filter-grid {
+            grid-template-columns: repeat(3, minmax(180px, 1fr));
+          }
+
+          .voucher-toolbar-actions {
+            width: 100%;
+          }
+        }
+
+        @media (max-width: 860px) {
+          .voucher-filter-grid {
+            grid-template-columns: repeat(2, minmax(160px, 1fr));
+          }
+        }
+
         @media (max-width: 640px) {
-          .filter-grid {
+          .voucher-filter-grid {
             grid-template-columns: 1fr;
+          }
+
+          .voucher-toolbar-summary {
+            justify-content: flex-start;
+          }
+
+          .voucher-toolbar-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+          }
+
+          .voucher-toolbar-actions .btn {
+            width: 100%;
           }
         }
 
@@ -264,13 +598,14 @@ export default function AdminVouchersPage() {
           align-items: center;
           justify-content: flex-end;
           gap: 8px;
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
+          white-space: nowrap;
         }
         .row-actions .btn,
         .admin-inline-actions .btn {
-          height: 30px;
-          min-width: 58px;
-          padding: 0 14px;
+          height: 32px;
+          min-width: 56px;
+          padding: 0 12px;
           border-radius: 8px;
           border: 1px solid transparent;
           font-size: 13px;
@@ -315,122 +650,153 @@ export default function AdminVouchersPage() {
         }
       `}</style>
 
-      <div
-        className="admin-card"
-        style={{ display: "flex", flexDirection: "column", gap: 18 }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            flexWrap: "wrap",
-            alignItems: "flex-start",
-          }}
-        >
-          {/* Đã thêm class filter-grid vào thẻ div này */}
-          <div className="table-search-row filter-grid" style={{ margin: 0 }}>
-            <input
-              placeholder="Tìm mã voucher, tên chương trình..."
-              value={filters.search}
-              onChange={(e) =>
-                setFilters((p) => ({
-                  ...p,
-                  search: e.target.value,
-                  page: 1,
-                }))
-              }
-            />
+      <div className="voucher-page-card">
+        <div className="voucher-toolbar-shell">
+          <div className="voucher-toolbar">
+            <div className="voucher-filter-grid">
+              <input
+                placeholder="Tìm mã voucher, tên chương trình..."
+                value={filters.search}
+                onChange={(e) =>
+                  setFilters((p) => ({
+                    ...p,
+                    search: e.target.value,
+                    page: 1,
+                  }))
+                }
+              />
 
-            <select
-              value={filters.status}
-              onChange={(e) =>
-                setFilters((p) => ({
-                  ...p,
-                  status: e.target.value,
-                  page: 1,
-                }))
-              }
-            >
-              <option value="">Tất cả trạng thái</option>
-              <option value="active">Đang phát hành</option>
-              <option value="inactive">Tạm ngưng</option>
-              <option value="expired">Hết hạn</option>
-            </select>
+              <select
+                value={filters.status}
+                onChange={(e) =>
+                  setFilters((p) => ({
+                    ...p,
+                    status: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="">Tất cả trạng thái</option>
+                <option value="active">Đang phát hành</option>
+                <option value="inactive">Tạm ngưng</option>
+                <option value="expired">Hết hạn</option>
+              </select>
 
-            <select
-              value={filters.sortBy}
-              onChange={(e) =>
-                setFilters((p) => ({ ...p, sortBy: e.target.value, page: 1 }))
-              }
-            >
-              <option value="createdAt">Ngày thêm</option>
-              <option value="code">Mã voucher</option>
-              <option value="name">Tên chương trình</option>
-              <option value="discountValue">Giá trị giảm</option>
-              <option value="quota">Quota</option>
-              <option value="usedCount">Số lần dùng</option>
-              <option value="endDate">Ngày hết hạn</option>
-            </select>
+              <select
+                value={filters.memberTier}
+                onChange={(e) =>
+                  setFilters((p) => ({
+                    ...p,
+                    memberTier: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="">Tất cả hạng thành viên</option>
+                <option value="bronze">Đồng</option>
+                <option value="silver">Bạc</option>
+                <option value="gold">Vàng</option>
+                <option value="diamond">Kim cương</option>
+              </select>
 
-            <select
-              value={filters.sortOrder}
-              onChange={(e) =>
-                setFilters((p) => ({
-                  ...p,
-                  sortOrder: e.target.value,
-                  page: 1,
-                }))
-              }
-            >
-              <option value="desc">Giảm dần</option>
-              <option value="asc">Tăng dần</option>
-            </select>
+              <select
+                value={filters.sortBy}
+                onChange={(e) =>
+                  setFilters((p) => ({
+                    ...p,
+                    sortBy: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="createdAt">Ngày thêm</option>
+                <option value="code">Mã voucher</option>
+                <option value="name">Tên chương trình</option>
+                <option value="memberTier">Hạng thành viên</option>
+                <option value="discountValue">Giá trị giảm</option>
+                <option value="quota">Quota</option>
+                <option value="usedCount">Số lần dùng</option>
+                <option value="endDate">Ngày hết hạn</option>
+                <option value="status">Trạng thái</option>
+              </select>
+
+              <select
+                value={filters.sortOrder}
+                onChange={(e) =>
+                  setFilters((p) => ({
+                    ...p,
+                    sortOrder: e.target.value,
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="desc">Giảm dần</option>
+                <option value="asc">Tăng dần</option>
+              </select>
+            </div>
+
+            <div className="voucher-toolbar-actions">
+              <button
+                className="btn btn-light"
+                type="button"
+                onClick={() =>
+                  setFilters({
+                    page: 1,
+                    pageSize: 10,
+                    search: "",
+                    status: "",
+                    memberTier: "",
+                    sortBy: "createdAt",
+                    sortOrder: "desc",
+                  })
+                }
+              >
+                Xóa lọc
+              </button>
+
+              <button
+                className="btn btn-light"
+                type="button"
+                onClick={exportExcel}
+                disabled={exporting}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                {exporting ? "Đang xuất..." : "Xuất Excel"}
+              </button>
+
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={openCreate}
+              >
+                + Thêm voucher
+              </button>
+            </div>
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              gap: 12,
-              flexWrap: "wrap",
-              marginTop: "4px",
-            }}
-          >
-            <button
-              className="btn btn-light"
-              type="button"
-              onClick={exportExcel}
-              disabled={exporting}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              {exporting ? "Đang xuất..." : "Xuất Excel"}
-            </button>
-
-            <button
-              className="btn btn-primary"
-              type="button"
-              onClick={openCreate}
-            >
-              Thêm voucher
-            </button>
+          <div className="voucher-toolbar-summary">
+            <span>
+              Tìm thấy <strong>{formatNumber(data.pagination.total)}</strong>{" "}
+              voucher
+            </span>
           </div>
         </div>
 
-        <div className="table-wrap">
-          <table className="console-table">
+        <div className="voucher-table-wrap">
+          <table className="voucher-table">
             <thead>
               <tr>
                 <th>Mã</th>
@@ -449,33 +815,62 @@ export default function AdminVouchersPage() {
                 data.items.map((v) => (
                   <tr key={v.id}>
                     <td>
-                      <strong>{v.code}</strong>
-                    </td>
-
-                    <td>{v.name}</td>
-
-                    <td>
-                      <Badge>{mapLabel("memberTier", v.memberTier)}</Badge>
+                      <span className="voucher-code">{v.code}</span>
                     </td>
 
                     <td>
-                      {v.discountType === "percent"
-                        ? `${v.discountValue}%`
-                        : formatCurrency(v.discountValue)}
-                      {v.maxDiscount ? (
-                        <div className="table-muted">
-                          Tối đa {formatCurrency(v.maxDiscount)}
+                      <div className="voucher-name">{v.name}</div>
+                    </td>
+
+                    <td>
+                      <Badge tone={getTierTone(v.memberTier)}>
+                        {memberTierLabel(v.memberTier)}
+                      </Badge>
+                    </td>
+
+                    <td>
+                      <div className="voucher-discount">
+                        <strong>{formatVoucherDiscountValue(v)}</strong>
+                        {v.maxDiscount ? (
+                          <span>Tối đa {formatCurrency(v.maxDiscount)}</span>
+                        ) : (
+                          <span>Không giới hạn mức giảm</span>
+                        )}
+                      </div>
+                    </td>
+
+                    <td>
+                      <div className="voucher-quota">
+                        <strong>
+                          {formatNumber(v.usedCount || 0)} /{" "}
+                          {formatNumber(v.quota || 0)}
+                        </strong>
+                        <div className="voucher-quota-bar">
+                          <div
+                            style={{
+                              width: `${
+                                Number(v.quota || 0) > 0
+                                  ? Math.min(
+                                      (Number(v.usedCount || 0) /
+                                        Number(v.quota || 1)) *
+                                        100,
+                                      100,
+                                    )
+                                  : 0
+                              }%`,
+                            }}
+                          />
                         </div>
-                      ) : null}
+                      </div>
                     </td>
 
                     <td>
-                      {formatNumber(v.usedCount || 0)} /{" "}
-                      {formatNumber(v.quota || 0)}
-                    </td>
-
-                    <td>
-                      {formatDate(v.startDate)} - {formatDate(v.endDate)}
+                      <div className="voucher-date">
+                        <div>{formatDate(v.startDate)}</div>
+                        <div style={{ color: "#94a3b8", fontSize: 12 }}>
+                          đến {formatDate(v.endDate)}
+                        </div>
+                      </div>
                     </td>
 
                     <td>
@@ -515,14 +910,7 @@ export default function AdminVouchersPage() {
                 ))
               ) : (
                 <tr>
-                  <td
-                    colSpan="8"
-                    style={{
-                      padding: 40,
-                      textAlign: "center",
-                      color: "#64748b",
-                    }}
-                  >
+                  <td colSpan="8" className="voucher-empty">
                     Không có voucher phù hợp.
                   </td>
                 </tr>
@@ -531,11 +919,13 @@ export default function AdminVouchersPage() {
           </table>
         </div>
 
-        <Pagination
-          page={data.pagination.page}
-          totalPages={data.pagination.totalPages}
-          onPageChange={(page) => setFilters((p) => ({ ...p, page }))}
-        />
+        <div className="voucher-pagination">
+          <Pagination
+            page={data.pagination.page}
+            totalPages={data.pagination.totalPages}
+            onPageChange={(page) => setFilters((p) => ({ ...p, page }))}
+          />
+        </div>
       </div>
 
       <Modal
@@ -614,6 +1004,9 @@ export default function AdminVouchersPage() {
             <label>Giá trị giảm</label>
             <input
               type="number"
+              min="0"
+              max={form.discountType === "percent" ? 100 : undefined}
+              step={form.discountType === "percent" ? "0.1" : "1000"}
               value={form.discountValue}
               onChange={(e) =>
                 setForm((p) => ({ ...p, discountValue: e.target.value }))

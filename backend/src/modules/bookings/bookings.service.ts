@@ -65,6 +65,449 @@ export class BookingsService {
     return new Date(Date.now() + 15 * 60 * 1000);
   }
 
+  /**
+   * Điểm thưởng khi hoàn thành một booking đã thanh toán.
+   * Có thể đổi giá trị này sau mà không phải sửa nhiều nơi.
+   */
+  private readonly COMPLETED_BOOKING_REWARD_POINTS = 100;
+
+  /**
+   * Ngưỡng hạng thành viên dùng thống nhất toàn hệ thống.
+   */
+  private calculateMemberTier(points: number) {
+    const safePoints = Math.max(Number(points || 0), 0);
+
+    if (safePoints >= 4000) return "diamond";
+    if (safePoints >= 1500) return "gold";
+    if (safePoints >= 500) return "silver";
+
+    return "bronze";
+  }
+
+  private isPaidBooking(booking: any) {
+    const payments = Array.isArray(booking?.payments) ? booking.payments : [];
+
+    return payments.some((payment: any) =>
+      ["paid", "success", "completed"].includes(
+        String(payment?.paymentStatus || "").toLowerCase(),
+      ),
+    );
+  }
+
+  private hasTripEnded(booking: any) {
+    const rawEndDate =
+      booking?.departure?.endDate || booking?.departure?.departureDate;
+
+    if (!rawEndDate) return false;
+
+    const endDate = new Date(rawEndDate);
+
+    if (Number.isNaN(endDate.getTime())) return false;
+
+    endDate.setHours(23, 59, 59, 999);
+
+    return endDate.getTime() < Date.now();
+  }
+
+  /**
+   * Cấp voucher phù hợp khi người dùng vừa lên hạng.
+   * skipDuplicates ngăn cấp trùng voucher đã có.
+   */
+  private async assignTierVouchersToUser(
+    tx: Prisma.TransactionClient,
+    userId: bigint,
+    memberTier: string,
+  ) {
+    const today = new Date();
+
+    const vouchers = await tx.voucher.findMany({
+      where: {
+        memberTier: memberTier as any,
+        status: "active",
+        startDate: { lte: today },
+        endDate: { gte: today },
+      },
+      select: { id: true },
+    });
+
+    if (!vouchers.length) return 0;
+
+    const result = await tx.userVoucher.createMany({
+      data: vouchers.map((voucher: any) => ({
+        userId,
+        voucherId: voucher.id,
+        status: "available" as any,
+      })),
+      skipDuplicates: true,
+    });
+
+    return Number(result?.count || 0);
+  }
+
+  /**
+   * Cộng điểm hoàn thành chuyến đi đúng một lần cho mỗi booking.
+   *
+   * Điều kiện:
+   * - booking có userId;
+   * - chuyến đi đã kết thúc;
+   * - đã thanh toán thành công;
+   * - chưa có log actionType = membership_reward.
+   */
+  private async rewardCompletedBooking(
+    tx: Prisma.TransactionClient,
+    booking: any,
+    changedBy?: bigint,
+  ) {
+    if (!booking?.userId) {
+      return {
+        rewarded: false,
+        reason: "guest_booking",
+      };
+    }
+
+    if (!this.hasTripEnded(booking)) {
+      return {
+        rewarded: false,
+        reason: "trip_not_finished",
+      };
+    }
+
+    if (!this.isPaidBooking(booking)) {
+      return {
+        rewarded: false,
+        reason: "payment_not_paid",
+      };
+    }
+
+    const existingRewardLog = await tx.bookingStatusLog.findFirst({
+      where: {
+        bookingId: booking.id,
+        actionType: "membership_reward",
+      },
+      select: { id: true },
+    });
+
+    if (existingRewardLog) {
+      return {
+        rewarded: false,
+        reason: "already_rewarded",
+      };
+    }
+
+    const currentUser = await tx.user.findUnique({
+      where: { id: booking.userId },
+      select: {
+        id: true,
+        memberPoints: true,
+        memberTier: true,
+        role: true,
+        status: true,
+      },
+    });
+
+    if (
+      !currentUser ||
+      currentUser.role !== "user" ||
+      currentUser.status !== "active"
+    ) {
+      return {
+        rewarded: false,
+        reason: "user_not_eligible",
+      };
+    }
+
+    const earnedPoints = this.COMPLETED_BOOKING_REWARD_POINTS;
+    const oldTier = String(currentUser.memberTier || "bronze");
+    const nextPoints = Number(currentUser.memberPoints || 0) + earnedPoints;
+    const nextTier = this.calculateMemberTier(nextPoints);
+
+    const updatedUser = await tx.user.update({
+      where: { id: currentUser.id },
+      data: {
+        memberPoints: nextPoints,
+        memberTier: nextTier as any,
+      },
+      select: {
+        id: true,
+        memberPoints: true,
+        memberTier: true,
+      },
+    });
+
+    const tierChanged = oldTier !== nextTier;
+
+    if (tierChanged) {
+      await this.assignTierVouchersToUser(tx, currentUser.id, nextTier);
+    }
+
+    await tx.bookingStatusLog.create({
+      data: {
+        bookingId: booking.id,
+        actionType: "membership_reward",
+        oldStatus: booking.bookingStatus,
+        newStatus: "completed",
+        changedByUserId: changedBy,
+        source: changedBy ? "admin" : "system",
+        reason: "Reward points after completed paid trip",
+        note:
+          `Cộng ${earnedPoints} điểm thành viên. ` +
+          `Tổng điểm: ${nextPoints}. Hạng: ${nextTier}.`,
+      },
+    });
+
+    await tx.notification.create({
+      data: {
+        title: tierChanged
+          ? `Hoàn thành chuyến đi · Lên hạng ${nextTier}`
+          : "Cộng điểm sau chuyến đi",
+        message: `Bạn được cộng ${earnedPoints} điểm thành viên.`,
+        content:
+          `Booking ${booking.bookingCode} đã hoàn thành. ` +
+          `Travela đã cộng ${earnedPoints} điểm thành viên. ` +
+          `Tổng điểm hiện tại: ${nextPoints}. ` +
+          `Hạng thành viên: ${nextTier}.` +
+          (tierChanged
+            ? " Voucher phù hợp với hạng mới đã được thêm vào tài khoản nếu còn hiệu lực và còn quota."
+            : ""),
+        targetRole: "user" as any,
+        targetUserId: booking.userId,
+        isPublished: true,
+        createdBy: changedBy,
+      },
+    });
+
+    return {
+      rewarded: true,
+      earnedPoints,
+      totalPoints: Number(updatedUser.memberPoints || 0),
+      oldTier,
+      memberTier: String(updatedUser.memberTier || nextTier),
+      tierChanged,
+    };
+  }
+
+  /**
+   * Tự động chuyển booking confirmed đã qua ngày kết thúc sang completed
+   * và cộng điểm. Có chống cộng trùng bằng booking_status_logs.
+   */
+  async syncCompletedBookingsAndRewards(changedBy?: bigint) {
+    const now = new Date();
+
+    /*
+     * Quét cả:
+     * - confirmed: đã qua ngày kết thúc, cần tự chuyển sang completed;
+     * - completed: dữ liệu cũ đã hoàn thành nhưng chưa từng được cộng điểm.
+     */
+    const candidates = await this.prisma.booking.findMany({
+      where: {
+        bookingStatus: {
+          in: ["confirmed", "completed"] as any,
+        },
+        userId: {
+          not: null,
+        },
+        departure: {
+          is: {
+            endDate: {
+              lt: now,
+            },
+          },
+        },
+        payments: {
+          some: {
+            paymentStatus: {
+              in: ["paid", "success", "completed"] as any,
+            },
+          },
+        },
+        logs: {
+          none: {
+            actionType: "membership_reward",
+          },
+        },
+      },
+      include: {
+        departure: true,
+        payments: {
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
+        tour: true,
+      },
+      orderBy: {
+        id: "asc",
+      },
+      take: 500,
+    });
+
+    let completedCount = 0;
+    let rewardedCount = 0;
+    const results: any[] = [];
+
+    for (const candidate of candidates) {
+      const result = await this.prisma.$transaction(async (tx) => {
+        /*
+         * Đọc lại bên trong transaction để hạn chế xử lý trùng
+         * khi nhiều request đồng thời gọi API đồng bộ.
+         */
+        const fresh = await tx.booking.findUnique({
+          where: {
+            id: candidate.id,
+          },
+          include: {
+            departure: true,
+            payments: {
+              orderBy: {
+                createdAt: "desc",
+              },
+            },
+            tour: true,
+            logs: {
+              where: {
+                actionType: "membership_reward",
+              },
+              take: 1,
+            },
+          },
+        });
+
+        if (!fresh) {
+          return {
+            bookingId: String(candidate.id),
+            completed: false,
+            autoCompleted: false,
+            rewarded: false,
+            reason: "booking_not_found",
+          };
+        }
+
+        if (fresh.logs?.length) {
+          return {
+            bookingId: String(fresh.id),
+            bookingCode: fresh.bookingCode,
+            completed: fresh.bookingStatus === "completed",
+            autoCompleted: false,
+            rewarded: false,
+            reason: "already_rewarded",
+          };
+        }
+
+        if (!["confirmed", "completed"].includes(String(fresh.bookingStatus))) {
+          return {
+            bookingId: String(fresh.id),
+            bookingCode: fresh.bookingCode,
+            completed: false,
+            autoCompleted: false,
+            rewarded: false,
+            reason: "invalid_booking_status",
+          };
+        }
+
+        if (!this.hasTripEnded(fresh)) {
+          return {
+            bookingId: String(fresh.id),
+            bookingCode: fresh.bookingCode,
+            completed: false,
+            autoCompleted: false,
+            rewarded: false,
+            reason: "trip_not_finished",
+          };
+        }
+
+        if (!this.isPaidBooking(fresh)) {
+          return {
+            bookingId: String(fresh.id),
+            bookingCode: fresh.bookingCode,
+            completed: false,
+            autoCompleted: false,
+            rewarded: false,
+            reason: "payment_not_paid",
+          };
+        }
+
+        let completedBooking = fresh;
+        let autoCompleted = false;
+
+        /*
+         * Booking confirmed thì tự chuyển completed.
+         * Booking đã completed thì giữ nguyên và chỉ cộng bù điểm.
+         */
+        if (fresh.bookingStatus === "confirmed") {
+          completedBooking = await tx.booking.update({
+            where: {
+              id: fresh.id,
+            },
+            data: {
+              bookingStatus: "completed" as any,
+              holdExpiresAt: null,
+            },
+            include: {
+              departure: true,
+              payments: {
+                orderBy: {
+                  createdAt: "desc",
+                },
+              },
+              tour: true,
+            },
+          });
+
+          await tx.bookingStatusLog.create({
+            data: {
+              bookingId: completedBooking.id,
+              actionType: "auto_complete",
+              oldStatus: "confirmed",
+              newStatus: "completed",
+              changedByUserId: changedBy,
+              source: changedBy ? "admin" : "system",
+              reason: "Trip end date has passed",
+              note: "Tự động hoàn thành booking sau ngày kết thúc chuyến đi.",
+            },
+          });
+
+          autoCompleted = true;
+        }
+
+        const reward = await this.rewardCompletedBooking(
+          tx,
+          {
+            ...completedBooking,
+            payments: fresh.payments,
+          },
+          changedBy,
+        );
+
+        return {
+          bookingId: String(completedBooking.id),
+          bookingCode: completedBooking.bookingCode,
+          completed: true,
+          autoCompleted,
+          ...reward,
+        };
+      });
+
+      if (result.autoCompleted) {
+        completedCount += 1;
+      }
+
+      if (result.rewarded) {
+        rewardedCount += 1;
+      }
+
+      results.push(result);
+    }
+
+    return {
+      success: true,
+      scanned: candidates.length,
+      completedCount,
+      rewardedCount,
+      rewardPointsPerBooking: this.COMPLETED_BOOKING_REWARD_POINTS,
+      results,
+    };
+  }
+
   private async ensureBookableUser(
     tx: Prisma.TransactionClient,
     rawUserId?: any,
@@ -199,18 +642,33 @@ export class BookingsService {
   ) {
     if (!pickupPointId) return null;
 
-    const pickup = await tx.tourPickupPoint.findFirst({
+    const pickupId = BigInt(pickupPointId);
+
+    // Ưu tiên điểm đón dùng chung của tour hoặc gắn đúng lịch khởi hành.
+    let pickup = await tx.tourPickupPoint.findFirst({
       where: {
-        id: BigInt(pickupPointId),
+        id: pickupId,
         status: "active",
         tourId: departure.tourId,
         OR: [{ departureId: departure.id }, { departureId: null }],
       },
     });
 
+    // Tương thích dữ liệu cũ:
+    // một số điểm đón đã bị gắn vào lịch khởi hành khác dù vẫn thuộc cùng tour.
+    if (!pickup) {
+      pickup = await tx.tourPickupPoint.findFirst({
+        where: {
+          id: pickupId,
+          status: "active",
+          tourId: departure.tourId,
+        },
+      });
+    }
+
     if (!pickup) {
       throw new BadRequestException(
-        "Điểm đón không hợp lệ cho lịch khởi hành này.",
+        "Điểm đón không tồn tại, đã bị tạm ẩn hoặc không thuộc tour này.",
       );
     }
 
@@ -735,6 +1193,8 @@ export class BookingsService {
   }
 
   async findMyBookings(userId: bigint) {
+    await this.syncCompletedBookingsAndRewards().catch(() => null);
+
     const bookings = await this.prisma.booking.findMany({
       where: {
         userId,
@@ -742,25 +1202,45 @@ export class BookingsService {
           notIn: ["cancelled", "expired"] as any,
         },
       },
+
       include: {
         tour: {
           include: {
             destination: true,
+
             media: {
-              where: { isCover: true },
+              where: {
+                isCover: true,
+              },
+              orderBy: [
+                {
+                  displayOrder: "asc",
+                },
+                {
+                  id: "desc",
+                },
+              ],
               take: 1,
             },
           },
         },
+
         departure: true,
         pickupPoint: true,
         voucher: true,
+
         payments: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
         },
+
         refundRequests: {
-          orderBy: { createdAt: "desc" },
+          orderBy: {
+            createdAt: "desc",
+          },
         },
+
         guideAssignments: {
           where: {
             status: {
@@ -773,14 +1253,22 @@ export class BookingsService {
               ] as any,
             },
           },
-          include: { guide: true },
-          orderBy: { createdAt: "desc" },
+          include: {
+            guide: true,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
         },
       },
-      orderBy: { createdAt: "desc" },
+
+      orderBy: {
+        createdAt: "desc",
+      },
     });
 
     const resolved = await this.attachDepartureGuides(bookings as any[]);
+
     return resolved.map((booking: any) => this.enrichBooking(booking));
   }
 
@@ -1212,7 +1700,9 @@ export class BookingsService {
           include: { guide: true },
           orderBy: { createdAt: "desc" },
         },
-        refundRequests: { orderBy: { createdAt: "desc" } },
+        refundRequests: {
+          orderBy: { createdAt: "desc" },
+        },
         guests: true,
         logs: {
           orderBy: { createdAt: "desc" },
@@ -1225,9 +1715,19 @@ export class BookingsService {
       throw new NotFoundException("Không tìm thấy booking.");
     }
 
+    /*
+     * Một lịch khởi hành chỉ có một HDV chính qua trip_operations.
+     * attachDepartureGuides() sẽ gắn HDV đó vào mọi booking cùng departure,
+     * kể cả booking hiện tại không phải booking đại diện trong guide_assignments.
+     */
     const [resolvedBooking] = await this.attachDepartureGuides([booking]);
 
-    const pickupOptions = await this.prisma.tourPickupPoint.findMany({
+    /*
+     * Ưu tiên điểm đón dùng chung hoặc đúng lịch hiện tại.
+     * Nếu dữ liệu cũ không có nhóm này thì fallback toàn bộ điểm đón active
+     * của tour để admin vẫn có thể cập nhật.
+     */
+    const exactPickupOptions = await this.prisma.tourPickupPoint.findMany({
       where: {
         tourId: booking.tourId,
         status: "active",
@@ -1235,6 +1735,37 @@ export class BookingsService {
       },
       orderBy: [{ departureId: "desc" }, { id: "asc" }],
     });
+
+    const fallbackPickupOptions = exactPickupOptions.length
+      ? []
+      : await this.prisma.tourPickupPoint.findMany({
+          where: {
+            tourId: booking.tourId,
+            status: "active",
+          },
+          orderBy: [{ departureId: "asc" }, { id: "asc" }],
+        });
+
+    // Loại bỏ điểm đón trùng tên + địa chỉ + giờ.
+    const pickupMap = new Map<string, any>();
+
+    for (const point of [...exactPickupOptions, ...fallbackPickupOptions]) {
+      const key = [
+        String(point.name || "")
+          .trim()
+          .toLowerCase(),
+        String(point.address || "")
+          .trim()
+          .toLowerCase(),
+        point.pickupTime ? String(point.pickupTime) : "",
+      ].join("|");
+
+      if (!pickupMap.has(key)) {
+        pickupMap.set(key, point);
+      }
+    }
+
+    const pickupOptions = Array.from(pickupMap.values());
 
     const sameDepartureBookings = await this.prisma.booking.findMany({
       where: {
@@ -1263,35 +1794,74 @@ export class BookingsService {
       orderBy: { createdAt: "asc" },
     });
 
-    const departureGuests = sameDepartureBookings.flatMap((b: any) => {
-      if (b.guests?.length) {
-        return b.guests.map((g: any) => ({
-          ...g,
-          bookingCode: b.bookingCode,
-          contactName: b.contactName,
-          contactPhone: b.contactPhone,
-          contactEmail: b.contactEmail,
+    const departureGuests = sameDepartureBookings.flatMap((item: any) => {
+      if (item.guests?.length) {
+        return item.guests.map((guest: any) => ({
+          ...guest,
+          bookingCode: item.bookingCode,
+          contactName: item.contactName,
+          contactPhone: item.contactPhone,
+          contactEmail: item.contactEmail,
         }));
       }
 
-      // Nếu booking chưa có bảng guests thì lấy thông tin người đặt làm hành khách đại diện
       return [
         {
-          id: `booking-${b.id}`,
-          bookingCode: b.bookingCode,
-          fullName: b.contactName || b.user?.fullName || "Khách hàng",
+          id: `booking-${item.id}`,
+          bookingCode: item.bookingCode,
+          fullName: item.contactName || item.user?.fullName || "Khách hàng",
           guestType: "Người đặt",
           dateOfBirth: null,
           idNumber: "-",
-          contactPhone: b.contactPhone,
-          contactEmail: b.contactEmail,
+          contactPhone: item.contactPhone,
+          contactEmail: item.contactEmail,
         },
       ];
     });
 
+    const enrichedBooking = this.enrichBooking(resolvedBooking);
+
+    /*
+     * Frontend cũ đọc activeGuideAssignment.
+     * Khi HDV đến từ trip_operations, tạo object tương thích để modal
+     * hiển thị đúng HDV thay vì báo "Chưa phân công".
+     */
+    const activeGuideAssignment =
+      enrichedBooking.activeGuideAssignment ||
+      (enrichedBooking.guide
+        ? {
+            id: enrichedBooking.tripOperation?.id || null,
+            status:
+              enrichedBooking.tripOperation?.operationStatus || "assigned",
+            guide: enrichedBooking.guide,
+            source: "trip_operation",
+          }
+        : null);
+
+    const guideTimeline = activeGuideAssignment?.guide
+      ? [
+          {
+            label: "Hướng dẫn viên của lịch khởi hành",
+            time:
+              enrichedBooking.tripOperation?.updatedAt ||
+              booking.updatedAt ||
+              booking.createdAt,
+            note: `${activeGuideAssignment.guide.fullName} · ${
+              activeGuideAssignment.status || "assigned"
+            }`,
+          },
+        ]
+      : [];
+
     return {
-      ...this.enrichBooking(resolvedBooking),
+      ...enrichedBooking,
+      activeGuideAssignment,
       pickupOptions,
+      pickupOptionSource: exactPickupOptions.length
+        ? "departure_or_shared"
+        : fallbackPickupOptions.length
+          ? "tour_fallback"
+          : "none",
       departureGuests,
       sameDepartureBookings,
       operationTimeline: [
@@ -1305,28 +1875,16 @@ export class BookingsService {
             payment.paymentStatus === "paid"
               ? "Thanh toán thành công"
               : "Tạo giao dịch thanh toán",
-          time: payment.paidAt || payment.createdAt,
+          time: payment.paidAt || payment.updatedAt || payment.createdAt,
           note: `${payment.internalTransactionCode} · ${payment.paymentStatus}`,
         })),
-        ...(booking.guideAssignments || []).map((assignment: any) => ({
-          label: "Phân công hướng dẫn viên",
-          time: assignment.createdAt,
-          note: `${assignment.guide?.fullName || "HDV"} · ${assignment.status}`,
-        })),
-        ...(resolvedBooking.tripOperation?.guide
-          ? [
-              {
-                label: "HDV chính của lịch khởi hành",
-                time:
-                  resolvedBooking.tripOperation?.updatedAt || booking.updatedAt,
-                note: `${resolvedBooking.tripOperation.guide.fullName} · ${resolvedBooking.tripOperation.operationStatus || "preparing"}`,
-              },
-            ]
-          : []),
+        ...guideTimeline,
         ...(booking.logs || []).map((log: any) => ({
           label: log.actionType || "Cập nhật trạng thái",
           time: log.createdAt,
-          note: `${log.oldStatus || "-"} → ${log.newStatus || "-"}${log.reason ? ` · ${log.reason}` : ""}`,
+          note: `${log.oldStatus || "-"} → ${log.newStatus || "-"}${
+            log.reason ? ` · ${log.reason}` : ""
+          }`,
         })),
       ]
         .filter((item: any) => item.time)
@@ -1353,6 +1911,9 @@ export class BookingsService {
     sortBy?: string;
     sortOrder?: string;
   }) {
+    // Đồng bộ booking đã kết thúc trước khi trả danh sách quản trị.
+    await this.syncCompletedBookingsAndRewards().catch(() => null);
+
     const page = Math.max(Number(query.page || 1), 1);
     const pageSize = Math.min(Math.max(Number(query.pageSize || 10), 1), 100);
     const skip = (page - 1) * pageSize;
@@ -1587,6 +2148,20 @@ export class BookingsService {
         }
       }
 
+      if (dto.bookingStatus === "completed") {
+        if (!this.hasTripEnded(booking)) {
+          throw new BadRequestException(
+            "Chưa thể hoàn thành booking vì chuyến đi chưa qua ngày kết thúc.",
+          );
+        }
+
+        if (!this.isPaidBooking(booking)) {
+          throw new BadRequestException(
+            "Chưa thể hoàn thành booking vì chưa có giao dịch thanh toán thành công.",
+          );
+        }
+      }
+
       const guestCount =
         Number(booking.adultCount || 0) + Number(booking.childCount || 0);
 
@@ -1624,6 +2199,22 @@ export class BookingsService {
         );
       }
 
+      let membershipReward: any = null;
+
+      if (
+        dto.bookingStatus === "completed" &&
+        booking.bookingStatus !== "completed"
+      ) {
+        membershipReward = await this.rewardCompletedBooking(
+          tx,
+          {
+            ...updated,
+            payments: booking.payments,
+          },
+          changedBy,
+        );
+      }
+
       await tx.bookingStatusLog.create({
         data: {
           bookingId: updated.id,
@@ -1636,7 +2227,10 @@ export class BookingsService {
         },
       });
 
-      return updated;
+      return {
+        ...updated,
+        membershipReward,
+      };
     });
   }
 
@@ -1812,7 +2406,7 @@ export class BookingsService {
     );
 
     return {
-      totalBookings: resolvedBookings.length,
+      totalBookings: bookings.length,
       confirmedBookings: confirmedBookings.length,
       pendingPayments: pendingPayments.length,
       noPickup: noPickup.length,
