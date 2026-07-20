@@ -87,10 +87,9 @@ export class BookingsService {
   private isPaidBooking(booking: any) {
     const payments = Array.isArray(booking?.payments) ? booking.payments : [];
 
-    return payments.some((payment: any) =>
-      ["paid", "success", "completed"].includes(
-        String(payment?.paymentStatus || "").toLowerCase(),
-      ),
+    return payments.some(
+      (payment: any) =>
+        String(payment?.paymentStatus || "").toLowerCase() === "paid",
     );
   }
 
@@ -315,9 +314,15 @@ export class BookingsService {
         },
         payments: {
           some: {
-            paymentStatus: {
-              in: ["paid", "success", "completed"] as any,
-            },
+            /*
+             * PaymentStatus trong Prisma chỉ có:
+             * pending, waiting_confirmation, paid,
+             * failed, expired, refunded.
+             *
+             * Không được truyền "success" hoặc "completed" vào
+             * Prisma enum filter vì sẽ gây PrismaClientValidationError.
+             */
+            paymentStatus: "paid" as any,
           },
         },
         logs: {
@@ -500,6 +505,7 @@ export class BookingsService {
 
     return {
       success: true,
+      executedAt: new Date().toISOString(),
       scanned: candidates.length,
       completedCount,
       rewardedCount,

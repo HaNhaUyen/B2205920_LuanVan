@@ -13,13 +13,20 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { ChatbotService } from "./chatbot.service";
 import { RagIndexService } from "./rag-index.service";
 import { ChatMessageDto } from "./dto/chat-message.dto";
+import { LocationResolverService } from "./location-resolver.service";
 
 @Controller("chatbot")
 export class ChatbotController {
   constructor(
     private readonly chatbotService: ChatbotService,
     private readonly ragIndexService: RagIndexService,
+    private readonly locationResolver: LocationResolverService,
   ) {}
+
+  @Get("location-catalog")
+  locationCatalog() {
+    return this.locationResolver.catalog();
+  }
 
   @UseGuards(OptionalJwtAuthGuard)
   @Post("message")

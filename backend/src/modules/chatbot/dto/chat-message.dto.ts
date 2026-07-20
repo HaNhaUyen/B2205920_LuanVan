@@ -1,4 +1,10 @@
-import { IsObject, IsOptional, IsString, MaxLength } from "class-validator";
+import {
+  IsIn,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from "class-validator";
 
 export class ChatMessageDto {
   @IsOptional()
@@ -13,4 +19,9 @@ export class ChatMessageDto {
   @IsOptional()
   @IsObject()
   memory?: Record<string, any>;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(["user", "guide", "admin"])
+  scope?: "user" | "guide" | "admin";
 }

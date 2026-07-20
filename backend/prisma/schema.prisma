@@ -85,9 +85,32 @@ model Destination {
   status      String   @default("active") @db.VarChar(20)
   createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt   DateTime @default(now()) @map("updated_at") @db.DateTime(0)
-  tours       Tour[]
+
+  tours     Tour[]
+  landmarks DestinationLandmark[]
 
   @@map("destinations")
+}
+
+model DestinationLandmark {
+  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  destinationId  BigInt   @map("destination_id") @db.UnsignedBigInt
+  name           String   @db.VarChar(180)
+  normalizedName String   @map("normalized_name") @db.VarChar(180)
+  aliases        Json?
+  description    String?  @db.Text
+  latitude       Decimal? @db.Decimal(10, 7)
+  longitude      Decimal? @db.Decimal(10, 7)
+  status         String   @default("active") @db.VarChar(20)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.DateTime(0)
+
+  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "destination_landmarks_ibfk_1")
+
+  @@unique([destinationId, normalizedName], map: "uk_destination_landmark")
+  @@index([normalizedName], map: "idx_destination_landmark_normalized")
+  @@index([destinationId], map: "idx_destination_landmark_destination")
+  @@map("destination_landmarks")
 }
 
 model Tour {

@@ -8,11 +8,11 @@ import { useToast } from "@/components/ToastContext";
 import { trackBehavior } from "@/lib/behavior";
 import { mapImageUrl } from "@/lib/tour";
 
-const STORAGE_KEY = "tourai_conversation_id";
+const BASE_STORAGE_KEY = "tourai_conversation_id";
 const MESSAGE_STORAGE_KEY = "tourai_current_messages";
 const MEMORY_STORAGE_KEY = "tourai_current_memory";
 
-const starterMessages = [
+const CUSTOMER_STARTER_MESSAGES = [
   "Gợi ý tour phù hợp với tôi",
   "Tôi có voucher nào không?",
   "Kiểm tra booking của tôi",
@@ -20,8 +20,24 @@ const starterMessages = [
   "Tôi muốn đi Phú Quốc 3 ngày dưới 7 triệu",
 ];
 
-const greeting =
+const GUIDE_STARTER_MESSAGES = [
+  "Hôm nay tôi có tour nào?",
+  "Chuyến sắp tới của tôi là chuyến nào?",
+  "Cho tôi danh sách hành khách",
+  "Có khách nào cần lưu ý sức khỏe không?",
+  "Điểm đón chuyến sắp tới ở đâu?",
+  "Cho tôi xem lịch trình chuyến sắp tới",
+];
+
+const CUSTOMER_GREETING =
   "Xin chào! Mình là Travela AI. Mình có thể gợi ý tour theo nhu cầu, kiểm tra voucher, booking, điểm đón và chính sách. Bạn muốn mình hỗ trợ gì trước?";
+
+const GUIDE_GREETING =
+  "Xin chào! Tôi là trợ lý dành cho hướng dẫn viên Travela. Tôi có thể hỗ trợ kiểm tra lịch phân công, chuyến sắp tới, danh sách hành khách, lưu ý ăn uống - sức khỏe, điểm đón và lịch trình chuyến đi.";
+
+function scopeStorageKey(baseKey, isGuide) {
+  return isGuide ? `${baseKey}_guide` : baseKey;
+}
 
 function formatCurrency(value) {
   return new Intl.NumberFormat("vi-VN", {
@@ -590,6 +606,19 @@ function PickupCard({ point }) {
 export default function AssistantPage({ embed: embedProp = false }) {
   const router = useRouter();
   const embed = embedProp || router.query.embed === "1";
+  const isGuide = router.query.scope === "guide";
+  const chatScope = isGuide ? "guide" : "user";
+
+  const starterMessages = isGuide
+    ? GUIDE_STARTER_MESSAGES
+    : CUSTOMER_STARTER_MESSAGES;
+
+  const greeting = isGuide ? GUIDE_GREETING : CUSTOMER_GREETING;
+
+  const conversationStorageKey = scopeStorageKey(BASE_STORAGE_KEY, isGuide);
+  const messageStorageKey = scopeStorageKey(MESSAGE_STORAGE_KEY, isGuide);
+  const memoryStorageKey = scopeStorageKey(MEMORY_STORAGE_KEY, isGuide);
+
   const { showToast } = useToast();
   const [messages, setMessages] = useState([
     {
@@ -601,7 +630,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
       bookings: [],
       pickupPoints: [],
       bookingCheckout: null,
-      suggestedReplies: [],
+      suggestedReplies: starterMessages.slice(0, 3),
     },
   ]);
   const [question, setQuestion] = useState("");
@@ -622,50 +651,89 @@ export default function AssistantPage({ embed: embedProp = false }) {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    const savedMessages = window.localStorage.getItem(MESSAGE_STORAGE_KEY);
-    const savedMemory = window.localStorage.getItem(MEMORY_STORAGE_KEY);
+    if (!router.isReady || typeof window === "undefined") {
+      return;
+    }
+
+    const saved = window.localStorage.getItem(conversationStorageKey);
+    const savedMessages = window.localStorage.getItem(messageStorageKey);
+    const savedMemory = window.localStorage.getItem(memoryStorageKey);
+
+    let restoredMessages = false;
+
     if (savedMessages) {
       try {
         const parsedMessages = JSON.parse(savedMessages);
+
         if (Array.isArray(parsedMessages) && parsedMessages.length) {
           setMessages(parsedMessages.map(normalizeLoadedMessage));
+          restoredMessages = true;
         }
       } catch (error) {}
     }
+
+    if (!restoredMessages) {
+      setMessages([
+        {
+          role: "assistant",
+          content: greeting,
+          time: formatMessageTime(),
+          cards: [],
+          vouchers: [],
+          bookings: [],
+          pickupPoints: [],
+          bookingCheckout: null,
+          suggestedReplies: starterMessages.slice(0, 3),
+        },
+      ]);
+    }
+
     if (savedMemory) {
       try {
         const parsedMemory = JSON.parse(savedMemory);
-        if (parsedMemory && typeof parsedMemory === "object")
+
+        if (parsedMemory && typeof parsedMemory === "object") {
           setChatMemory(parsedMemory);
+        }
       } catch (error) {}
+    } else {
+      setChatMemory({});
     }
+
     refreshConversations(saved || null);
+
     if (saved) {
       setConversationId(saved);
       loadConversation(saved, { silent: true });
+    } else {
+      setConversationId(null);
     }
-  }, []);
+  }, [
+    router.isReady,
+    chatScope,
+    conversationStorageKey,
+    messageStorageKey,
+    memoryStorageKey,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (conversationId)
-      window.localStorage.setItem(STORAGE_KEY, conversationId);
-  }, [conversationId]);
+      window.localStorage.setItem(conversationStorageKey, conversationId);
+  }, [conversationId, conversationStorageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(MESSAGE_STORAGE_KEY, JSON.stringify(messages));
-  }, [messages]);
+    window.localStorage.setItem(messageStorageKey, JSON.stringify(messages));
+  }, [messages, messageStorageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(
-      MEMORY_STORAGE_KEY,
+      memoryStorageKey,
       JSON.stringify(chatMemory || {}),
     );
-  }, [chatMemory]);
+  }, [chatMemory, memoryStorageKey]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -753,7 +821,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
 
   const refreshConversations = async (preferredId = null) => {
     try {
-      const list = await apiFetch("/chatbot/conversations?scope=user");
+      const list = await apiFetch(`/chatbot/conversations?scope=${chatScope}`);
       const normalized = Array.isArray(list) ? list : [];
       setConversationList(normalized);
       const idToKeep = preferredId || conversationId;
@@ -854,13 +922,13 @@ export default function AssistantPage({ embed: embedProp = false }) {
                 bookings: [],
                 pickupPoints: [],
                 bookingCheckout: null,
-                suggestedReplies: [],
+                suggestedReplies: starterMessages.slice(0, 3),
               },
             ],
       );
       if (typeof window !== "undefined") {
         window.localStorage.setItem(
-          STORAGE_KEY,
+          conversationStorageKey,
           String(detail?.conversationId || detail?.id || id),
         );
       }
@@ -891,7 +959,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
       keyword: clean,
       score: 2,
       meta: {
-        source: "assistant",
+        source: isGuide ? "guide_assistant" : "assistant",
         conversationId: conversationId || null,
       },
     });
@@ -906,13 +974,17 @@ export default function AssistantPage({ embed: embedProp = false }) {
           conversationId,
           message: clean,
           memory: chatMemory,
+          scope: chatScope,
         }),
       });
       if (result?.conversationId) {
         const nextConversationId = String(result.conversationId);
         setConversationId(nextConversationId);
         if (typeof window !== "undefined") {
-          window.localStorage.setItem(STORAGE_KEY, nextConversationId);
+          window.localStorage.setItem(
+            conversationStorageKey,
+            nextConversationId,
+          );
         }
         refreshConversations(nextConversationId);
       }
@@ -983,9 +1055,9 @@ export default function AssistantPage({ embed: embedProp = false }) {
     notifiedPaymentsRef.current = new Set();
 
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem(STORAGE_KEY);
-      window.localStorage.removeItem(MESSAGE_STORAGE_KEY);
-      window.localStorage.removeItem(MEMORY_STORAGE_KEY);
+      window.localStorage.removeItem(conversationStorageKey);
+      window.localStorage.removeItem(messageStorageKey);
+      window.localStorage.removeItem(memoryStorageKey);
     }
 
     setMessages([
@@ -998,7 +1070,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
         bookings: [],
         pickupPoints: [],
         bookingCheckout: null,
-        suggestedReplies: [],
+        suggestedReplies: starterMessages.slice(0, 3),
       },
     ]);
   };
@@ -1006,7 +1078,9 @@ export default function AssistantPage({ embed: embedProp = false }) {
   return (
     <>
       <Head>
-        <title>Travela AI Assistant</title>
+        <title>
+          {isGuide ? "Trợ lý Hướng dẫn viên | Travela" : "Travela AI Assistant"}
+        </title>
         <style>{`
           html, body, #__next { height: 100%; }
           .chat-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -1030,7 +1104,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
         >
           <div className="container">
             <div style={{ color: "#16a34a", fontWeight: 800, marginBottom: 8 }}>
-              TRAVELA AI
+              {isGuide ? "TRAVELA GUIDE AI" : "TRAVELA AI"}
             </div>
             <h1
               style={{
@@ -1039,11 +1113,14 @@ export default function AssistantPage({ embed: embedProp = false }) {
                 fontSize: "2.2rem",
               }}
             >
-              Trợ lý tư vấn tour
+              {isGuide
+                ? "Trợ lý dành cho hướng dẫn viên"
+                : "Trợ lý tư vấn tour"}
             </h1>
             <p style={{ margin: "0 auto", color: "#64748b", maxWidth: 660 }}>
-              Hỏi tự nhiên về tour, voucher, booking, điểm đón và chính sách.
-              Bot dùng dữ liệu thật trong hệ thống Travela.
+              {isGuide
+                ? "Hỗ trợ lịch phân công, hành khách, lưu ý sức khỏe, điểm đón và lịch trình từ dữ liệu thật của Travela."
+                : "Hỏi tự nhiên về tour, voucher, booking, điểm đón và chính sách. Bot dùng dữ liệu thật trong hệ thống Travela."}
             </p>
           </div>
         </section>
@@ -1297,7 +1374,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
                       color: embed ? "#0f172a" : "#fff",
                     }}
                   >
-                    Travela AI
+                    {isGuide ? "Trợ lý Hướng dẫn viên" : "Travela AI"}
                   </strong>
                   <span
                     style={{
@@ -1306,8 +1383,12 @@ export default function AssistantPage({ embed: embedProp = false }) {
                     }}
                   >
                     {embed
-                      ? "Hỏi nhanh tour, booking, voucher..."
-                      : "Đang trực tuyến • trả lời theo dữ liệu hệ thống"}
+                      ? isGuide
+                        ? "Lịch tour, hành khách, điểm đón và điều hành"
+                        : "Hỏi nhanh tour, booking, voucher..."
+                      : isGuide
+                        ? "Trợ lý nghiệp vụ dành riêng cho hướng dẫn viên"
+                        : "Đang trực tuyến • trả lời theo dữ liệu hệ thống"}
                   </span>
                 </div>
               </div>
@@ -1548,7 +1629,9 @@ export default function AssistantPage({ embed: embedProp = false }) {
                         color: "#64748b",
                       }}
                     >
-                      Travela AI đang suy nghĩ...
+                      {isGuide
+                        ? "Trợ lý HDV đang kiểm tra dữ liệu..."
+                        : "Travela AI đang suy nghĩ..."}
                     </div>
                   </div>
                 ) : null}
@@ -1576,7 +1659,11 @@ export default function AssistantPage({ embed: embedProp = false }) {
                   onChange={(event) => setQuestion(event.target.value)}
                   onKeyDown={handleKeyDown}
                   rows={1}
-                  placeholder="Nhập câu hỏi của bạn..."
+                  placeholder={
+                    isGuide
+                      ? "Hỏi về lịch tour, hành khách, điểm đón..."
+                      : "Nhập câu hỏi của bạn..."
+                  }
                   style={{
                     resize: "none",
                     minHeight: 44,
@@ -1617,8 +1704,9 @@ export default function AssistantPage({ embed: embedProp = false }) {
                   textAlign: "center",
                 }}
               >
-                TourAI có thể mắc lỗi. Vui lòng kiểm tra thông tin quan trọng
-                trước khi thanh toán.
+                {isGuide
+                  ? "Dữ liệu được lấy theo phân công của bạn. Hãy đối chiếu lại các thông tin quan trọng trước khi điều hành chuyến đi."
+                  : "TourAI có thể mắc lỗi. Vui lòng kiểm tra thông tin quan trọng trước khi thanh toán."}
               </p>
             </footer>
           </div>

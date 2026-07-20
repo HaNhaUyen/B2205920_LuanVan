@@ -41,6 +41,285 @@ function strip(text = "") {
     .trim();
 }
 
+function findExactCatalogDestination(value = "", destinations = []) {
+  const target = strip(value);
+
+  if (!target) {
+    return "";
+  }
+
+  const exact = destinations.find((item) => strip(item?.name) === target);
+
+  return exact?.name || "";
+}
+
+function resolveExternalTheme(external = {}) {
+  const tags = Array.isArray(external?.scene_tags)
+    ? external.scene_tags.map((item) => strip(item)).filter(Boolean)
+    : [];
+
+  const evidence = Array.isArray(external?.visual_evidence)
+    ? external.visual_evidence
+        .map((item) => strip(item))
+        .filter(Boolean)
+        .join(" ")
+    : "";
+
+  const landmarkText = strip(
+    [
+      external?.landmark,
+      external?.destination,
+      external?.province,
+      external?.country,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  const fullText = strip(
+    [landmarkText, external?.reason, ...tags, evidence]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  const containsAny = (text, values) =>
+    values.some((value) => ` ${text} `.includes(` ${strip(value)} `));
+
+  /*
+   * Ưu tiên danh tính địa danh trước scene tags phụ.
+   * Eiffel có sông Seine trong ảnh vẫn phải là kiến trúc đô thị.
+   */
+
+  if (
+    containsAny(landmarkText, [
+      "eiffel",
+      "tháp eiffel",
+      "paris",
+      "tokyo tower",
+      "skytree",
+      "burj khalifa",
+      "empire state",
+      "landmark 81",
+      "bitexco",
+    ]) ||
+    containsAny(tags.join(" "), [
+      "city",
+      "urban",
+      "tower",
+      "architecture",
+      "modern architecture",
+      "city landmark",
+      "cityscape",
+      "skyline",
+    ]) ||
+    containsAny(fullText, [
+      "tháp",
+      "tower",
+      "kiến trúc",
+      "architecture",
+      "thành phố",
+      "city",
+      "cityscape",
+      "skyline",
+      "đô thị",
+      "urban",
+    ])
+  ) {
+    return {
+      theme: "culture",
+      label: "các tour thành phố, kiến trúc và văn hóa tương đồng",
+      category: "urban_architecture",
+    };
+  }
+
+  if (
+    containsAny(landmarkText, [
+      "giza",
+      "pyramid",
+      "kim tự tháp",
+      "machu picchu",
+      "angkor",
+      "colosseum",
+      "petra",
+      "taj mahal",
+      "acropolis",
+    ]) ||
+    containsAny(tags.join(" "), [
+      "heritage",
+      "temple",
+      "pagoda",
+      "ancient",
+      "culture",
+      "archaeology",
+      "pyramid",
+      "historical",
+      "monument",
+      "ruins",
+    ]) ||
+    containsAny(fullText, [
+      "di sản",
+      "văn hóa",
+      "phố cổ",
+      "đền",
+      "chùa",
+      "temple",
+      "heritage",
+      "ancient",
+      "pyramid",
+      "kim tự tháp",
+      "khảo cổ",
+      "archaeology",
+      "monument",
+      "di tích",
+      "cổ đại",
+      "lịch sử",
+    ])
+  ) {
+    return {
+      theme: "culture",
+      label: "các tour văn hóa, di sản và kiến trúc tương đồng",
+      category: "heritage",
+    };
+  }
+
+  if (
+    containsAny(landmarkText, [
+      "fuji",
+      "phú sĩ",
+      "fansipan",
+      "everest",
+      "matterhorn",
+      "mount fuji",
+      "núi phú sĩ",
+    ]) ||
+    containsAny(tags.join(" "), [
+      "mountain",
+      "forest",
+      "highland",
+      "valley",
+      "snow",
+      "volcano",
+      "trekking",
+    ]) ||
+    containsAny(fullText, [
+      "núi",
+      "mountain",
+      "volcano",
+      "snow",
+      "cao nguyên",
+      "thung lũng",
+      "rừng",
+      "trek",
+      "fansipan",
+      "phú sĩ",
+      "fuji",
+      "đỉnh núi",
+    ])
+  ) {
+    return {
+      theme: "mountain",
+      label: "các tour núi và cao nguyên tương đồng",
+      category: "mountain",
+    };
+  }
+
+  if (
+    containsAny(tags.join(" "), [
+      "beach",
+      "island",
+      "sea",
+      "ocean",
+      "coast",
+      "coastal",
+    ]) ||
+    containsAny(fullText, [
+      "biển",
+      "đảo",
+      "beach",
+      "island",
+      "sea",
+      "ocean",
+      "coast",
+      "ven biển",
+      "cát trắng",
+    ])
+  ) {
+    return {
+      theme: "beach",
+      label: "các tour biển và đảo tương đồng",
+      category: "beach",
+    };
+  }
+
+  if (
+    containsAny(tags.join(" "), [
+      "river",
+      "lake",
+      "waterway",
+      "floating market",
+      "wetland",
+    ]) ||
+    containsAny(fullText, [
+      "sông",
+      "hồ",
+      "river",
+      "lake",
+      "waterway",
+      "chợ nổi",
+      "kênh rạch",
+      "miền tây",
+    ])
+  ) {
+    return {
+      theme: "nature",
+      label: "các tour thiên nhiên và sông nước tương đồng",
+      category: "river_nature",
+    };
+  }
+
+  return {
+    theme: null,
+    label: "các tour có cảnh quan và trải nghiệm tương đồng",
+    category: "general",
+  };
+}
+
+function filterCatalogMatches(matches = [], destinations = []) {
+  const result = [];
+  const used = new Set();
+
+  for (const match of matches) {
+    const rawName =
+      match?.destination ||
+      match?.destination_name ||
+      match?.name ||
+      match?.label ||
+      "";
+
+    const catalogName = findExactCatalogDestination(rawName, destinations);
+
+    if (!catalogName) {
+      continue;
+    }
+
+    const key = strip(catalogName);
+
+    if (used.has(key)) {
+      continue;
+    }
+
+    used.add(key);
+
+    result.push({
+      ...match,
+      destination: catalogName,
+      destination_name: catalogName,
+    });
+  }
+
+  return result;
+}
+
 function normalizeDestination(value = "", destinations = []) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -232,96 +511,390 @@ export default function AISmartSearchBar({
   };
 
   const imageSearch = async (file) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/"))
-      return showToast("Vui lòng chọn file ảnh.", "error");
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      showToast("Vui lòng chọn đúng file hình ảnh.", "warning", 5000, {
+        title: "File không hợp lệ",
+      });
+      return;
+    }
 
     if (imagePreview) {
       URL.revokeObjectURL(imagePreview);
     }
 
     const previewUrl = URL.createObjectURL(file);
+
     setImagePreview(previewUrl);
     setKeyword("");
-
     setBusy(true);
     setMatches([]);
+
     try {
       const form = new FormData();
       form.append("file", file);
+
       const result = await aiFetch("/image-search-upload?top_k=12", {
         method: "POST",
         body: form,
       });
-      const detectedDestination =
-        normalizeDestination(
-          result?.detected?.destination || result?.detected?.destination_name,
-          destinations,
-        ) ||
-        normalizeDestination(
-          result?.destination || result?.destination_name,
-          destinations,
-        ) ||
-        destinationFromFilename(file.name, destinations);
-      const topMatches = result?.top_matches || result?.topMatches || [];
-      const imageQuery = buildImageDestinationQuery(
-        topMatches,
-        detectedDestination,
+
+      const lowConfidence = Boolean(result?.low_confidence);
+
+      const external = result?.external_recognition || null;
+
+      const externalRecognized = Boolean(
+        external?.recognized && Number(external?.confidence || 0) >= 0.72,
+      );
+
+      const externalLocation =
+        external?.province || external?.destination || external?.landmark || "";
+
+      /*
+       * Chỉ coi kết quả Vision là điểm đến nội bộ
+       * khi tên đó khớp chính xác với dữ liệu destinations.
+       *
+       * Ví dụ:
+       * - Tây Ninh: có trong hệ thống.
+       * - Phú Sĩ/Paris: không có trong hệ thống.
+       */
+      const internalExternalDestination = externalRecognized
+        ? findExactCatalogDestination(externalLocation, destinations)
+        : "";
+
+      /*
+       * display_matches là danh sách AI service cho phép hiển thị.
+       * Khi low_confidence=true, tuyệt đối không dùng top CLIP
+       * để lọc tour trực tiếp.
+       */
+      const rawClipMatches =
+        result?.display_matches ||
+        (!lowConfidence ? result?.top_matches || result?.topMatches || [] : []);
+
+      const catalogClipMatches = filterCatalogMatches(
+        rawClipMatches,
         destinations,
       );
 
+      let imageQuery = {
+        names: [],
+        matches: [],
+        scores: [],
+      };
+
+      /*
+       * 1. CLIP đủ tin cậy:
+       * dùng các điểm đến nội bộ đã được kiểm tra.
+       */
+      if (!lowConfidence && catalogClipMatches.length) {
+        imageQuery = buildImageDestinationQuery(
+          catalogClipMatches,
+          "",
+          destinations,
+        );
+      }
+
+      /*
+       * 2. CLIP không chắc chắn nhưng Vision nhận ra
+       * địa danh có trong database.
+       *
+       * Ví dụ Núi Bà Đen -> Tây Ninh.
+       */
+      if (lowConfidence && externalRecognized && internalExternalDestination) {
+        const confidence = Math.max(
+          0,
+          Math.min(Number(external?.confidence || 0), 0.99),
+        );
+
+        imageQuery = {
+          names: [internalExternalDestination],
+          matches: [
+            {
+              destination: internalExternalDestination,
+              confidence,
+              source: `vision_${external?.provider || "external"}`,
+              landmark: external?.landmark || null,
+              province: external?.province || null,
+              country: external?.country || null,
+              reason: external?.reason || null,
+            },
+          ],
+          scores: [
+            {
+              destination: internalExternalDestination,
+              confidence,
+            },
+          ],
+        };
+      }
+
+      /*
+       * 3. Vision nhận đúng địa danh ngoài database:
+       * không đưa tên ngoài hệ thống vào imageDestinations.
+       * Thay vào đó giới thiệu tour theo chủ đề tương đồng.
+       *
+       * Ví dụ:
+       * Núi Phú Sĩ -> theme=mountain
+       * Eiffel -> theme=culture/city nếu model trả tag phù hợp
+       */
+      if (externalRecognized && !internalExternalDestination) {
+        const similarTheme = resolveExternalTheme(external);
+
+        const debugTopMatches = result?.top_matches || result?.topMatches || [];
+
+        const validInternalMatches = filterCatalogMatches(
+          debugTopMatches,
+          destinations,
+        );
+
+        const similarQuery = buildImageDestinationQuery(
+          validInternalMatches,
+          "",
+          destinations,
+        );
+
+        /*
+         * Badge chỉ hiển thị các điểm đến nội bộ gần giống.
+         * Không bao giờ hiển thị Phú Sĩ/Paris như một điểm đến
+         * có tour trong hệ thống.
+         */
+        setMatches(similarQuery.matches);
+
+        const recognizedLabel = [
+          external?.landmark,
+          external?.destination,
+          external?.country,
+        ]
+          .filter(Boolean)
+          .join(", ");
+
+        apply(
+          {
+            theme: similarTheme.theme || null,
+            imageDestinations: null,
+            imageDestinationScores: null,
+            destination: null,
+            search: "",
+          },
+          "",
+        );
+
+        trackBehavior({
+          action: "image_search",
+          keyword: recognizedLabel || file.name,
+          score: 2,
+          meta: {
+            source: "external_landmark_similar_theme",
+            filename: file.name,
+            externalRecognition: external,
+            externalInCatalog: false,
+            suggestedTheme: similarTheme.theme,
+            suggestedCategory: similarTheme.category,
+            similarDestinations: similarQuery.names,
+          },
+        });
+
+        showToast(
+          recognizedLabel
+            ? `AI nhận diện đây có thể là ${recognizedLabel}. Travela hiện chưa có tour đến địa danh này, nên đang giới thiệu ${similarTheme.label} trong hệ thống.`
+            : `Travela chưa có tour đến địa danh trong ảnh, nên đang giới thiệu ${similarTheme.label} trong hệ thống.`,
+          "warning",
+          8000,
+          {
+            title: "Gợi ý tour tương đồng",
+          },
+        );
+
+        return;
+      }
+
+      /*
+       * 4. Ảnh là tài liệu, screenshot, đồ vật
+       * hoặc không nhận diện đủ chắc chắn.
+       */
+      if (lowConfidence && !externalRecognized) {
+        setMatches([]);
+
+        apply(
+          {
+            imageDestinations: null,
+            imageDestinationScores: null,
+            destination: null,
+            search: "",
+            theme: null,
+          },
+          "",
+        );
+
+        const imageType = String(
+          external?.image_type || "unknown",
+        ).toLowerCase();
+
+        const technicalReason = String(external?.reason || "").toLowerCase();
+
+        const isDocument = ["document", "screenshot"].includes(imageType);
+
+        const isNonTravel = ["object", "food", "animal"].includes(imageType);
+
+        const isTechnicalError =
+          technicalReason.includes("json") ||
+          technicalReason.includes("provider") ||
+          technicalReason.includes("groq") ||
+          technicalReason.includes("openrouter") ||
+          technicalReason.includes("choices") ||
+          technicalReason.includes("timeout") ||
+          technicalReason.includes("api") ||
+          technicalReason.includes("model");
+
+        if (isDocument) {
+          showToast(
+            "Ảnh này là tài liệu, chữ viết hoặc ảnh chụp màn hình nên không thể dùng để tìm địa danh du lịch.",
+            "warning",
+            6500,
+            {
+              title: "Ảnh không phù hợp",
+            },
+          );
+
+          return;
+        }
+
+        if (isNonTravel) {
+          showToast(
+            "Ảnh không phải phong cảnh hoặc công trình du lịch. Vui lòng chọn ảnh địa điểm rõ hơn.",
+            "warning",
+            6000,
+            {
+              title: "Không nhận diện được địa danh",
+            },
+          );
+
+          return;
+        }
+
+        if (isTechnicalError) {
+          showToast(
+            "AI chưa thể xác định địa điểm trong ảnh ở lần thử này. Bạn hãy thử lại hoặc chọn một ảnh rõ hơn.",
+            "warning",
+            6500,
+            {
+              title: "Chưa thể nhận diện",
+            },
+          );
+
+          return;
+        }
+
+        showToast(
+          external?.reason ||
+            "Không thể xác định chắc chắn địa điểm trong ảnh. Hãy chọn ảnh phong cảnh hoặc công trình du lịch rõ hơn.",
+          "warning",
+          6500,
+          {
+            title: "Chưa đủ độ tin cậy",
+          },
+        );
+
+        return;
+      }
+
+      /*
+       * 5. CLIP hoặc Vision trả điểm đến nội bộ hợp lệ.
+       */
       setMatches(imageQuery.matches);
+
       trackBehavior({
         action: "image_search",
-        keyword:
-          imageQuery.names.join(", ") || detectedDestination || file.name,
+        keyword: imageQuery.names.join(", ") || externalLocation || file.name,
         score: 2,
         meta: {
-          source: "ai_smart_image_search_multi_destination",
+          source: "ai_smart_image_search_validated",
           filename: file.name,
-          detectedDestination,
           imageDestinations: imageQuery.names,
-          topMatches,
+          lowConfidence,
+          externalRecognition: external,
         },
       });
 
       if (imageQuery.names.length) {
         const label = imageQuery.names.slice(0, 3).join(", ");
+
         apply(
           {
             imageDestinations: imageQuery.names.join("|"),
             imageDestinationScores: JSON.stringify(imageQuery.scores),
             destination: null,
             search: "",
+            theme: null,
           },
           "",
         );
-        showToast(`Đã tìm tour tương đồng: ${label}`, "success");
-      } else {
-        const fallback = destinationFromFilename(file.name, destinations);
-        apply(
+
+        const landmarkLabel =
+          externalRecognized && external?.landmark
+            ? ` AI nhận diện: ${external.landmark}${
+                external?.province ? `, ${external.province}` : ""
+              }.`
+            : "";
+
+        showToast(
+          `Đã tìm thấy tour phù hợp tại ${label}.${landmarkLabel}`,
+          "success",
+          6000,
           {
-            destination: fallback || null,
-            imageDestinations: null,
-            search: fallback || file.name,
+            title: "Đã tìm thấy điểm đến",
           },
-          fallback
-            ? `AI dùng fallback từ tên file và gợi ý ${fallback}.`
-            : "Ảnh chưa nhận diện rõ, hệ thống lọc theo tên ảnh.",
         );
+
+        return;
       }
-    } catch (error) {
-      const fallback = destinationFromFilename(file.name, destinations);
+
       apply(
-        { destination: fallback || null, search: fallback || file.name },
-        fallback
-          ? `AI service chưa phản hồi, fallback theo tên file: ${fallback}.`
-          : "AI service chưa phản hồi, vui lòng kiểm tra ai-service port 8000.",
+        {
+          imageDestinations: null,
+          imageDestinationScores: null,
+          destination: null,
+          search: "",
+          theme: null,
+        },
+        "",
       );
-      showToast(error.message, "error");
+
+      showToast("Không tìm thấy điểm đến phù hợp từ ảnh.", "warning", 5500, {
+        title: "Không có kết quả",
+      });
+    } catch (error) {
+      setMatches([]);
+
+      apply(
+        {
+          imageDestinations: null,
+          imageDestinationScores: null,
+          destination: null,
+          search: "",
+          theme: null,
+        },
+        "",
+      );
+
+      showToast(
+        error?.message ||
+          "AI service chưa phản hồi. Vui lòng kiểm tra cổng 8000.",
+        "error",
+        6500,
+        {
+          title: "Không thể tìm kiếm ảnh",
+        },
+      );
     } finally {
       setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
+
+      if (fileRef.current) {
+        fileRef.current.value = "";
+      }
     }
   };
 
@@ -427,6 +1000,7 @@ export default function AISmartSearchBar({
                     imageDestinationScores: null,
                     destination: null,
                     search: "",
+                    theme: null,
                     page: null,
                   });
                 }}
@@ -540,46 +1114,6 @@ export default function AISmartSearchBar({
           }}
         >
           {summary}
-        </div>
-      )}
-      {!!matches.length && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {matches.slice(0, 3).map((m, idx) => {
-            const destinationName = normalizeDestination(
-              m.destination || m.destination_name || m.label,
-              destinations,
-            );
-            return (
-              <button
-                key={`${destinationName}-${idx}`}
-                type="button"
-                className="badge"
-                title="Bấm để chỉ lọc riêng điểm đến này"
-                onClick={() =>
-                  apply(
-                    {
-                      destination: destinationName,
-                      imageDestinations: null,
-                      imageDestinationScores: null,
-                      search: destinationName,
-                    },
-                    `Đang lọc riêng tour ${destinationName}.`,
-                  )
-                }
-                style={{
-                  border: 0,
-                  cursor: "pointer",
-                  fontWeight: idx === 0 ? 800 : 700,
-                  background: idx === 0 ? "#dcfce7" : "#f8fafc",
-                }}
-              >
-                Top {idx + 1}: {destinationName || m.label}{" "}
-                {typeof m.confidence === "number"
-                  ? `${Math.round(m.confidence * 100)}%`
-                  : ""}
-              </button>
-            );
-          })}
         </div>
       )}
     </div>

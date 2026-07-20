@@ -37,7 +37,7 @@ const TIER_META = {
   bronze: { label: "Bronze", min: 0, next: "silver" },
   silver: { label: "Silver", min: 500, next: "gold" },
   gold: { label: "Gold", min: 1500, next: "diamond" },
-  diamond: { label: "Diamond", min: 4000, next: null },
+  diamond: { label: "Diamond", min: 3000, next: null },
 };
 
 function getTierProgress(user = {}) {
@@ -97,67 +97,71 @@ function resolveImageUrl(value) {
   const raw = String(value).trim();
   if (!raw) return FALLBACK_TOUR_IMAGE;
 
-  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
 
   if (raw.startsWith("/img/") || raw.startsWith("/images/")) {
     return raw;
   }
 
-  const base = String(API_URL || "").replace(/\/$/, "");
+  /*
+   * NEXT_PUBLIC_API_URL của dự án là:
+   * http://localhost:3001/api
+   *
+   * Trong khi ảnh tĩnh được backend phục vụ ở:
+   * http://localhost:3001/uploads/...
+   *
+   * Vì vậy phải bỏ "/api" trước khi ghép đường dẫn ảnh.
+   */
+  const assetBase = String(API_URL || "")
+    .trim()
+    .replace(/\/$/, "")
+    .replace(/\/api$/i, "");
 
-  if (raw.startsWith("/uploads/")) {
-    return `${base}${raw}`;
-  }
+  const cleanPath = raw.startsWith("/") ? raw : `/${raw}`;
 
-  if (raw.startsWith("uploads/")) {
-    return `${base}/${raw}`;
-  }
-
-  return raw.startsWith("/") ? `${base}${raw}` : `${base}/${raw}`;
-}
-
-function getMediaTimestamp(item) {
-  const raw =
-    item?.updatedAt ||
-    item?.updated_at ||
-    item?.createdAt ||
-    item?.created_at ||
-    null;
-
-  const timestamp = raw ? new Date(raw).getTime() : 0;
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function getMediaId(item) {
-  const value = Number(item?.id || 0);
-  return Number.isFinite(value) ? value : 0;
-}
-
-function getMediaUrl(item) {
-  return item?.fileUrl || item?.imageUrl || item?.url || item?.path || "";
-}
-
-function appendImageVersion(url, version) {
-  if (!url || !version) return url;
-
-  const separator = String(url).includes("?") ? "&" : "?";
-  return `${url}${separator}v=${encodeURIComponent(version)}`;
+  return `${assetBase}${cleanPath}`;
 }
 
 function getTourImage(tour) {
-  const coverMedia =
-    Array.isArray(tour?.media) && tour.media.length ? tour.media[0] : null;
+  const mediaRows = Array.isArray(tour?.media)
+    ? [...tour.media].sort((a, b) => {
+        const aCover = Boolean(a?.isCover ?? a?.is_cover);
+        const bCover = Boolean(b?.isCover ?? b?.is_cover);
 
+        if (aCover !== bCover) {
+          return aCover ? -1 : 1;
+        }
+
+        const aOrder = Number(a?.displayOrder ?? a?.display_order ?? 999999);
+        const bOrder = Number(b?.displayOrder ?? b?.display_order ?? 999999);
+
+        return aOrder - bOrder;
+      })
+    : [];
+
+  const coverMedia = mediaRows[0] || null;
+
+  /*
+   * Ưu tiên ảnh thuộc chính tour.
+   * Không fallback sang destination.coverImage,
+   * vì nhiều tour khác nhau sẽ bị hiện cùng một ảnh.
+   */
   const image =
     coverMedia?.fileUrl ||
+    coverMedia?.file_url ||
     coverMedia?.imageUrl ||
+    coverMedia?.image_url ||
     coverMedia?.url ||
     tour?.coverUrl ||
+    tour?.cover_url ||
     tour?.coverImage ||
+    tour?.cover_image ||
     tour?.thumbnailUrl ||
+    tour?.thumbnail_url ||
     tour?.imageUrl ||
-    tour?.destination?.coverImage ||
-    tour?.destination?.imageUrl ||
+    tour?.image_url ||
     "";
 
   return resolveImageUrl(image);
@@ -236,33 +240,6 @@ function canCancelBooking(booking) {
   return bookingStatus === "pending_payment" && !hasProtectedPayment;
 }
 
-function formatTourDate(value) {
-  if (!value) return "Đang cập nhật";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Đang cập nhật";
-
-  return date.toLocaleDateString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-function getBookingStatusLabel(status) {
-  const labels = {
-    draft: "Bản nháp",
-    pending_payment: "Chờ thanh toán",
-    waiting_confirmation: "Chờ xác nhận",
-    confirmed: "Đã xác nhận",
-    completed: "Đã hoàn thành",
-    cancelled: "Đã hủy",
-    expired: "Đã hết hạn",
-  };
-
-  return labels[String(status || "").toLowerCase()] || "Đang cập nhật";
-}
-
 function BookingStatusBadge({ status }) {
   const color = getStatusColor(status);
 
@@ -279,7 +256,7 @@ function BookingStatusBadge({ status }) {
         fontWeight: 800,
       }}
     >
-      {getBookingStatusLabel(status)}
+      {mapLabel(status)}
     </span>
   );
 }
@@ -330,20 +307,11 @@ function BookingCard({ booking, onPay, onCancel, cancellingId }) {
 
           <div className="booking-badges">
             <BookingStatusBadge status={booking.bookingStatus} />
-
-            <div className="tour-date-range">
-              <div className="tour-date-item">
-                <span>Ngày đi</span>
-                <strong>{formatTourDate(departure?.departureDate)}</strong>
-              </div>
-
-              <div className="tour-date-arrow">→</div>
-
-              <div className="tour-date-item">
-                <span>Ngày về</span>
-                <strong>{formatTourDate(departure?.endDate)}</strong>
-              </div>
-            </div>
+            {departure?.departureDate ? (
+              <span className="date-pill">
+                🗓 {formatDate(departure.departureDate)}
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -1066,55 +1034,6 @@ export default function MyTourPage() {
           font-weight: 700;
         }
 
-        .tour-date-range {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 9px 12px;
-          border: 1px solid #dbeafe;
-          border-radius: 14px;
-          background: #f8fbff;
-        }
-
-        .tour-date-item {
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          min-width: 86px;
-        }
-
-        .tour-date-item span {
-          color: #64748b;
-          font-size: 11px;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.35px;
-        }
-
-        .tour-date-item strong {
-          color: #0f172a;
-          font-size: 13px;
-          white-space: nowrap;
-        }
-
-        .tour-date-arrow {
-          color: #2563eb;
-          font-weight: 900;
-        }
-
-        html.dark-mode .tour-date-range {
-          background: rgba(37, 99, 235, 0.1);
-          border-color: rgba(96, 165, 250, 0.28);
-        }
-
-        html.dark-mode .tour-date-item span {
-          color: #94a3b8;
-        }
-
-        html.dark-mode .tour-date-item strong {
-          color: #f8fafc;
-        }
-
         .booking-info-grid {
           background: #f8fafc;
           border-radius: 18px;
@@ -1483,11 +1402,6 @@ export default function MyTourPage() {
 
           .booking-badges {
             justify-content: flex-start;
-          }
-
-          .tour-date-range {
-            width: 100%;
-            justify-content: space-between;
           }
         }
       `}</style>

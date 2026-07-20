@@ -11165,3 +11165,1060 @@ DROP TEMPORARY TABLE IF EXISTS tmp_refund_bank_seed;
 
 SET SQL_SAFE_UPDATES = 1;
 
+-- Chạy trên đúng database Travela.
+-- Script an toàn để chạy lại: CREATE TABLE IF NOT EXISTS + INSERT ... ON DUPLICATE KEY UPDATE.
+
+CREATE TABLE IF NOT EXISTS destination_landmarks (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  destination_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(180) NOT NULL,
+  normalized_name VARCHAR(180) NOT NULL,
+  aliases JSON NULL,
+  description TEXT NULL,
+  latitude DECIMAL(10,7) NULL,
+  longitude DECIMAL(10,7) NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_destination_landmark (destination_id, normalized_name),
+  KEY idx_destination_landmark_normalized (normalized_name),
+  KEY idx_destination_landmark_destination (destination_id),
+  CONSTRAINT destination_landmarks_ibfk_1
+    FOREIGN KEY (destination_id) REFERENCES destinations(id)
+    ON DELETE CASCADE ON UPDATE NO ACTION
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Tây Ninh
+INSERT INTO destination_landmarks
+(destination_id, name, normalized_name, aliases, description, status)
+SELECT d.id, 'Núi Bà Đen', 'nui ba den',
+       JSON_ARRAY('núi bà đen','nui ba den','bà đen','ba den','black virgin mountain'),
+       'Địa danh du lịch nổi tiếng tại tỉnh Tây Ninh.', 'active'
+FROM destinations d
+WHERE LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%tây ninh%'
+   OR LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%tay ninh%'
+ORDER BY d.id LIMIT 1
+ON DUPLICATE KEY UPDATE name=VALUES(name), aliases=VALUES(aliases), description=VALUES(description), status='active';
+
+INSERT INTO destination_landmarks
+(destination_id, name, normalized_name, aliases, description, status)
+SELECT d.id, 'Tòa Thánh Cao Đài Tây Ninh', 'toa thanh cao dai tay ninh',
+       JSON_ARRAY('tòa thánh tây ninh','toa thanh tay ninh','tòa thánh cao đài','cao dai holy see'),
+       'Công trình tôn giáo nổi tiếng tại Tây Ninh.', 'active'
+FROM destinations d
+WHERE LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%tây ninh%'
+   OR LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%tay ninh%'
+ORDER BY d.id LIMIT 1
+ON DUPLICATE KEY UPDATE name=VALUES(name), aliases=VALUES(aliases), description=VALUES(description), status='active';
+
+-- An Giang
+INSERT INTO destination_landmarks
+(destination_id, name, normalized_name, aliases, description, status)
+SELECT d.id, 'Miếu Bà Chúa Xứ Núi Sam', 'mieu ba chua xu nui sam',
+       JSON_ARRAY('miếu bà chúa xứ','mieu ba chua xu','núi sam','nui sam','châu đốc','chau doc'),
+       'Địa danh hành hương nổi tiếng tại Châu Đốc, An Giang.', 'active'
+FROM destinations d
+WHERE LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%an giang%'
+ORDER BY d.id LIMIT 1
+ON DUPLICATE KEY UPDATE name=VALUES(name), aliases=VALUES(aliases), description=VALUES(description), status='active';
+
+-- Ninh Bình
+INSERT INTO destination_landmarks
+(destination_id, name, normalized_name, aliases, description, status)
+SELECT d.id, 'Quần thể danh thắng Tràng An', 'trang an',
+       JSON_ARRAY('tràng an','trang an','khu du lịch tràng an','ninh bình','ninh binh'),
+       'Quần thể danh thắng tại Ninh Bình.', 'active'
+FROM destinations d
+WHERE LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%ninh bình%'
+   OR LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%ninh binh%'
+ORDER BY d.id LIMIT 1
+ON DUPLICATE KEY UPDATE name=VALUES(name), aliases=VALUES(aliases), description=VALUES(description), status='active';
+
+-- Đà Nẵng
+INSERT INTO destination_landmarks
+(destination_id, name, normalized_name, aliases, description, status)
+SELECT d.id, 'Bà Nà Hills', 'ba na hills',
+       JSON_ARRAY('bà nà hills','ba na hills','bà nà','ba na','cầu vàng','cau vang','golden bridge'),
+       'Khu du lịch nổi tiếng tại Đà Nẵng.', 'active'
+FROM destinations d
+WHERE LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%đà nẵng%'
+   OR LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%da nang%'
+ORDER BY d.id LIMIT 1
+ON DUPLICATE KEY UPDATE name=VALUES(name), aliases=VALUES(aliases), description=VALUES(description), status='active';
+
+-- Cần Thơ
+INSERT INTO destination_landmarks
+(destination_id, name, normalized_name, aliases, description, status)
+SELECT d.id, 'Chợ nổi Cái Răng', 'cho noi cai rang',
+       JSON_ARRAY('chợ nổi cái răng','cho noi cai rang','cái răng','cai rang','floating market'),
+       'Chợ nổi đặc trưng của thành phố Cần Thơ.', 'active'
+FROM destinations d
+WHERE LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%cần thơ%'
+   OR LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%can tho%'
+ORDER BY d.id LIMIT 1
+ON DUPLICATE KEY UPDATE name=VALUES(name), aliases=VALUES(aliases), description=VALUES(description), status='active';
+
+-- Bình Thuận / Mũi Né
+INSERT INTO destination_landmarks
+(destination_id, name, normalized_name, aliases, description, status)
+SELECT d.id, 'Bàu Trắng', 'bau trang',
+       JSON_ARRAY('bàu trắng','bau trang','đồi cát bàu trắng','doi cat bau trang','đồi cát trắng','white sand dunes'),
+       'Đồi cát và hồ nước nổi tiếng tại Bình Thuận.', 'active'
+FROM destinations d
+WHERE LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%bình thuận%'
+   OR LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%binh thuan%'
+   OR LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%mũi né%'
+   OR LOWER(CONCAT(d.name, ' ', d.province)) LIKE '%mui ne%'
+ORDER BY d.id LIMIT 1
+ON DUPLICATE KEY UPDATE name=VALUES(name), aliases=VALUES(aliases), description=VALUES(description), status='active';
+
+SELECT dl.id, dl.name AS landmark, d.name AS destination, d.province, dl.aliases
+FROM destination_landmarks dl
+JOIN destinations d ON d.id = dl.destination_id
+ORDER BY d.province, dl.name;
+
+
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Hòn Thơm',
+    'hon thom',
+    JSON_ARRAY(
+        'hòn thơm',
+        'hon thom',
+        'cáp treo hòn thơm',
+        'cap treo hon thom',
+        'sun world hòn thơm',
+        'sun world hon thom',
+        'đảo hòn thơm',
+        'hon thom island'
+    ),
+    'Địa danh biển đảo và khu vui chơi nổi tiếng tại Phú Quốc, Kiên Giang.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%phú quốc%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%phu quoc%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%kiên giang%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%kien giang%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%phú quốc%'
+          OR LOWER(d.name) LIKE '%phu quoc%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   2. NHA TRANG - KHÁNH HÒA
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Tháp Bà Ponagar',
+    'thap ba ponagar',
+    JSON_ARRAY(
+        'tháp bà ponagar',
+        'thap ba ponagar',
+        'tháp bà po nagar',
+        'thap ba po nagar',
+        'po nagar',
+        'ponagar',
+        'tháp chăm nha trang',
+        'cham towers nha trang'
+    ),
+    'Quần thể kiến trúc Chăm Pa nổi tiếng tại thành phố Nha Trang, Khánh Hòa.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%nha trang%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%khánh hòa%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%khanh hoa%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%nha trang%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   3. ĐÀ LẠT - LÂM ĐỒNG
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Núi Langbiang',
+    'nui langbiang',
+    JSON_ARRAY(
+        'núi langbiang',
+        'nui langbiang',
+        'langbiang',
+        'lang biang',
+        'đỉnh langbiang',
+        'dinh langbiang',
+        'langbiang mountain'
+    ),
+    'Ngọn núi và điểm tham quan nổi tiếng tại Đà Lạt, Lâm Đồng.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%đà lạt%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%da lat%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%dalat%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%lâm đồng%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%lam dong%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%đà lạt%'
+          OR LOWER(d.name) LIKE '%da lat%'
+          OR LOWER(d.name) LIKE '%dalat%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   4. ĐÀ NẴNG
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Bà Nà Hills',
+    'ba na hills',
+    JSON_ARRAY(
+        'bà nà hills',
+        'ba na hills',
+        'bà nà',
+        'ba na',
+        'cầu vàng',
+        'cau vang',
+        'golden bridge',
+        'sun world bà nà hills',
+        'sun world ba na hills'
+    ),
+    'Khu du lịch nổi tiếng với Cầu Vàng tại thành phố Đà Nẵng.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%đà nẵng%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%da nang%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%danang%'
+ORDER BY d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   5. CẦN THƠ
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Chợ nổi Cái Răng',
+    'cho noi cai rang',
+    JSON_ARRAY(
+        'chợ nổi cái răng',
+        'cho noi cai rang',
+        'cái răng',
+        'cai rang',
+        'chợ nổi cần thơ',
+        'cho noi can tho',
+        'cai rang floating market',
+        'floating market'
+    ),
+    'Chợ nổi đặc trưng của vùng sông nước Cần Thơ.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%cần thơ%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%can tho%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%cantho%'
+ORDER BY d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   6. SA PA - LÀO CAI
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Đỉnh Fansipan',
+    'dinh fansipan',
+    JSON_ARRAY(
+        'đỉnh fansipan',
+        'dinh fansipan',
+        'fansipan',
+        'phan xi păng',
+        'phan xi pang',
+        'nóc nhà đông dương',
+        'noc nha dong duong',
+        'fansipan mountain'
+    ),
+    'Đỉnh núi cao nổi tiếng tại Sa Pa, Lào Cai.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%sa pa%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%sapa%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%lào cai%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%lao cai%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%sa pa%'
+          OR LOWER(d.name) LIKE '%sapa%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   7. HẠ LONG - QUẢNG NINH
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Vịnh Hạ Long',
+    'vinh ha long',
+    JSON_ARRAY(
+        'vịnh hạ long',
+        'vinh ha long',
+        'hạ long bay',
+        'ha long bay',
+        'halong bay',
+        'vịnh đá vôi',
+        'du thuyền hạ long',
+        'du thuyen ha long'
+    ),
+    'Di sản thiên nhiên nổi tiếng tại Quảng Ninh.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%hạ long%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%ha long%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%halong%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%quảng ninh%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%quang ninh%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%hạ long%'
+          OR LOWER(d.name) LIKE '%ha long%'
+          OR LOWER(d.name) LIKE '%halong%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   8. HỘI AN - QUẢNG NAM
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Phố cổ Hội An',
+    'pho co hoi an',
+    JSON_ARRAY(
+        'phố cổ hội an',
+        'pho co hoi an',
+        'hội an',
+        'hoi an',
+        'hoian',
+        'chùa cầu',
+        'chua cau',
+        'đèn lồng hội an',
+        'den long hoi an',
+        'hoi an ancient town'
+    ),
+    'Khu phố cổ nổi tiếng tại Quảng Nam.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%hội an%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%hoi an%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%hoian%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%hội an%'
+          OR LOWER(d.name) LIKE '%hoi an%'
+          OR LOWER(d.name) LIKE '%hoian%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   9. HUẾ
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Đại Nội Huế',
+    'dai noi hue',
+    JSON_ARRAY(
+        'đại nội huế',
+        'dai noi hue',
+        'đại nội',
+        'dai noi',
+        'kinh thành huế',
+        'kinh thanh hue',
+        'hoàng thành huế',
+        'hoang thanh hue',
+        'hue imperial city',
+        'cố đô huế',
+        'co do hue'
+    ),
+    'Quần thể kiến trúc cung đình nổi tiếng tại cố đô Huế.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%huế%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%hue%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%thừa thiên%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%thua thien%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%huế%'
+          OR LOWER(d.name) LIKE '%hue%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   10. MŨI NÉ - BÌNH THUẬN
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Bàu Trắng',
+    'bau trang',
+    JSON_ARRAY(
+        'bàu trắng',
+        'bau trang',
+        'đồi cát bàu trắng',
+        'doi cat bau trang',
+        'đồi cát trắng',
+        'doi cat trang',
+        'white sand dunes',
+        'bình thuận sand dunes',
+        'mui ne sand dunes'
+    ),
+    'Đồi cát và hồ nước nổi tiếng tại Bình Thuận, gần khu vực Mũi Né.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%mũi né%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%mui ne%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%bình thuận%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%binh thuan%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%mũi né%'
+          OR LOWER(d.name) LIKE '%mui ne%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   11. QUY NHƠN - BÌNH ĐỊNH
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Kỳ Co',
+    'ky co',
+    JSON_ARRAY(
+        'kỳ co',
+        'ky co',
+        'bãi kỳ co',
+        'bai ky co',
+        'biển kỳ co',
+        'bien ky co',
+        'ky co beach',
+        'đảo kỳ co',
+        'dao ky co'
+    ),
+    'Bãi biển nổi tiếng tại Quy Nhơn, Bình Định.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%quy nhơn%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%quy nhon%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%bình định%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%binh dinh%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%quy nhơn%'
+          OR LOWER(d.name) LIKE '%quy nhon%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   12. NINH BÌNH
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Quần thể danh thắng Tràng An',
+    'trang an',
+    JSON_ARRAY(
+        'tràng an',
+        'trang an',
+        'khu du lịch tràng an',
+        'khu du lich trang an',
+        'quần thể danh thắng tràng an',
+        'quan the danh thang trang an',
+        'trang an scenic landscape complex'
+    ),
+    'Quần thể danh thắng nổi tiếng tại tỉnh Ninh Bình.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%ninh bình%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%ninh binh%'
+ORDER BY d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   13. HÀ GIANG
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Đèo Mã Pì Lèng',
+    'deo ma pi leng',
+    JSON_ARRAY(
+        'đèo mã pì lèng',
+        'deo ma pi leng',
+        'mã pì lèng',
+        'ma pi leng',
+        'mã pí lèng',
+        'ma pi leng pass',
+        'hẻm vực tu sản',
+        'hem vuc tu san',
+        'sông nho quế',
+        'song nho que'
+    ),
+    'Cung đèo nổi tiếng trên cao nguyên đá Hà Giang.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%hà giang%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%ha giang%'
+ORDER BY d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   14. MỘC CHÂU - SƠN LA
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Đồi chè trái tim Mộc Châu',
+    'doi che trai tim moc chau',
+    JSON_ARRAY(
+        'đồi chè trái tim',
+        'doi che trai tim',
+        'đồi chè mộc châu',
+        'doi che moc chau',
+        'đồi chè trái tim mộc châu',
+        'doi che trai tim moc chau',
+        'mộc châu tea hill',
+        'moc chau tea hill'
+    ),
+    'Đồi chè nổi tiếng tại cao nguyên Mộc Châu, Sơn La.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%mộc châu%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%moc chau%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%mộc châu%'
+          OR LOWER(d.name) LIKE '%moc chau%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   15. BUÔN MA THUỘT - ĐẮK LẮK
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Thác Dray Nur',
+    'thac dray nur',
+    JSON_ARRAY(
+        'thác dray nur',
+        'thac dray nur',
+        'dray nur',
+        'thác vợ',
+        'thac vo',
+        'dray nur waterfall',
+        'thác đắk lắk',
+        'thac dak lak'
+    ),
+    'Thác nước nổi tiếng gần thành phố Buôn Ma Thuột, Đắk Lắk.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%buôn ma thuột%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%buon ma thuot%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%đắk lắk%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%dak lak%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%buôn ma thuột%'
+          OR LOWER(d.name) LIKE '%buon ma thuot%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   16. CÔN ĐẢO
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Nhà tù Côn Đảo',
+    'nha tu con dao',
+    JSON_ARRAY(
+        'nhà tù côn đảo',
+        'nha tu con dao',
+        'nhà tù phú hải',
+        'nha tu phu hai',
+        'chuồng cọp côn đảo',
+        'chuong cop con dao',
+        'con dao prison',
+        'di tích côn đảo',
+        'di tich con dao'
+    ),
+    'Di tích lịch sử nổi tiếng tại Côn Đảo.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%côn đảo%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%con dao%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%côn đảo%'
+          OR LOWER(d.name) LIKE '%con dao%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   17. VŨNG TÀU
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Tượng Chúa Kitô Vua',
+    'tuong chua kito vua',
+    JSON_ARRAY(
+        'tượng chúa kitô vua',
+        'tuong chua kito vua',
+        'tượng chúa vũng tàu',
+        'tuong chua vung tau',
+        'tượng chúa dang tay',
+        'tuong chua dang tay',
+        'christ of vung tau',
+        'christ the king statue'
+    ),
+    'Tượng Chúa Kitô Vua nổi tiếng tại thành phố Vũng Tàu.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%vũng tàu%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%vung tau%'
+ORDER BY
+    CASE
+        WHEN LOWER(d.name) LIKE '%vũng tàu%'
+          OR LOWER(d.name) LIKE '%vung tau%' THEN 0
+        ELSE 1
+    END,
+    d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   18. TÂY NINH
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Núi Bà Đen',
+    'nui ba den',
+    JSON_ARRAY(
+        'núi bà đen',
+        'nui ba den',
+        'bà đen',
+        'ba den',
+        'đỉnh núi bà đen',
+        'dinh nui ba den',
+        'cáp treo núi bà đen',
+        'cap treo nui ba den',
+        'black virgin mountain',
+        'sun world ba den mountain'
+    ),
+    'Ngọn núi và khu du lịch nổi tiếng tại tỉnh Tây Ninh.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%tây ninh%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%tay ninh%'
+ORDER BY d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   19. AN GIANG
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Rừng tràm Trà Sư',
+    'rung tram tra su',
+    JSON_ARRAY(
+        'rừng tràm trà sư',
+        'rung tram tra su',
+        'trà sư',
+        'tra su',
+        'rừng tràm an giang',
+        'rung tram an giang',
+        'tra su cajuput forest',
+        'tra su forest',
+        'tịnh biên',
+        'tinh bien'
+    ),
+    'Khu rừng ngập nước và điểm du lịch sinh thái nổi tiếng tại An Giang.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%an giang%'
+ORDER BY d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   20. CÀ MAU
+   ========================================================= */
+INSERT INTO destination_landmarks (
+    destination_id,
+    name,
+    normalized_name,
+    aliases,
+    description,
+    status
+)
+SELECT
+    d.id,
+    'Mũi Cà Mau',
+    'mui ca mau',
+    JSON_ARRAY(
+        'mũi cà mau',
+        'mui ca mau',
+        'đất mũi cà mau',
+        'dat mui ca mau',
+        'đất mũi',
+        'dat mui',
+        'cột mốc tọa độ quốc gia',
+        'cot moc toa do quoc gia',
+        'cape ca mau',
+        'ca mau cape'
+    ),
+    'Điểm cực Nam và biểu tượng du lịch nổi tiếng của tỉnh Cà Mau.',
+    'active'
+FROM destinations d
+WHERE
+    LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%cà mau%'
+    OR LOWER(CONCAT_WS(' ', d.name, d.province)) LIKE '%ca mau%'
+ORDER BY d.id
+LIMIT 1
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    aliases = VALUES(aliases),
+    description = VALUES(description),
+    status = 'active';
+
+
+/* =========================================================
+   KIỂM TRA KẾT QUẢ
+   ========================================================= */
+
+SELECT
+    dl.id,
+    dl.name AS landmark,
+    dl.normalized_name,
+    d.id AS destination_id,
+    d.name AS destination,
+    d.province,
+    dl.aliases,
+    dl.status
+FROM destination_landmarks dl
+JOIN destinations d
+    ON d.id = dl.destination_id
+ORDER BY d.id, dl.name;
+
+
+/* Kiểm tra điểm đến nào chưa có địa danh */
+SELECT
+    d.id,
+    d.name,
+    d.province
+FROM destinations d
+LEFT JOIN destination_landmarks dl
+    ON dl.destination_id = d.id
+    AND dl.status = 'active'
+WHERE dl.id IS NULL
+ORDER BY d.id;

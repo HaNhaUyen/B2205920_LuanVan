@@ -1,8 +1,24 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 
+const HIDDEN_PATH_PREFIXES = ["/admin", "/assistant", "/guide"];
+
+function shouldHideGlobalChatbot(path = "") {
+  const normalizedPath = String(path || "")
+    .split("?")[0]
+    .split("#")[0]
+    .toLowerCase()
+    .trim();
+
+  return HIDDEN_PATH_PREFIXES.some(
+    (prefix) =>
+      normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`),
+  );
+}
+
 export default function ChatWidget() {
   const router = useRouter();
+
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -11,35 +27,40 @@ export default function ChatWidget() {
   }, []);
 
   useEffect(() => {
-    function handleMessage(event) {
+    const handleMessage = (event) => {
       const data = event?.data;
 
-      if (
+      const isCloseMessage =
         data === "TRAVELA_CHAT_CLOSE" ||
         data === "CLOSE_CHATBOT" ||
         data?.type === "TRAVELA_CHAT_CLOSE" ||
-        data?.type === "CLOSE_CHATBOT"
-      ) {
+        data?.type === "CLOSE_CHATBOT";
+
+      if (isCloseMessage) {
         setOpen(false);
       }
-    }
+    };
 
     window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
 
-  if (!mounted) return null;
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, []);
 
   const currentPath = router.asPath || router.pathname || "";
 
-  // Không hiện chatbot user trong admin
-  if (currentPath.startsWith("/admin")) {
-    return null;
-  }
+  const hidden = shouldHideGlobalChatbot(currentPath);
 
-  // Quan trọng: không render ChatWidget bên trong chính trang assistant iframe
-  // Nếu không sẽ bị iframe lồng iframe khi bấm icon máy bay.
-  if (currentPath.startsWith("/assistant")) {
+  useEffect(() => {
+    // Khi chuyển từ trang khách hàng sang admin/guide,
+    // đóng chatbot toàn hệ thống nếu nó đang mở.
+    if (hidden) {
+      setOpen(false);
+    }
+  }, [hidden]);
+
+  if (!mounted || hidden) {
     return null;
   }
 
@@ -58,9 +79,13 @@ export default function ChatWidget() {
       ) : null}
 
       {open ? (
-        <div className="travela-chat-frame">
+        <div
+          className="travela-chat-frame"
+          role="dialog"
+          aria-label="Travela AI"
+        >
           <iframe
-            src="/assistant?embed=1"
+            src="/assistant?embed=1&scope=user"
             title="Travela AI"
             className="travela-chat-iframe"
           />
@@ -74,33 +99,56 @@ export default function ChatWidget() {
           bottom: 22px;
           width: 62px;
           height: 62px;
-          border-radius: 999px;
           border: none;
+          border-radius: 999px;
           background: #16a34a;
           color: #ffffff;
           box-shadow: 0 18px 45px rgba(22, 163, 74, 0.35);
           cursor: pointer;
           z-index: 9999;
+
           display: grid;
           place-items: center;
+
           font-size: 28px;
           font-weight: 900;
+
+          transition:
+            transform 0.2s ease,
+            box-shadow 0.2s ease,
+            background 0.2s ease;
+        }
+
+        .travela-chat-open-button:hover {
+          transform: translateY(-2px);
+          background: #15803d;
+          box-shadow: 0 22px 52px rgba(22, 163, 74, 0.42);
+        }
+
+        .travela-chat-open-button:focus-visible {
+          outline: 3px solid rgba(34, 197, 94, 0.35);
+          outline-offset: 4px;
         }
 
         .travela-chat-frame {
           position: fixed;
           right: 18px;
           bottom: 18px;
+
           width: 460px;
           height: 680px;
+
           max-width: calc(100vw - 24px);
           max-height: calc(100vh - 24px);
+
+          border: 1px solid #dbe3ef;
           border-radius: 22px;
           overflow: hidden;
+
           background: #ffffff;
           box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+
           z-index: 9999;
-          border: 1px solid #dbe3ef;
         }
 
         .travela-chat-iframe {
@@ -115,8 +163,10 @@ export default function ChatWidget() {
           .travela-chat-frame {
             right: 8px;
             bottom: 8px;
+
             width: calc(100vw - 16px);
             height: calc(100vh - 16px);
+
             border-radius: 18px;
           }
 

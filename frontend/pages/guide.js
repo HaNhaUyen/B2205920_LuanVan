@@ -32,6 +32,7 @@ import NotificationBell from "@/components/NotificationBell";
 import GuideOperationsPanel from "@/components/guide/GuideOperationsPanel";
 import GuideCompetenciesPanel from "@/components/guide/GuideCompetenciesPanel";
 import GuideNotificationsPanel from "@/components/guide/GuideNotificationsPanel";
+import GuideChatbotWidget from "@/components/guide/GuideChatbotWidget";
 import { apiFetch } from "@/lib/api";
 import { getToken, getUser, clearSession } from "@/lib/storage";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -2382,6 +2383,7 @@ export default function GuidePage() {
           }
         }
       `}</style>
+      <GuideChatbotWidget />
     </section>
   );
 }

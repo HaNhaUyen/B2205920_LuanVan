@@ -3,6 +3,8 @@ import { ConfigService } from "@nestjs/config";
 import { GoogleGenAI } from "@google/genai";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ChatMessageDto } from "./dto/chat-message.dto";
+import { GuideChatbotService } from "./guide-chatbot.service";
+import { LocationResolverService } from "./location-resolver.service";
 import { BookingsService } from "../bookings/bookings.service";
 import { PaymentsService } from "../payments/payments.service";
 import { RefundsService } from "../refunds/refunds.service";
@@ -233,7 +235,17 @@ const DESTINATION_ALIASES: Record<string, string[]> = {
   ],
   Huế: ["hue", "huế", "co do", "cố đô"],
   "Ninh Bình": ["ninh binh", "ninh bình", "trang an", "tràng an"],
-  "An Giang": ["an giang", "châu đốc", "chau doc"],
+  "An Giang": ["an giang", "châu đốc", "chau doc", "núi sam", "nui sam"],
+  "Tây Ninh": [
+    "tay ninh",
+    "tây ninh",
+    "núi bà đen",
+    "nui ba den",
+    "bà đen",
+    "ba den",
+    "tòa thánh cao đài",
+    "toa thanh cao dai",
+  ],
 };
 
 @Injectable()
@@ -250,6 +262,8 @@ export class ChatbotService {
     private readonly ragService: RagService,
     private readonly nluService: ChatbotNluService,
     private readonly confidenceService: ChatbotConfidenceService,
+    private readonly guideChatbotService: GuideChatbotService,
+    private readonly locationResolver: LocationResolverService,
   ) {
     const enableGemini = this.isEnvEnabled("CHATBOT_ENABLE_GEMINI", false);
     const apiKey = this.configService.get<string>("GEMINI_API_KEY") || "";
@@ -260,12 +274,21 @@ export class ChatbotService {
   }
 
   async message(dto: ChatMessageDto, user: AuthUser) {
+    if (String(user?.role || "").toLowerCase() === "guide") {
+      return this.guideChatbotService.handle({ ...dto, scope: "guide" }, user);
+    }
     const userMessage = String(dto.message || "").trim();
     const conversation = await this.getOrCreateConversation(
       dto.conversationId,
       user,
       userMessage,
     );
+
+    const landmarkAnswer = await this.tryHandleLandmarkTourSearch(
+      userMessage,
+      conversation.id,
+    );
+    if (landmarkAnswer) return landmarkAnswer;
 
     const adminGateAnswer = await this.tryHandleAdminAdvancedQuestion(
       userMessage,
@@ -774,9 +797,100 @@ export class ChatbotService {
     };
   }
 
+  private async tryHandleLandmarkTourSearch(
+    message: string,
+    conversationId: bigint,
+  ) {
+    const location = await this.locationResolver.resolve(message);
+    if (!location?.landmark) return null;
+    const normalized = this.stripText(message);
+    if (
+      /\b(booking|ma don|hoan tien|voucher|thanh toan|chinh sach)\b/.test(
+        normalized,
+      )
+    )
+      return null;
+
+    const tours = await this.locationResolver.findTours(location, 8);
+    const cards = tours.map((tour: any) =>
+      this.toTourCard(
+        tour,
+        Array.isArray(tour.departures) ? tour.departures[0] : null,
+        tour._locationScore >= 100
+          ? [`Lịch trình hoặc nội dung tour có ${location.landmark}`]
+          : [`Tour thuộc ${location.province}`],
+      ),
+    );
+    const answer = cards.length
+      ? `${location.landmark} thuộc ${location.province}. Mình tìm thấy ${cards.length} tour phù hợp; các tour có lịch trình hoặc nội dung nhắc trực tiếp đến ${location.landmark} được xếp trước.`
+      : `${location.landmark} thuộc ${location.province}, nhưng hiện hệ thống chưa có tour đang mở phù hợp với địa danh này.`;
+
+    await this.prisma.chatMessage.create({
+      data: {
+        conversationId,
+        role: "user",
+        content: message,
+        intent: "tour_search",
+        meta: { resolvedLocation: location },
+      } as any,
+    });
+    await this.prisma.chatMessage.create({
+      data: {
+        conversationId,
+        role: "assistant",
+        content: answer,
+        intent: "tour_search",
+        meta: { resolvedLocation: location, cards },
+      } as any,
+    });
+    await this.prisma.chatConversation.update({
+      where: { id: conversationId },
+      data: {
+        lastIntent: "tour_search",
+        summary: answer.slice(0, 500),
+        memoryJson: {
+          destination: location.destination,
+          landmark: location.landmark,
+        },
+        updatedAt: new Date(),
+      } as any,
+    });
+
+    return {
+      conversationId: conversationId.toString(),
+      intent: "tour_search",
+      answer,
+      resolvedLocation: location,
+      cards,
+      tours: cards,
+      vouchers: [],
+      bookings: [],
+      pickupPoints: [],
+      bookingCheckout: null,
+      refundRequest: null,
+      memory: {
+        destination: location.destination,
+        landmark: location.landmark,
+      },
+      suggestedReplies: cards.length
+        ? [
+            "Xem tour đầu tiên",
+            "Có lịch khởi hành nào?",
+            "So sánh các tour này",
+          ]
+        : [`Tìm tour ${location.province}`],
+    };
+  }
+
   async listConversations(user: AuthUser, scope: string = "user") {
     if (!user?.userId) return [];
-    const safeScope = scope === "admin" ? "admin" : "user";
+    const role = String(user?.role || "").toLowerCase();
+    const safeScope =
+      role === "guide"
+        ? "guide"
+        : scope === "admin" && role === "admin"
+          ? "admin"
+          : "user";
     const where: any = { userId: user.userId, scope: safeScope };
     const conversations = await this.prisma.chatConversation.findMany({
       where,
@@ -825,7 +939,11 @@ export class ChatbotService {
     });
 
     const expectedScope =
-      String(user?.role || "").toLowerCase() === "admin" ? "admin" : "user";
+      String(user?.role || "").toLowerCase() === "admin"
+        ? "admin"
+        : String(user?.role || "").toLowerCase() === "guide"
+          ? "guide"
+          : "user";
 
     if (
       !conversation ||
@@ -1736,7 +1854,11 @@ export class ChatbotService {
     firstMessage: string,
   ) {
     const scope =
-      String(user?.role || "").toLowerCase() === "admin" ? "admin" : "user";
+      String(user?.role || "").toLowerCase() === "admin"
+        ? "admin"
+        : String(user?.role || "").toLowerCase() === "guide"
+          ? "guide"
+          : "user";
 
     const createNewConversation = () =>
       this.prisma.chatConversation.create({

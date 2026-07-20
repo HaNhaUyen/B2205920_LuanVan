@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -5,7 +9,7 @@ from app.routes.ai import router as ai_router
 from app.routes.embeddings import router as embeddings_router
 from app.services.vision_search import vision_search_service
 
-app = FastAPI(title="TourAI Service", version="2.1.0")
+app = FastAPI(title="TourAI Service", version="2.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,4 +29,5 @@ def health():
         "status": "ok",
         "vision": vision_search_service.status_snapshot(),
         "embedding_endpoint": "/embeddings/text",
+        "image_search_endpoint": "/image-search-upload",
     }
