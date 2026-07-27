@@ -17,6 +17,11 @@ export class RecommendationMetricsService {
     return hits / relevantIds.size;
   }
 
+  hitRateAtK(recommendedIds: string[], relevantIds: Set<string>, k = 10) {
+    const top = recommendedIds.slice(0, k);
+    return top.some((id) => relevantIds.has(String(id))) ? 1 : 0;
+  }
+
   ndcgAtK(recommendedIds: string[], relevantIds: Set<string>, k = 10) {
     const top = recommendedIds.slice(0, k);
     let dcg = 0;

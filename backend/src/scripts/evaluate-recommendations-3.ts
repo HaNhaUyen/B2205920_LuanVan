@@ -44,6 +44,24 @@ async function main() {
     console.log(
       `Số người dùng được đánh giá: ${result.dataset.evaluatedUsers}`,
     );
+
+    const env = result.recommendedProductionEnv;
+    if (env) {
+      console.log("\nTRỌNG SỐ HYBRID ĐƯỢC CHỌN TRÊN TẬP VALIDATION:");
+      console.log(
+        `RECO_HYBRID_CONTENT_WEIGHT=${env.RECO_HYBRID_CONTENT_WEIGHT}`,
+      );
+      console.log(
+        `RECO_HYBRID_COLLABORATIVE_WEIGHT=${env.RECO_HYBRID_COLLABORATIVE_WEIGHT}`,
+      );
+      console.log(`RECO_HYBRID_MF_WEIGHT=${env.RECO_HYBRID_MF_WEIGHT}`);
+      console.log(
+        `RECO_HYBRID_SEMANTIC_WEIGHT=${env.RECO_HYBRID_SEMANTIC_WEIGHT}`,
+      );
+      console.log(
+        "Cơ sở lựa chọn: NDCG@K validation cao nhất; hòa thì ưu tiên Recall@K rồi Precision@K.",
+      );
+    }
   } finally {
     await app.close();
   }

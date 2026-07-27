@@ -12192,33 +12192,5 @@ ON DUPLICATE KEY UPDATE
     status = 'active';
 
 
-/* =========================================================
-   KIỂM TRA KẾT QUẢ
-   ========================================================= */
-
-SELECT
-    dl.id,
-    dl.name AS landmark,
-    dl.normalized_name,
-    d.id AS destination_id,
-    d.name AS destination,
-    d.province,
-    dl.aliases,
-    dl.status
-FROM destination_landmarks dl
-JOIN destinations d
-    ON d.id = dl.destination_id
-ORDER BY d.id, dl.name;
 
 
-/* Kiểm tra điểm đến nào chưa có địa danh */
-SELECT
-    d.id,
-    d.name,
-    d.province
-FROM destinations d
-LEFT JOIN destination_landmarks dl
-    ON dl.destination_id = d.id
-    AND dl.status = 'active'
-WHERE dl.id IS NULL
-ORDER BY d.id;

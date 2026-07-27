@@ -1,13 +1,18 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ContentBasedService } from "./content-based.service";
+import { DeepRecommendationService } from "./deep-recommendation.service";
 import { RecommendationMetricsService } from "./recommendation-metrics.service";
 import {
   ACTION_SCORE,
   clampScore,
+  dot,
   normalizeScoreMap,
-  recencyWeight,
 } from "./recommendation.utils";
+import {
+  getRecommendationDataSource,
+  recommendationSourceWeight,
+} from "./recommendation-data-source";
 
 type BehaviorRow = {
   userId: bigint | null;
@@ -23,9 +28,30 @@ type BehaviorRow = {
 type ModelAccumulator = {
   precision: number[];
   recall: number[];
+  hitRate: number[];
   ndcg: number[];
   lists: string[][];
   diversity: number[];
+};
+
+type ComponentMaps = {
+  ContentBased: Record<string, number>;
+  Collaborative: Record<string, number>;
+  MatrixFactorization: Record<string, number>;
+  SemanticEmbedding: Record<string, number>;
+};
+
+type HybridWeights = {
+  contentBased: number;
+  collaborative: number;
+  matrixFactorization: number;
+  semanticEmbedding: number;
+};
+
+type ValidationCase = {
+  maps: ComponentMaps;
+  interacted: Set<string>;
+  relevantIds: Set<string>;
 };
 
 @Injectable()
@@ -33,16 +59,14 @@ export class RecommendationEvalService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contentBased: ContentBasedService,
+    private readonly deepRecommendation: DeepRecommendationService,
     private readonly metrics: RecommendationMetricsService,
   ) {}
 
   private async loadActiveTours() {
     return this.prisma.tour.findMany({
       where: { status: "published" },
-      include: {
-        destination: true,
-        itinerary: true,
-      },
+      include: { destination: true, itinerary: true },
       orderBy: { id: "asc" },
     });
   }
@@ -65,32 +89,33 @@ export class RecommendationEvalService {
     b: Record<string, number>,
   ) {
     const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    let dot = 0;
+    let dotProduct = 0;
     let normA = 0;
     let normB = 0;
-
     for (const key of keys) {
       const va = Number(a[key] || 0);
       const vb = Number(b[key] || 0);
-      dot += va * vb;
+      dotProduct += va * vb;
       normA += va * va;
       normB += vb * vb;
     }
-
     if (!normA || !normB) return 0;
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 
-  private behaviorWeight(row: BehaviorRow) {
+  private behaviorWeight(row: BehaviorRow, referenceTime: Date) {
     const base = Number(row.score ?? ACTION_SCORE[row.action] ?? 1);
-    return Math.max(base, 0) * recencyWeight(row.createdAt);
+    const sourceWeight = recommendationSourceWeight(
+      getRecommendationDataSource(row.meta),
+    );
+    const ageDays = Math.max(
+      0,
+      (referenceTime.getTime() - row.createdAt.getTime()) / 86400000,
+    );
+    const timeWeight = Math.max(0.1, 1 / (1 + 0.1 * ageDays));
+    return Math.max(base, 0) * timeWeight * sourceWeight;
   }
 
-  /**
-   * Tạo Collaborative Filtering từ dữ liệu train thực tế.
-   * Mọi hành vi xảy ra sau thời điểm bắt đầu tập test đều bị loại bỏ,
-   * nhờ đó không dùng tương lai để dự đoán quá khứ.
-   */
   private buildCollaborativeScores(
     targetUserId: string,
     targetTrainRows: BehaviorRow[],
@@ -99,57 +124,155 @@ export class RecommendationEvalService {
     topUsers: number,
   ) {
     const matrix: Record<string, Record<string, number>> = {};
-
     for (const row of allRows) {
       if (!row.userId || !row.tourId) continue;
-      if (new Date(row.createdAt).getTime() >= cutoff.getTime()) continue;
-
+      if (row.createdAt.getTime() >= cutoff.getTime()) continue;
       const userId = String(row.userId);
       const tourId = String(row.tourId);
       if (!matrix[userId]) matrix[userId] = {};
       matrix[userId][tourId] =
-        (matrix[userId][tourId] || 0) + this.behaviorWeight(row);
+        (matrix[userId][tourId] || 0) + this.behaviorWeight(row, cutoff);
     }
 
-    // Ghi đè vector user mục tiêu bằng đúng phần train đã tách.
     const targetVector: Record<string, number> = {};
     for (const row of targetTrainRows) {
-      if (!row.tourId) continue;
+      if (!row.tourId || row.createdAt.getTime() >= cutoff.getTime()) continue;
       const tourId = String(row.tourId);
       targetVector[tourId] =
-        (targetVector[tourId] || 0) + this.behaviorWeight(row);
+        (targetVector[tourId] || 0) + this.behaviorWeight(row, cutoff);
     }
     matrix[targetUserId] = targetVector;
-
     if (!Object.keys(targetVector).length) return {};
 
-    const similarities: Array<{ userId: string; similarity: number }> = [];
-    for (const [otherUserId, vector] of Object.entries(matrix)) {
-      if (otherUserId === targetUserId) continue;
-      const similarity = this.cosineSimilarity(targetVector, vector);
-      if (similarity > 0)
-        similarities.push({ userId: otherUserId, similarity });
-    }
+    const similarities = Object.entries(matrix)
+      .filter(([userId]) => userId !== targetUserId)
+      .map(([userId, vector]) => ({
+        userId,
+        similarity: this.cosineSimilarity(targetVector, vector),
+      }))
+      .filter((item) => item.similarity > 0)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topUsers);
 
-    similarities.sort((a, b) => b.similarity - a.similarity);
     const result: Record<string, number> = {};
-
-    for (const similar of similarities.slice(0, topUsers)) {
-      const vector = matrix[similar.userId] || {};
-      for (const [tourId, value] of Object.entries(vector)) {
+    for (const similar of similarities) {
+      for (const [tourId, value] of Object.entries(
+        matrix[similar.userId] || {},
+      )) {
         if (targetVector[tourId]) continue;
         result[tourId] =
           (result[tourId] || 0) + similar.similarity * Number(value || 0);
       }
     }
-
     return normalizeScoreMap(result);
+  }
+
+  private seededValue(seed: string) {
+    let hash = 2166136261;
+    for (let index = 0; index < seed.length; index += 1) {
+      hash ^= seed.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return ((hash >>> 0) % 100000) / 100000;
+  }
+
+  private initialVector(key: string, k: number) {
+    return Array.from(
+      { length: k },
+      (_, index) => (this.seededValue(`${key}:${index}`) - 0.5) * 0.1,
+    );
+  }
+
+  /**
+   * Huấn luyện MF cục bộ tại đúng cutoff của từng người dùng.
+   * Không dùng factor đã train từ toàn bộ database vì factor đó có thể đã nhìn thấy test.
+   */
+  private buildMatrixFactorizationScores(
+    targetUserId: string,
+    targetTrainRows: BehaviorRow[],
+    allRows: BehaviorRow[],
+    cutoff: Date,
+    activeTourIds: string[],
+  ) {
+    const k = Math.max(2, Number(process.env.RECO_EVAL_MF_K || 10));
+    const epochs = Math.max(1, Number(process.env.RECO_EVAL_MF_EPOCHS || 25));
+    const lr = Math.max(0.0001, Number(process.env.RECO_EVAL_MF_LR || 0.025));
+    const lambda = Math.max(0, Number(process.env.RECO_EVAL_MF_LAMBDA || 0.04));
+
+    const pairValues = new Map<
+      string,
+      { userId: string; tourId: string; value: number }
+    >();
+    const add = (row: BehaviorRow) => {
+      if (
+        !row.userId ||
+        !row.tourId ||
+        row.createdAt.getTime() >= cutoff.getTime()
+      )
+        return;
+      const sourceWeight = recommendationSourceWeight(
+        getRecommendationDataSource(row.meta),
+      );
+      if (sourceWeight <= 0) return;
+      const userId = String(row.userId);
+      const tourId = String(row.tourId);
+      const key = `${userId}:${tourId}`;
+      const value = this.behaviorWeight(row, cutoff);
+      const current = pairValues.get(key);
+      if (current) current.value += value;
+      else pairValues.set(key, { userId, tourId, value });
+    };
+
+    for (const row of allRows) {
+      if (String(row.userId) === targetUserId) continue;
+      add(row);
+    }
+    for (const row of targetTrainRows) add(row);
+
+    const interactions = [...pairValues.values()].map((item) => ({
+      ...item,
+      rating: Math.max(0, Math.min(Math.log1p(item.value) / Math.log1p(25), 1)),
+    }));
+    if (!interactions.length) return {};
+
+    const userIds = [...new Set(interactions.map((item) => item.userId))];
+    const tourIds = [...new Set(interactions.map((item) => item.tourId))];
+    if (!userIds.includes(targetUserId)) return {};
+
+    const P: Record<string, number[]> = {};
+    const Q: Record<string, number[]> = {};
+    for (const userId of userIds)
+      P[userId] = this.initialVector(`eval-u:${userId}`, k);
+    for (const tourId of tourIds)
+      Q[tourId] = this.initialVector(`eval-t:${tourId}`, k);
+
+    for (let epoch = 0; epoch < epochs; epoch += 1) {
+      for (const row of interactions) {
+        const p = P[row.userId];
+        const q = Q[row.tourId];
+        const error = row.rating - dot(p, q);
+        for (let index = 0; index < k; index += 1) {
+          const pu = p[index];
+          const qt = q[index];
+          p[index] += lr * (error * qt - lambda * pu);
+          q[index] += lr * (error * pu - lambda * qt);
+        }
+      }
+    }
+
+    const raw: Record<string, number> = {};
+    const p = P[targetUserId];
+    for (const tourId of activeTourIds) {
+      const q = Q[tourId];
+      if (!q) continue;
+      raw[tourId] = Math.max(0, dot(p, q));
+    }
+    return normalizeScoreMap(raw);
   }
 
   private uniqueLatestTourRows(rows: BehaviorRow[]) {
     const seen = new Set<string>();
     const unique: BehaviorRow[] = [];
-
     for (const row of [...rows].sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
     )) {
@@ -159,46 +282,226 @@ export class RecommendationEvalService {
       seen.add(tourId);
       unique.push(row);
     }
-
     return unique;
   }
 
   private average(values: number[]) {
-    if (!values.length) return 0;
-    return values.reduce((sum, value) => sum + value, 0) / values.length;
+    return values.length
+      ? values.reduce((sum, value) => sum + value, 0) / values.length
+      : 0;
+  }
+
+  private weightedHybrid(
+    maps: ComponentMaps,
+    weights: HybridWeights,
+    activeTourIds: string[],
+  ) {
+    const result: Record<string, number> = {};
+    for (const tourId of activeTourIds) {
+      result[tourId] = clampScore(
+        weights.contentBased * Number(maps.ContentBased[tourId] || 0) +
+          weights.collaborative * Number(maps.Collaborative[tourId] || 0) +
+          weights.matrixFactorization *
+            Number(maps.MatrixFactorization[tourId] || 0) +
+          weights.semanticEmbedding *
+            Number(maps.SemanticEmbedding[tourId] || 0),
+      );
+    }
+    return result;
+  }
+
+  private generateWeightCandidates(step = 0.1): HybridWeights[] {
+    const units = Math.round(1 / step);
+    const candidates: HybridWeights[] = [];
+    for (let c = 0; c <= units; c += 1) {
+      for (let cf = 0; cf <= units - c; cf += 1) {
+        for (let mf = 0; mf <= units - c - cf; mf += 1) {
+          const sem = units - c - cf - mf;
+          candidates.push({
+            contentBased: c / units,
+            collaborative: cf / units,
+            matrixFactorization: mf / units,
+            semanticEmbedding: sem / units,
+          });
+        }
+      }
+    }
+    return candidates.filter(
+      (item) =>
+        item.collaborative + item.matrixFactorization > 0 &&
+        item.contentBased + item.semanticEmbedding > 0,
+    );
+  }
+
+  private selectHybridWeights(
+    validationCases: ValidationCase[],
+    activeTourIds: string[],
+    k: number,
+  ) {
+    const step = Math.min(
+      0.5,
+      Math.max(0.05, Number(process.env.RECO_EVAL_WEIGHT_STEP || 0.1)),
+    );
+    const candidates = this.generateWeightCandidates(step);
+    const rows = candidates.map((weights) => {
+      const ndcg: number[] = [];
+      const recall: number[] = [];
+      const precision: number[] = [];
+      for (const item of validationCases) {
+        const ranked = this.rank(
+          this.weightedHybrid(item.maps, weights, activeTourIds),
+          k,
+          item.interacted,
+        );
+        ndcg.push(this.metrics.ndcgAtK(ranked, item.relevantIds, k));
+        recall.push(this.metrics.recallAtK(ranked, item.relevantIds, k));
+        precision.push(this.metrics.precisionAtK(ranked, item.relevantIds, k));
+      }
+      return {
+        weights,
+        validationNdcgAtK: this.average(ndcg),
+        validationRecallAtK: this.average(recall),
+        validationPrecisionAtK: this.average(precision),
+      };
+    });
+
+    rows.sort(
+      (a, b) =>
+        b.validationNdcgAtK - a.validationNdcgAtK ||
+        b.validationRecallAtK - a.validationRecallAtK ||
+        b.validationPrecisionAtK - a.validationPrecisionAtK,
+    );
+
+    return {
+      selected: rows[0]?.weights || {
+        contentBased: 0.2,
+        collaborative: 0.4,
+        matrixFactorization: 0.2,
+        semanticEmbedding: 0.2,
+      },
+      criterion:
+        "Chọn trọng số có NDCG@K trung bình cao nhất trên tập validation; nếu bằng nhau ưu tiên Recall@K rồi Precision@K.",
+      step,
+      validationCases: validationCases.length,
+      topCandidates: rows.slice(0, 10).map((row) => ({
+        weights: row.weights,
+        validationNdcgAtK: Number(row.validationNdcgAtK.toFixed(4)),
+        validationRecallAtK: Number(row.validationRecallAtK.toFixed(4)),
+        validationPrecisionAtK: Number(row.validationPrecisionAtK.toFixed(4)),
+      })),
+    };
+  }
+
+  private newAccumulator(): ModelAccumulator {
+    return {
+      precision: [],
+      recall: [],
+      hitRate: [],
+      ndcg: [],
+      lists: [],
+      diversity: [],
+    };
+  }
+
+  private addMetrics(
+    row: ModelAccumulator,
+    ranked: string[],
+    relevantIds: Set<string>,
+    k: number,
+    activeTourMap: Map<string, any>,
+  ) {
+    row.precision.push(this.metrics.precisionAtK(ranked, relevantIds, k));
+    row.recall.push(this.metrics.recallAtK(ranked, relevantIds, k));
+    row.hitRate.push(this.metrics.hitRateAtK(ranked, relevantIds, k));
+    row.ndcg.push(this.metrics.ndcgAtK(ranked, relevantIds, k));
+    row.lists.push(ranked);
+    row.diversity.push(this.metrics.diversity(ranked, activeTourMap));
+  }
+
+  private async buildComponentMaps(
+    targetUserId: string,
+    trainRows: BehaviorRow[],
+    allRows: BehaviorRow[],
+    cutoff: Date,
+    activeTours: any[],
+    destinations: any[],
+    topSimilarUsers: number,
+  ): Promise<ComponentMaps> {
+    const interacted = new Set(trainRows.map((row) => String(row.tourId)));
+    const signals = this.contentBased.buildUserSignals(
+      trainRows as any[],
+      destinations,
+    );
+    const contentRaw: Record<string, number> = {};
+    for (const tour of activeTours) {
+      const tourId = String(tour.id);
+      if (interacted.has(tourId)) continue;
+      contentRaw[tourId] = this.contentBased.calcContentScore(
+        tour,
+        signals,
+      ).score;
+    }
+
+    return {
+      ContentBased: normalizeScoreMap(contentRaw),
+      Collaborative: this.buildCollaborativeScores(
+        targetUserId,
+        trainRows,
+        allRows,
+        cutoff,
+        topSimilarUsers,
+      ),
+      MatrixFactorization: this.buildMatrixFactorizationScores(
+        targetUserId,
+        trainRows,
+        allRows,
+        cutoff,
+        activeTours.map((tour) => String(tour.id)),
+      ),
+      SemanticEmbedding: await this.deepRecommendation.scoreToursForUser(
+        trainRows as any[],
+        activeTours,
+      ),
+    };
   }
 
   async evaluate(k = 10) {
+    const evaluationNow = new Date();
     const maxUsers = Math.max(Number(process.env.RECO_EVAL_MAX_USERS || 50), 1);
-    const minUniqueTours = Math.max(
-      Number(process.env.RECO_EVAL_MIN_UNIQUE_TOURS || 4),
-      3,
-    );
     const testItems = Math.max(
       Number(process.env.RECO_EVAL_TEST_ITEMS || 2),
       1,
+    );
+    const validationItems = 1;
+    const minUniqueTours = Math.max(
+      Number(process.env.RECO_EVAL_MIN_UNIQUE_TOURS || 6),
+      testItems + validationItems + 3,
     );
     const topSimilarUsers = Math.max(
       Number(process.env.RECO_EVAL_TOP_SIMILAR_USERS || 30),
       1,
     );
-    const contentWeight = Math.min(
-      Math.max(Number(process.env.RECO_EVAL_CONTENT_WEIGHT || 0.7), 0),
-      1,
+    const maxTrainToursPerUser = Math.max(
+      Number(process.env.RECO_MAX_TOURS_PER_USER || 25),
+      4,
     );
-    const collaborativeWeight = 1 - contentWeight;
 
-    const activeTours = await this.loadActiveTours();
+    const activeTours = (await this.loadActiveTours()) as any[];
     const activeTourMap = new Map(
-      activeTours.map((tour: any) => [String(tour.id), tour]),
+      activeTours.map((tour) => [String(tour.id), tour]),
     );
-    const totalTourCount = activeTours.length;
+    const activeTourIds = activeTours.map((tour) => String(tour.id));
     const destinations = await this.prisma.destination.findMany({
       where: { status: "active" },
     });
 
-    const allRows = (await this.prisma.userBehavior.findMany({
-      where: { userId: { not: null }, tourId: { not: null } },
+    const loadedRows = (await this.prisma.userBehavior.findMany({
+      where: {
+        userId: { not: null },
+        tourId: { not: null },
+        // Chặn bản ghi có thời gian tương lai ngay từ truy vấn.
+        createdAt: { lte: evaluationNow },
+      },
       include: { tour: { include: { destination: true } } },
       orderBy: { createdAt: "desc" },
       take: Math.max(
@@ -207,8 +510,20 @@ export class RecommendationEvalService {
       ),
     })) as unknown as BehaviorRow[];
 
+    const futureBehaviorCount = await this.prisma.userBehavior.count({
+      where: {
+        userId: { not: null },
+        tourId: { not: null },
+        createdAt: { gt: evaluationNow },
+      },
+    });
+
+    const sourceCounts: Record<string, number> = {};
     const rowsByUser = new Map<string, BehaviorRow[]>();
-    for (const row of allRows) {
+    for (const row of loadedRows) {
+      const source = getRecommendationDataSource(row.meta);
+      sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+      if (recommendationSourceWeight(source) <= 0) continue;
       if (!row.userId || !row.tourId) continue;
       if (!activeTourMap.has(String(row.tourId))) continue;
       const userId = String(row.userId);
@@ -224,162 +539,187 @@ export class RecommendationEvalService {
         uniqueRows: this.uniqueLatestTourRows(rows),
       }))
       .filter((item) => item.uniqueRows.length >= minUniqueTours)
-      .sort((a, b) => b.uniqueRows.length - a.uniqueRows.length)
+      .sort((a, b) => Number(a.userId) - Number(b.userId))
       .slice(0, maxUsers);
 
+    const validationCases: ValidationCase[] = [];
+    const preparedCases: Array<{
+      userId: string;
+      trainRows: BehaviorRow[];
+      testRows: BehaviorRow[];
+      cutoff: Date;
+      testMaps: ComponentMaps;
+      interacted: Set<string>;
+      relevantIds: Set<string>;
+    }> = [];
+
+    for (const item of eligibleUsers) {
+      const uniqueRows = item.uniqueRows;
+      const testRows = uniqueRows.slice(0, testItems);
+      const validationRows = uniqueRows.slice(
+        testItems,
+        testItems + validationItems,
+      );
+      const baseTrainRows = uniqueRows
+        .slice(testItems + validationItems)
+        .slice(0, maxTrainToursPerUser);
+      if (baseTrainRows.length < 3 || !validationRows.length) continue;
+
+      const validationRelevant = new Set(
+        validationRows.map((row) => String(row.tourId)),
+      );
+      const validationCutoff = validationRows[0].createdAt;
+      const validationMaps = await this.buildComponentMaps(
+        item.userId,
+        baseTrainRows,
+        loadedRows,
+        validationCutoff,
+        activeTours,
+        destinations as any[],
+        topSimilarUsers,
+      );
+      validationCases.push({
+        maps: validationMaps,
+        interacted: new Set(baseTrainRows.map((row) => String(row.tourId))),
+        relevantIds: validationRelevant,
+      });
+
+      const finalTrainRows = [...validationRows, ...baseTrainRows].slice(
+        0,
+        maxTrainToursPerUser,
+      );
+      const cutoff = new Date(
+        Math.min(...testRows.map((row) => row.createdAt.getTime())),
+      );
+      const relevantIds = new Set(testRows.map((row) => String(row.tourId)));
+      const testMaps = await this.buildComponentMaps(
+        item.userId,
+        finalTrainRows,
+        loadedRows,
+        cutoff,
+        activeTours,
+        destinations as any[],
+        topSimilarUsers,
+      );
+      preparedCases.push({
+        userId: item.userId,
+        trainRows: finalTrainRows,
+        testRows,
+        cutoff,
+        testMaps,
+        interacted: new Set(finalTrainRows.map((row) => String(row.tourId))),
+        relevantIds,
+      });
+    }
+
+    const weightSelection = this.selectHybridWeights(
+      validationCases,
+      activeTourIds,
+      k,
+    );
+
     const modelRows: Record<string, ModelAccumulator> = {
-      ContentBased: {
-        precision: [],
-        recall: [],
-        ndcg: [],
-        lists: [],
-        diversity: [],
-      },
-      Collaborative: {
-        precision: [],
-        recall: [],
-        ndcg: [],
-        lists: [],
-        diversity: [],
-      },
-      Hybrid: {
-        precision: [],
-        recall: [],
-        ndcg: [],
-        lists: [],
-        diversity: [],
-      },
+      ContentBased: this.newAccumulator(),
+      Collaborative: this.newAccumulator(),
+      MatrixFactorization: this.newAccumulator(),
+      SemanticEmbedding: this.newAccumulator(),
+      Hybrid: this.newAccumulator(),
     };
 
     const evaluatedUserDetails: Array<{
       userId: string;
       trainTours: number;
+      validationTours: number;
       testTours: number;
       cutoff: string;
     }> = [];
 
-    for (const item of eligibleUsers) {
-      const uniqueRows = item.uniqueRows;
-      const safeTestSize = Math.min(testItems, uniqueRows.length - 2);
-      if (safeTestSize <= 0) continue;
-
-      // uniqueRows đang mới -> cũ. Test = các tour mới nhất; train = phần cũ hơn.
-      const testRows = uniqueRows.slice(0, safeTestSize);
-      const trainRows = uniqueRows.slice(safeTestSize);
-      if (trainRows.length < 2) continue;
-
-      const relevantIds = new Set(
-        testRows
-          .map((row) => String(row.tourId))
-          .filter((tourId) => activeTourMap.has(tourId)),
-      );
-      if (!relevantIds.size) continue;
-
-      const interacted = new Set(trainRows.map((row) => String(row.tourId)));
-      const cutoff = new Date(
-        Math.min(...testRows.map((row) => row.createdAt.getTime())),
-      );
-
-      const signals = this.contentBased.buildUserSignals(
-        trainRows as any[],
-        destinations as any[],
-      );
-
-      const contentRaw: Record<string, number> = {};
-      for (const tour of activeTours as any[]) {
-        const tourId = String(tour.id);
-        if (interacted.has(tourId)) continue;
-        contentRaw[tourId] = this.contentBased.calcContentScore(
-          tour,
-          signals,
-        ).score;
-      }
-      const contentScores = normalizeScoreMap(contentRaw);
-
-      const collaborativeScores = this.buildCollaborativeScores(
-        item.userId,
-        trainRows,
-        allRows,
-        cutoff,
-        topSimilarUsers,
-      );
-
-      const hybridScores: Record<string, number> = {};
-      for (const tour of activeTours as any[]) {
-        const tourId = String(tour.id);
-        if (interacted.has(tourId)) continue;
-        const content = Number(contentScores[tourId] || 0);
-        const collaborative = Number(collaborativeScores[tourId] || 0);
-
-        // Hybrid có fallback tự nhiên sang Content-Based nếu CF chưa có tín hiệu.
-        hybridScores[tourId] = clampScore(
-          contentWeight * content + collaborativeWeight * collaborative,
+    for (const item of preparedCases) {
+      const scoreMaps: Record<string, Record<string, number>> = {
+        ...item.testMaps,
+        Hybrid: this.weightedHybrid(
+          item.testMaps,
+          weightSelection.selected,
+          activeTourIds,
+        ),
+      };
+      for (const [modelName, scoreMap] of Object.entries(scoreMaps)) {
+        const ranked = this.rank(scoreMap, k, item.interacted);
+        this.addMetrics(
+          modelRows[modelName],
+          ranked,
+          item.relevantIds,
+          k,
+          activeTourMap,
         );
       }
-
-      const scoreMaps: Record<string, Record<string, number>> = {
-        ContentBased: contentScores,
-        Collaborative: collaborativeScores,
-        Hybrid: hybridScores,
-      };
-
-      for (const [modelName, scoreMap] of Object.entries(scoreMaps)) {
-        const ranked = this.rank(scoreMap, k, interacted);
-        const row = modelRows[modelName];
-        row.precision.push(this.metrics.precisionAtK(ranked, relevantIds, k));
-        row.recall.push(this.metrics.recallAtK(ranked, relevantIds, k));
-        row.ndcg.push(this.metrics.ndcgAtK(ranked, relevantIds, k));
-        row.lists.push(ranked);
-        row.diversity.push(this.metrics.diversity(ranked, activeTourMap));
-      }
-
       evaluatedUserDetails.push({
         userId: item.userId,
-        trainTours: trainRows.length,
-        testTours: relevantIds.size,
-        cutoff: cutoff.toISOString(),
+        trainTours: item.trainRows.length,
+        validationTours: 1,
+        testTours: item.relevantIds.size,
+        cutoff: item.cutoff.toISOString(),
       });
     }
 
     const result = Object.entries(modelRows).map(([modelName, row]) => ({
       modelName,
-      precisionAt10: Number(this.average(row.precision).toFixed(4)),
-      recallAt10: Number(this.average(row.recall).toFixed(4)),
-      ndcgAt10: Number(this.average(row.ndcg).toFixed(4)),
+      [`precisionAt${k}`]: Number(this.average(row.precision).toFixed(4)),
+      [`recallAt${k}`]: Number(this.average(row.recall).toFixed(4)),
+      [`hitRateAt${k}`]: Number(this.average(row.hitRate).toFixed(4)),
+      [`ndcgAt${k}`]: Number(this.average(row.ndcg).toFixed(4)),
       coverage: Number(
-        this.metrics.coverage(row.lists, totalTourCount).toFixed(4),
+        this.metrics.coverage(row.lists, activeTours.length).toFixed(4),
       ),
       diversity: Number(this.average(row.diversity).toFixed(4)),
       evaluatedUsers: row.precision.length,
     }));
 
     return {
-      generatedAt: new Date().toISOString(),
+      generatedAt: evaluationNow.toISOString(),
       source: "database",
-      evaluationMethod: "temporal-holdout-by-unique-tour",
+      evaluationMethod: "nested-temporal-holdout-by-unique-tour",
       leakageProtection: {
-        targetUserTestRemovedFromTraining: true,
-        behaviorsAfterTestCutoffRemovedFromCollaborativeMatrix: true,
+        futureBehaviorsExcluded: true,
+        targetUserValidationAndTestRemovedFromTraining: true,
+        behaviorsAfterEachCutoffRemovedFromCollaborativeAndMF: true,
+        hybridWeightsSelectedOnValidationNotTest: true,
       },
       config: {
         k,
         maxUsers,
         minUniqueTours,
+        validationItems,
         testItems,
         topSimilarUsers,
-        hybridWeights: {
-          contentBased: contentWeight,
-          collaborative: collaborativeWeight,
+        maxTrainToursPerUser,
+        sourceWeights: {
+          real: recommendationSourceWeight("real"),
+          recommendation_persona_seed_v2: recommendationSourceWeight(
+            "recommendation_persona_seed_v2",
+          ),
+          seed: recommendationSourceWeight("seed"),
+          extra_huge_seed: recommendationSourceWeight("extra_huge_seed"),
         },
+        hybridWeightSelection: weightSelection,
       },
       dataset: {
-        activeTours: totalTourCount,
-        loadedBehaviors: allRows.length,
+        activeTours: activeTours.length,
+        loadedBehaviors: loadedRows.length,
+        excludedFutureBehaviors: futureBehaviorCount,
+        sourceCounts,
         eligibleUsers: eligibleUsers.length,
         evaluatedUsers: evaluatedUserDetails.length,
       },
       result,
       evaluatedUserDetails,
+      recommendedProductionEnv: {
+        RECO_HYBRID_CONTENT_WEIGHT: weightSelection.selected.contentBased,
+        RECO_HYBRID_COLLABORATIVE_WEIGHT:
+          weightSelection.selected.collaborative,
+        RECO_HYBRID_MF_WEIGHT: weightSelection.selected.matrixFactorization,
+        RECO_HYBRID_SEMANTIC_WEIGHT: weightSelection.selected.semanticEmbedding,
+      },
     };
   }
 }

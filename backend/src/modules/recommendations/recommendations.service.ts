@@ -13,14 +13,36 @@ import {
   truncateText,
 } from "./recommendation.utils";
 
-const HYBRID_WEIGHTS = {
-  content: 0.3,
-  collaborative: 0.08,
-  matrixFactorization: 0.07,
-  deepLearning: 0.4,
-  business: 0.15,
-  exactIntentBonus: 0.08,
-};
+function normalizedHybridWeights() {
+  const raw = {
+    content: Number(process.env.RECO_HYBRID_CONTENT_WEIGHT ?? 0.2),
+    collaborative: Number(process.env.RECO_HYBRID_COLLABORATIVE_WEIGHT ?? 0.4),
+    matrixFactorization: Number(process.env.RECO_HYBRID_MF_WEIGHT ?? 0.2),
+    deepLearning: Number(process.env.RECO_HYBRID_SEMANTIC_WEIGHT ?? 0.2),
+  };
+
+  const positive = Object.fromEntries(
+    Object.entries(raw).map(([key, value]) => [
+      key,
+      Number.isFinite(value) ? Math.max(0, value) : 0,
+    ]),
+  ) as typeof raw;
+  const total = Object.values(positive).reduce((sum, value) => sum + value, 0);
+  const divisor = total > 0 ? total : 1;
+
+  return {
+    content: positive.content / divisor,
+    collaborative: positive.collaborative / divisor,
+    matrixFactorization: positive.matrixFactorization / divisor,
+    deepLearning: positive.deepLearning / divisor,
+    business: Number(process.env.RECO_HYBRID_BUSINESS_WEIGHT ?? 0.15),
+    exactIntentBonus: Number(
+      process.env.RECO_HYBRID_EXACT_INTENT_WEIGHT ?? 0.08,
+    ),
+  };
+}
+
+const HYBRID_WEIGHTS = normalizedHybridWeights();
 
 @Injectable()
 export class RecommendationsService {

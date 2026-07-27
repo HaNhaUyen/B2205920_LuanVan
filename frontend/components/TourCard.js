@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL } from "@/lib/config";
 import { apiFetch } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -139,6 +139,33 @@ function buildImageCandidates(tour, rawCover) {
   return [...new Set(candidates)];
 }
 
+function unwrapFavoriteItems(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.results)) return payload.results;
+  return [];
+}
+
+function getFavoriteTourId(item) {
+  return (
+    item?.tourId ??
+    item?.tour_id ??
+    item?.tour?.id ??
+    item?.tour?.tourId ??
+    item?.data?.tourId ??
+    item?.data?.tour?.id ??
+    item?.id ??
+    ""
+  );
+}
+
+function isTourInFavorites(payload, tourId) {
+  return unwrapFavoriteItems(payload).some(
+    (item) => String(getFavoriteTourId(item)) === String(tourId),
+  );
+}
+
 export default function TourCard({
   tour,
   initialFavorite = false,
@@ -147,6 +174,7 @@ export default function TourCard({
   const [imageIndex, setImageIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [favorite, setFavorite] = useState(Boolean(initialFavorite));
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
 
   useEffect(() => {
     setImageIndex(0);
@@ -162,7 +190,73 @@ export default function TourCard({
   const cover = imageCandidates[imageIndex] || FALLBACK_TOUR_IMAGE;
 
   const firstDeparture = tour.nextDeparture || tour.departures?.[0];
-  const currentUser = useMemo(() => getUser(), []);
+  const currentUser = getUser();
+
+  useEffect(() => {
+    setFavorite(Boolean(initialFavorite));
+  }, [initialFavorite, tour?.id]);
+
+  const refreshFavoriteStatus = useCallback(async () => {
+    if (!tour?.id || !getUser()) {
+      setFavorite(false);
+      return;
+    }
+
+    try {
+      const response = await apiFetch(`/favorites/me?_=${Date.now()}`, {
+        cache: "no-store",
+      });
+      setFavorite(isTourInFavorites(response, tour.id));
+    } catch (error) {
+      console.warn(
+        `Không đồng bộ được trạng thái yêu thích của tour ${tour.id}:`,
+        error,
+      );
+    }
+  }, [tour?.id]);
+
+  useEffect(() => {
+    if (!tour?.id) return undefined;
+
+    refreshFavoriteStatus();
+
+    const handleFocus = () => refreshFavoriteStatus();
+    const handlePageShow = () => refreshFavoriteStatus();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshFavoriteStatus();
+      }
+    };
+    const handleFavoritesChanged = (event) => {
+      const changedTourId = event?.detail?.tourId;
+
+      if (!changedTourId || String(changedTourId) === String(tour.id)) {
+        if (typeof event?.detail?.favorite === "boolean") {
+          setFavorite(event.detail.favorite);
+        } else {
+          refreshFavoriteStatus();
+        }
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener(
+      "travela:favorites-changed",
+      handleFavoritesChanged,
+    );
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener(
+        "travela:favorites-changed",
+        handleFavoritesChanged,
+      );
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [tour?.id, refreshFavoriteStatus]);
 
   const bookingCount = Number(tour.bookingCount || tour._count?.bookings || 0);
   const favoriteCount = Number(
@@ -178,26 +272,79 @@ export default function TourCard({
   const rating = getTourRating(tour);
   const reviewCount = getTourReviewCount(tour);
 
-  const toggleFavorite = async (e) => {
-    e.preventDefault();
+  const toggleFavorite = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
 
-    if (!currentUser) {
+    const user = getUser();
+
+    if (!user) {
       window.location.href = "/login";
       return;
     }
 
+    if (!tour?.id || favoriteLoading) return;
+
+    const previousFavorite = favorite;
+    const nextFavorite = !previousFavorite;
+
+    setFavorite(nextFavorite);
+    setFavoriteLoading(true);
+
     try {
-      if (favorite) {
+      if (previousFavorite) {
         await apiFetch(`/favorites/${tour.id}`, { method: "DELETE" });
-        setFavorite(false);
-        onFavoriteChange?.(false);
       } else {
         await apiFetch(`/favorites/${tour.id}`, { method: "POST" });
+      }
+
+      onFavoriteChange?.(nextFavorite);
+
+      window.dispatchEvent(
+        new CustomEvent("travela:favorites-changed", {
+          detail: {
+            tourId: tour.id,
+            favorite: nextFavorite,
+          },
+        }),
+      );
+    } catch (error) {
+      const message = String(error?.message || "").toLowerCase();
+
+      if (
+        !previousFavorite &&
+        (message.includes("already") ||
+          message.includes("đã có") ||
+          message.includes("đã tồn tại"))
+      ) {
         setFavorite(true);
         onFavoriteChange?.(true);
+
+        window.dispatchEvent(
+          new CustomEvent("travela:favorites-changed", {
+            detail: { tourId: tour.id, favorite: true },
+          }),
+        );
+      } else if (
+        previousFavorite &&
+        (message.includes("not found") ||
+          message.includes("không tồn tại") ||
+          message.includes("không tìm thấy"))
+      ) {
+        setFavorite(false);
+        onFavoriteChange?.(false);
+
+        window.dispatchEvent(
+          new CustomEvent("travela:favorites-changed", {
+            detail: { tourId: tour.id, favorite: false },
+          }),
+        );
+      } else {
+        setFavorite(previousFavorite);
+        console.error("Lỗi khi thay đổi trạng thái yêu thích:", error);
       }
-    } catch (error) {
-      console.error("Lỗi khi thay đổi trạng thái yêu thích:", error);
+    } finally {
+      setFavoriteLoading(false);
     }
   };
 
@@ -463,9 +610,15 @@ export default function TourCard({
 
           <button
             type="button"
-            aria-label="Yêu thích"
+            aria-label={favorite ? "Bỏ yêu thích" : "Thêm vào yêu thích"}
+            aria-pressed={favorite}
+            disabled={favoriteLoading}
             onClick={toggleFavorite}
-            style={styles.favButton}
+            style={{
+              ...styles.favButton,
+              opacity: favoriteLoading ? 0.65 : 1,
+              cursor: favoriteLoading ? "wait" : "pointer",
+            }}
           >
             <Heart
               size={18}

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Loading from "@/components/Loading";
 import TourCard from "@/components/TourCard";
 import TourReviewSection from "@/components/reviews/TourReviewSection";
@@ -13,6 +13,7 @@ import { normalizeTour, mapImageUrl, renderDeparturePreview } from "@/lib/tour";
 import { getUser } from "@/lib/storage";
 import { useToast } from "@/components/ToastContext";
 import { trackBehavior } from "@/lib/behavior";
+import { Heart } from "lucide-react";
 
 function buildDefaultGuests(
   adultCount = 1,
@@ -32,10 +33,13 @@ function buildDefaultGuests(
       index: i,
       guestType: "adult",
       fullName: old?.fullName || (i === 0 ? currentUser?.fullName || "" : ""),
-      dateOfBirth: old?.dateOfBirth || "",
-      gender: old?.gender || "",
+      dateOfBirth:
+        old?.dateOfBirth || (i === 0 ? currentUser?.birthDate || "" : ""),
+      gender: old?.gender || (i === 0 ? currentUser?.gender || "" : ""),
       idNumber:
         old?.idNumber || (i === 0 ? currentUser?.identityNumber || "" : ""),
+      savedTravelerId: i === 0 ? "" : old?.savedTravelerId || "",
+      isAccountOwner: i === 0,
     });
   }
 
@@ -50,6 +54,8 @@ function buildDefaultGuests(
       dateOfBirth: old?.dateOfBirth || "",
       gender: old?.gender || "",
       idNumber: old?.idNumber || "",
+      savedTravelerId: old?.savedTravelerId || "",
+      isAccountOwner: false,
     });
   }
 
@@ -62,8 +68,45 @@ function updateGuestAtIndex(rows, rowIndex, field, value) {
   );
 }
 
+function unwrapArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.results)) return payload.results;
+  return [];
+}
+
 function getFavoriteTourId(item) {
-  return item?.tourId || item?.tour_id || item?.tour?.id || item?.id || "";
+  return (
+    item?.tourId ??
+    item?.tour_id ??
+    item?.tour?.id ??
+    item?.tour?.tourId ??
+    item?.data?.tourId ??
+    item?.data?.tour?.id ??
+    item?.id ??
+    ""
+  );
+}
+
+function isTourInFavorites(payload, tourId) {
+  return unwrapArray(payload).some(
+    (item) => String(getFavoriteTourId(item)) === String(tourId),
+  );
+}
+
+function normalizeSavedTraveler(traveler = {}) {
+  return {
+    id: traveler.id,
+    fullName: traveler.fullName || traveler.full_name || "",
+    dateOfBirth: String(
+      traveler.dateOfBirth || traveler.date_of_birth || "",
+    ).slice(0, 10),
+    gender: traveler.gender || "",
+    guestType: traveler.guestType || traveler.guest_type || "adult",
+    idNumber: traveler.idNumber || traveler.id_number || "",
+    isDefault: Boolean(traveler.isDefault ?? traveler.is_default),
+  };
 }
 
 function getDepartureRemainingSlotsValue(departure = {}) {
@@ -188,6 +231,7 @@ export default function TourDetailPage() {
   const [preview, setPreview] = useState(null);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [favorite, setFavorite] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
   const [selectedDepartureId, setSelectedDepartureId] = useState("");
   const [bookingPassengers, setBookingPassengers] = useState({
     adultCount: 2,
@@ -195,6 +239,7 @@ export default function TourDetailPage() {
   });
   const [bookingGuests, setBookingGuests] = useState([]);
   const [myVouchers, setMyVouchers] = useState([]);
+  const [savedTravelers, setSavedTravelers] = useState([]);
   const [selectedVoucherCode, setSelectedVoucherCode] = useState("");
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
 
@@ -248,26 +293,41 @@ export default function TourDetailPage() {
 
         const current = getUser();
         if (current) {
-          apiFetch("/favorites/me")
-            .then((items) => {
-              if (!active) return;
-              setFavorite(
-                (items || []).some(
-                  (fav) =>
-                    String(getFavoriteTourId(fav)) === String(rawTour.id),
-                ),
-              );
-            })
-            .catch(() => {});
+          const [favoriteItems, voucherItems, travelerItems] =
+            await Promise.all([
+              apiFetch(`/favorites/me?_=${Date.now()}`, {
+                cache: "no-store",
+              }).catch(() => []),
+              apiFetch("/vouchers/me").catch(() => []),
+              apiFetch("/travel-companions").catch(() => []),
+            ]);
+          if (!active) return;
 
-          apiFetch("/vouchers/me")
-            .then((items) => {
-              if (!active) return;
-              setMyVouchers(items || []);
-            })
-            .catch(() => setMyVouchers([]));
+          setFavorite(isTourInFavorites(favoriteItems, rawTour.id));
+          setMyVouchers(voucherItems || []);
+
+          const normalizedTravelers = (travelerItems || []).map(
+            normalizeSavedTraveler,
+          );
+          setSavedTravelers(normalizedTravelers);
+
+          // Người lớn 1 luôn là tài khoản đang đăng nhập.
+          // Không dùng hành khách đã lưu để ghi đè thông tin người đặt tour.
+          setBookingGuests(
+            buildDefaultGuests(2, 0, {
+              fullName: current.fullName || "",
+              birthDate: current.birthDate || current.dateOfBirth || "",
+              gender: current.gender || "",
+              identityNumber:
+                current.identityNumber ||
+                current.idNumber ||
+                current.identity_number ||
+                "",
+            }),
+          );
         } else {
           setMyVouchers([]);
+          setSavedTravelers([]);
           setSelectedVoucherCode("");
         }
       } catch (error) {
@@ -281,6 +341,65 @@ export default function TourDetailPage() {
       active = false;
     };
   }, [slug, router, showToast]);
+
+  const refreshFavoriteStatus = useCallback(async () => {
+    if (!tour?.id || !getUser()) {
+      setFavorite(false);
+      return;
+    }
+
+    try {
+      const items = await apiFetch(`/favorites/me?_=${Date.now()}`, {
+        cache: "no-store",
+      });
+      setFavorite(isTourInFavorites(items, tour.id));
+    } catch (error) {
+      console.warn("Không đồng bộ được trạng thái yêu thích:", error);
+    }
+  }, [tour?.id]);
+
+  useEffect(() => {
+    if (!tour?.id) return undefined;
+
+    refreshFavoriteStatus();
+    const handleFocus = () => refreshFavoriteStatus();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refreshFavoriteStatus();
+    };
+
+    const handleRouteComplete = () => refreshFavoriteStatus();
+    const handleFavoritesChanged = (event) => {
+      const changedTourId = event?.detail?.tourId;
+
+      if (!changedTourId || String(changedTourId) === String(tour.id)) {
+        if (typeof event?.detail?.favorite === "boolean") {
+          setFavorite(event.detail.favorite);
+        } else {
+          refreshFavoriteStatus();
+        }
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("pageshow", handleFocus);
+    window.addEventListener(
+      "travela:favorites-changed",
+      handleFavoritesChanged,
+    );
+    document.addEventListener("visibilitychange", handleVisibility);
+    router.events?.on("routeChangeComplete", handleRouteComplete);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("pageshow", handleFocus);
+      window.removeEventListener(
+        "travela:favorites-changed",
+        handleFavoritesChanged,
+      );
+      document.removeEventListener("visibilitychange", handleVisibility);
+      router.events?.off("routeChangeComplete", handleRouteComplete);
+    };
+  }, [tour?.id, refreshFavoriteStatus, router.events]);
 
   useEffect(() => {
     if (!tour?.id) return;
@@ -411,6 +530,83 @@ export default function TourDetailPage() {
     setBookingGuests((prev) =>
       updateGuestAtIndex(prev, index, field, event.target.value),
     );
+  };
+
+  const handleSavedTravelerSelect = (rowIndex) => (event) => {
+    const travelerId = String(event.target.value || "");
+
+    setBookingGuests((prev) => {
+      const currentGuest = prev[rowIndex];
+
+      // Người lớn đầu tiên luôn là chủ tài khoản, không được thay bằng người đã lưu.
+      if (!currentGuest || currentGuest.isAccountOwner) return prev;
+
+      // Chuyển về tự nhập thủ công.
+      if (!travelerId) {
+        return prev.map((guest, index) =>
+          index === rowIndex
+            ? {
+                ...guest,
+                savedTravelerId: "",
+                fullName: "",
+                dateOfBirth: "",
+                gender: "",
+                idNumber: "",
+              }
+            : guest,
+        );
+      }
+
+      // Chặn chọn trùng cùng một hành khách đã lưu cho nhiều vé.
+      const duplicated = prev.some(
+        (guest, index) =>
+          index !== rowIndex &&
+          String(guest.savedTravelerId || "") === travelerId,
+      );
+
+      if (duplicated) {
+        showToast("Hành khách này đã được chọn cho một vé khác.", "error");
+        return prev;
+      }
+
+      const traveler = savedTravelers.find(
+        (item) => String(item.id) === travelerId,
+      );
+      if (!traveler) return prev;
+
+      return prev.map((guest, index) =>
+        index === rowIndex
+          ? {
+              ...guest,
+              savedTravelerId: travelerId,
+              fullName: traveler.fullName,
+              dateOfBirth: traveler.dateOfBirth,
+              gender: traveler.gender,
+              idNumber: traveler.idNumber,
+            }
+          : guest,
+      );
+    });
+  };
+
+  const getAvailableSavedTravelers = (guest, rowIndex) => {
+    if (guest?.isAccountOwner) return [];
+
+    const selectedByOtherRows = new Set(
+      bookingGuests
+        .filter((_, index) => index !== rowIndex)
+        .map((item) => String(item.savedTravelerId || ""))
+        .filter(Boolean),
+    );
+
+    return savedTravelers.filter((traveler) => {
+      const sameGuestType = traveler.guestType === guest.guestType;
+      const isCurrentSelection =
+        String(traveler.id) === String(guest.savedTravelerId || "");
+      const isUsedElsewhere = selectedByOtherRows.has(String(traveler.id));
+
+      return sameGuestType && (isCurrentSelection || !isUsedElsewhere);
+    });
   };
 
   const selectedVoucher = availableVouchers.find(
@@ -685,22 +881,40 @@ export default function TourDetailPage() {
   };
 
   const toggleFavorite = async () => {
-    if (!currentUser) {
+    const user = getUser();
+
+    if (!user) {
       showToast("Bạn cần đăng nhập để lưu tour yêu thích.", "error");
       setTimeout(() => router.push("/login"), 300);
       return;
     }
 
+    if (!tour?.id || favoriteLoading) return;
+
+    const previousFavorite = favorite;
+    const nextFavorite = !previousFavorite;
+
+    setFavorite(nextFavorite);
+    setFavoriteLoading(true);
+
     try {
-      if (favorite) {
+      if (previousFavorite) {
         await apiFetch(`/favorites/${tour.id}`, { method: "DELETE" });
-        setFavorite(false);
-        showToast("Đã bỏ khỏi tour yêu thích.", "success");
       } else {
         await apiFetch(`/favorites/${tour.id}`, { method: "POST" });
-        setFavorite(true);
+      }
 
-        await trackBehavior({
+      window.dispatchEvent(
+        new CustomEvent("travela:favorites-changed", {
+          detail: {
+            tourId: tour.id,
+            favorite: nextFavorite,
+          },
+        }),
+      );
+
+      if (nextFavorite) {
+        trackBehavior({
           action: "favorite",
           tourId: tour.id,
           score: 3,
@@ -710,24 +924,52 @@ export default function TourDetailPage() {
             destination: tour.destination?.name,
             theme: tour.tourTheme,
           },
-        });
+        }).catch(() => {});
 
         showToast("Đã thêm vào tour yêu thích.", "success");
+      } else {
+        showToast("Đã bỏ khỏi tour yêu thích.", "success");
       }
     } catch (error) {
-      const message = error.message || "Không cập nhật được yêu thích.";
+      const message = String(error?.message || "").toLowerCase();
+
       if (
-        message.toLowerCase().includes("đã có") ||
-        message.toLowerCase().includes("already")
+        !previousFavorite &&
+        (message.includes("already") ||
+          message.includes("đã có") ||
+          message.includes("đã tồn tại"))
       ) {
         setFavorite(true);
+
+        window.dispatchEvent(
+          new CustomEvent("travela:favorites-changed", {
+            detail: { tourId: tour.id, favorite: true },
+          }),
+        );
+
         showToast(
           "Tour này đã nằm trong danh sách yêu thích của bạn.",
           "success",
         );
-        return;
+      } else if (
+        previousFavorite &&
+        (message.includes("not found") ||
+          message.includes("không tồn tại") ||
+          message.includes("không tìm thấy"))
+      ) {
+        setFavorite(false);
+
+        window.dispatchEvent(
+          new CustomEvent("travela:favorites-changed", {
+            detail: { tourId: tour.id, favorite: false },
+          }),
+        );
+      } else {
+        setFavorite(previousFavorite);
+        showToast(error?.message || "Không cập nhật được yêu thích.", "error");
       }
-      showToast(message, "error");
+    } finally {
+      setFavoriteLoading(false);
     }
   };
 
@@ -956,32 +1198,40 @@ export default function TourDetailPage() {
 
             <div style={{ textAlign: "right" }}>
               <button
+                type="button"
                 onClick={toggleFavorite}
+                aria-label={favorite ? "Bỏ yêu thích" : "Thêm vào yêu thích"}
+                aria-pressed={favorite}
+                disabled={favoriteLoading}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
+                  justifyContent: "center",
                   gap: "8px",
-                  padding: "12px 20px",
+                  minHeight: "44px",
+                  padding: "11px 18px",
                   borderRadius: "999px",
-                  background: favorite ? "#fef2f2" : "#fff",
-                  border: `1px solid ${favorite ? "#fecdd3" : "#e2e8f0"}`,
+                  background: favorite ? "#fff1f2" : "#ffffff",
+                  border: favorite ? "1px solid #fecdd3" : "1px solid #e2e8f0",
                   color: favorite ? "#e11d48" : "#475569",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  transition: "all 0.2s",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+                  fontWeight: 700,
+                  fontSize: "0.95rem",
+                  lineHeight: 1,
+                  cursor: favoriteLoading ? "wait" : "pointer",
+                  opacity: favoriteLoading ? 0.65 : 1,
+                  transition: "all 0.2s ease",
+                  boxShadow: favorite
+                    ? "0 4px 12px rgba(225, 29, 72, 0.1)"
+                    : "0 4px 12px rgba(15, 23, 42, 0.05)",
                 }}
               >
-                <svg
-                  width="20"
-                  height="20"
+                <Heart
+                  size={19}
                   fill={favorite ? "currentColor" : "none"}
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
-                </svg>
-                {favorite ? "Đã lưu" : "Lưu yêu thích"}
+                  strokeWidth={favorite ? 0 : 2}
+                  style={{ flexShrink: 0 }}
+                />
+                <span>{favorite ? "Đã lưu" : "Lưu yêu thích"}</span>
               </button>
             </div>
           </div>
@@ -1883,18 +2133,6 @@ export default function TourDetailPage() {
                           <strong style={{ color: "#0f172a" }}>
                             Thông tin hành khách
                           </strong>
-                          <p
-                            style={{
-                              margin: "4px 0 0",
-                              color: "#64748b",
-                              fontSize: "0.85rem",
-                            }}
-                          >
-                            Nhập đúng{" "}
-                            {bookingPassengers.adultCount +
-                              bookingPassengers.childCount}{" "}
-                            người tương ứng số vé đã chọn.
-                          </p>
                         </div>
                         <span
                           style={{
@@ -1958,6 +2196,29 @@ export default function TourDetailPage() {
                             </div>
 
                             <div style={{ display: "grid", gap: "10px" }}>
+                              {!guest.isAccountOwner &&
+                                getAvailableSavedTravelers(guest, index)
+                                  .length > 0 && (
+                                  <select
+                                    className="input-modern"
+                                    value={guest.savedTravelerId || ""}
+                                    onChange={handleSavedTravelerSelect(index)}
+                                    aria-label={`Chọn hành khách đã lưu cho dòng ${index + 1}`}
+                                  >
+                                    <option value="">
+                                      Tự nhập thông tin hành khách
+                                    </option>
+                                    {getAvailableSavedTravelers(
+                                      guest,
+                                      index,
+                                    ).map((item) => (
+                                      <option key={item.id} value={item.id}>
+                                        {item.fullName}
+                                        {item.isDefault ? " (Mặc định)" : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
                               <input
                                 className="input-modern"
                                 value={guest.fullName}
