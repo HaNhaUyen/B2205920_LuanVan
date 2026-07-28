@@ -7,13 +7,23 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 
-MODEL_ORDER = ["ContentBased", "Collaborative", "Hybrid"]
+MODEL_ORDER = [
+    "ContentBased",
+    "Collaborative",
+    "MatrixFactorization",
+    "SemanticEmbedding",
+    "Hybrid",
+]
+
 MODEL_LABELS = {
-    "ContentBased": "Lọc dựa trên nội dung",
-    "Collaborative": "Lọc cộng tác",
-    "Hybrid": "Lọc kết hợp (Hybrid)",
+    "ContentBased": "Content-Based",
+    "Collaborative": "Collaborative",
+    "MatrixFactorization": "Matrix Factorization",
+    "SemanticEmbedding": "Semantic Embedding",
+    "Hybrid": "Hybrid",
 }
 
 
@@ -21,28 +31,85 @@ def load_payload(json_path: Path) -> dict[str, Any]:
     if not json_path.exists():
         raise FileNotFoundError(f"Không tìm thấy file: {json_path}")
 
-    with json_path.open("r", encoding="utf-8") as f:
-        payload = json.load(f)
+    with json_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
 
     if not isinstance(payload, dict):
-        raise ValueError("JSON phải là một object có trường result.")
+        raise ValueError("JSON phải là object.")
 
-    rows = payload.get("result")
-    if not isinstance(rows, list) or not rows:
-        raise ValueError("JSON không có trường result hợp lệ.")
+    # File mới do evaluate-recommendations.ts sinh ra có dạng:
+    # { generatedAt, kValues, productionK, productionEnv, runs: [...] }
+    if isinstance(payload.get("runs"), list) and payload["runs"]:
+        runs = payload["runs"]
+    # Tương thích file cũ chỉ có một lần đánh giá.
+    elif isinstance(payload.get("result"), list):
+        runs = [payload]
+    else:
+        raise ValueError("JSON không có trường runs hoặc result hợp lệ.")
 
-    by_name = {
-        str(row.get("modelName")): row
-        for row in rows
-        if isinstance(row, dict) and row.get("modelName")
-    }
+    normalized_runs: list[dict[str, Any]] = []
 
-    missing = [name for name in MODEL_ORDER if name not in by_name]
-    if missing:
-        raise ValueError(f"Thiếu kết quả cho: {', '.join(missing)}")
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
 
-    payload["_orderedResults"] = [by_name[name] for name in MODEL_ORDER]
+        rows = run.get("result")
+        if not isinstance(rows, list) or not rows:
+            continue
+
+        by_name = {
+            str(row.get("modelName")): row
+            for row in rows
+            if isinstance(row, dict) and row.get("modelName")
+        }
+
+        ordered_rows = [
+            by_name[name]
+            for name in MODEL_ORDER
+            if name in by_name
+        ]
+
+        if not ordered_rows:
+            continue
+
+        k = infer_k(run, ordered_rows)
+        normalized = dict(run)
+        normalized["_k"] = k
+        normalized["_orderedResults"] = ordered_rows
+        normalized_runs.append(normalized)
+
+    if not normalized_runs:
+        raise ValueError("Không tìm thấy lần đánh giá hợp lệ trong JSON.")
+
+    normalized_runs.sort(key=lambda item: item["_k"])
+    payload["_runs"] = normalized_runs
     return payload
+
+
+def infer_k(run: dict[str, Any], rows: list[dict[str, Any]]) -> int:
+    candidates = [
+        run.get("k"),
+        (run.get("config") or {}).get("k"),
+        run.get("topK"),
+    ]
+
+    for candidate in candidates:
+        try:
+            value = int(candidate)
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            pass
+
+    first = rows[0]
+    for key in first:
+        for prefix in ("precisionAt", "recallAt", "hitRateAt", "ndcgAt"):
+            if str(key).startswith(prefix):
+                suffix = str(key)[len(prefix):]
+                if suffix.isdigit():
+                    return int(suffix)
+
+    raise ValueError("Không xác định được K của lần đánh giá.")
 
 
 def save_figure(fig, output_dir: Path, file_name: str) -> None:
@@ -64,377 +131,424 @@ def add_bar_labels(ax, bars, decimals: int = 4) -> None:
         ax.annotate(
             f"{value:.{decimals}f}",
             xy=(bar.get_x() + bar.get_width() / 2, value),
-            xytext=(0, 5),
+            xytext=(0, 4),
             textcoords="offset points",
             ha="center",
             va="bottom",
-            fontsize=9,
-            fontweight="bold",
+            fontsize=7.5,
         )
 
 
-def dataset_subtitle(payload: dict[str, Any]) -> str:
-    dataset = payload.get("dataset", {}) or {}
-    config = payload.get("config", {}) or {}
-
-    users = dataset.get("evaluatedUsers", "?")
-    tours = dataset.get("activeTours", "?")
-    behaviors = dataset.get("loadedBehaviors", "?")
-    k = config.get("k", "?")
-
+def dataset_subtitle(run: dict[str, Any]) -> str:
+    dataset = run.get("dataset", {}) or {}
     return (
-        f"Đánh giá thật từ database · {users} người dùng · "
-        f"{tours} tour · {behaviors} hành vi · Top-{k}"
+        f"{dataset.get('evaluatedUsers', '?')} người dùng · "
+        f"{dataset.get('activeTours', '?')} tour · "
+        f"{dataset.get('loadedBehaviors', '?')} hành vi · "
+        f"Top-{run['_k']}"
     )
 
 
-def plot_accuracy_metrics(payload: dict[str, Any], output_dir: Path) -> None:
-    rows = payload["_orderedResults"]
+def metric_value(row: dict[str, Any], prefix: str, k: int) -> float:
+    return float(row.get(f"{prefix}{k}", 0) or 0)
 
-    metrics = [
-        ("precisionAt10", "Precision@10"),
-        ("recallAt10", "Recall@10"),
-        ("ndcgAt10", "NDCG@10"),
+
+def plot_evaluation_pipeline(payload: dict[str, Any], output_dir: Path) -> None:
+    first_run = payload["_runs"][0]
+    dataset = first_run.get("dataset", {}) or {}
+
+    steps = [
+        (
+            "Dữ liệu đầu vào",
+            f"{dataset.get('activeTours', '?')} tour\n"
+            f"{dataset.get('loadedBehaviors', '?')} hành vi",
+        ),
+        (
+            "Lọc người dùng",
+            f"Tối thiểu 6 tour tích cực\n"
+            f"{dataset.get('eligibleUsers', '?')} user hợp lệ",
+        ),
+        (
+            "Chia theo thời gian",
+            "Train → Validation → Test\n"
+            "Loại dữ liệu tương lai",
+        ),
+        (
+            "Huấn luyện cục bộ",
+            "Content-Based · UserCF\n"
+            "MF · Semantic",
+        ),
+        (
+            "Tối ưu trọng số",
+            "Grid search trên\n"
+            "tập validation",
+        ),
+        (
+            "Đánh giá cuối",
+            "Precision · Recall · Hit Rate\n"
+            "NDCG · Coverage · Diversity",
+        ),
     ]
 
-    x = np.arange(len(metrics))
-    width = 0.23
+    fig, ax = plt.subplots(figsize=(15, 5.8))
+    ax.axis("off")
 
-    fig, ax = plt.subplots(figsize=(12, 7))
-    all_values = []
+    x_positions = np.linspace(0.02, 0.84, len(steps))
+    box_width = 0.135
+    box_height = 0.32
+    y = 0.34
 
-    for index, row in enumerate(rows):
-        values = [float(row.get(key, 0) or 0) for key, _ in metrics]
-        all_values.extend(values)
-
-        bars = ax.bar(
-            x + (index - 1) * width,
-            values,
-            width,
-            label=MODEL_LABELS[row["modelName"]],
+    for index, (title, body) in enumerate(steps):
+        box = FancyBboxPatch(
+            (x_positions[index], y),
+            box_width,
+            box_height,
+            boxstyle="round,pad=0.012",
+            linewidth=1.2,
+            facecolor="white",
         )
-        add_bar_labels(ax, bars)
-
-    ax.set_title(
-        "So sánh độ chính xác và chất lượng xếp hạng",
-        fontsize=18,
-        fontweight="bold",
-        pad=18,
-    )
-    ax.text(
-        0.5,
-        1.01,
-        dataset_subtitle(payload),
-        transform=ax.transAxes,
-        ha="center",
-        fontsize=10.5,
-    )
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([label for _, label in metrics])
-    ax.set_ylabel("Giá trị chỉ số")
-    ax.set_ylim(0, max(all_values) * 1.35 if max(all_values) > 0 else 1)
-    ax.legend(loc="upper left")
-    clean_axes(ax)
-
-    fig.text(
-        0.5,
-        0.02,
-        "Precision@10: tỷ lệ tour đúng trong Top 10 | "
-        "Recall@10: khả năng tìm đủ tour phù hợp | "
-        "NDCG@10: chất lượng thứ tự xếp hạng",
-        ha="center",
-        fontsize=9.5,
-    )
-
-    fig.tight_layout(rect=[0, 0.06, 1, 1])
-    save_figure(fig, output_dir, "01_accuracy_metrics_real")
-
-
-def plot_coverage_diversity(payload: dict[str, Any], output_dir: Path) -> None:
-    rows = payload["_orderedResults"]
-
-    metrics = [
-        ("coverage", "Coverage"),
-        ("diversity", "Diversity"),
-    ]
-
-    x = np.arange(len(metrics))
-    width = 0.23
-
-    fig, ax = plt.subplots(figsize=(10.5, 6.8))
-
-    for index, row in enumerate(rows):
-        values = [float(row.get(key, 0) or 0) for key, _ in metrics]
-
-        bars = ax.bar(
-            x + (index - 1) * width,
-            values,
-            width,
-            label=MODEL_LABELS[row["modelName"]],
-        )
-        add_bar_labels(ax, bars)
-
-    ax.set_title(
-        "So sánh độ bao phủ và độ đa dạng",
-        fontsize=18,
-        fontweight="bold",
-        pad=18,
-    )
-    ax.text(
-        0.5,
-        1.01,
-        dataset_subtitle(payload),
-        transform=ax.transAxes,
-        ha="center",
-        fontsize=10.5,
-    )
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([label for _, label in metrics])
-    ax.set_ylabel("Tỷ lệ / điểm chuẩn hóa")
-    ax.set_ylim(0, 1.0)
-    ax.legend(loc="upper left")
-    clean_axes(ax)
-
-    fig.text(
-        0.5,
-        0.02,
-        "Coverage: tỷ lệ tour từng xuất hiện trong gợi ý | "
-        "Diversity: mức khác nhau giữa các tour trong cùng danh sách",
-        ha="center",
-        fontsize=9.5,
-    )
-
-    fig.tight_layout(rect=[0, 0.06, 1, 1])
-    save_figure(fig, output_dir, "02_coverage_diversity_real")
-
-
-def plot_hybrid_tradeoff(payload: dict[str, Any], output_dir: Path) -> None:
-    rows = payload["_orderedResults"]
-    by_name = {row["modelName"]: row for row in rows}
-
-    metrics = [
-        ("precisionAt10", "Precision@10"),
-        ("recallAt10", "Recall@10"),
-        ("ndcgAt10", "NDCG@10"),
-        ("coverage", "Coverage"),
-        ("diversity", "Diversity"),
-    ]
-
-    hybrid = by_name["Hybrid"]
-
-    values = []
-    labels = []
-
-    for base_name in ["ContentBased", "Collaborative"]:
-        base = by_name[base_name]
-
-        for key, label in metrics:
-            base_value = float(base.get(key, 0) or 0)
-            hybrid_value = float(hybrid.get(key, 0) or 0)
-
-            change = (
-                ((hybrid_value - base_value) / base_value) * 100
-                if base_value > 0
-                else np.nan
-            )
-
-            values.append(change)
-            labels.append(
-                f"{label}\nso với "
-                f"{'Content-Based' if base_name == 'ContentBased' else 'Collaborative'}"
-            )
-
-    fig, ax = plt.subplots(figsize=(14, 7))
-
-    plot_values = [0 if not np.isfinite(value) else value for value in values]
-    x = np.arange(len(labels))
-    bars = ax.bar(x, plot_values)
-
-    for bar, value in zip(bars, values):
-        text = f"{value:+.1f}%" if np.isfinite(value) else "Không tính %\n(mốc = 0)"
-        ax.annotate(
-            text,
-            xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
-            xytext=(0, 6 if bar.get_height() >= 0 else -18),
-            textcoords="offset points",
+        ax.add_patch(box)
+        ax.text(
+            x_positions[index] + box_width / 2,
+            y + 0.225,
+            title,
             ha="center",
-            va="bottom" if bar.get_height() >= 0 else "top",
-            fontsize=9,
+            va="center",
+            fontsize=10,
             fontweight="bold",
         )
+        ax.text(
+            x_positions[index] + box_width / 2,
+            y + 0.105,
+            body,
+            ha="center",
+            va="center",
+            fontsize=8.8,
+        )
 
-    ax.axhline(0, linewidth=1)
+        if index < len(steps) - 1:
+            arrow = FancyArrowPatch(
+                (x_positions[index] + box_width, y + box_height / 2),
+                (x_positions[index + 1], y + box_height / 2),
+                arrowstyle="->",
+                mutation_scale=15,
+                linewidth=1.2,
+            )
+            ax.add_patch(arrow)
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     ax.set_title(
-        "Mức thay đổi của Hybrid so với hai thuật toán riêng lẻ",
-        fontsize=18,
+        "Quy trình đánh giá hệ thống gợi ý trên dữ liệu thực",
+        fontsize=17,
+        fontweight="bold",
+        pad=14,
+    )
+    save_figure(fig, output_dir, "00_evaluation_pipeline")
+
+
+def plot_ranking_metrics_for_each_k(
+    payload: dict[str, Any],
+    output_dir: Path,
+) -> None:
+    for run in payload["_runs"]:
+        k = run["_k"]
+        rows = run["_orderedResults"]
+
+        metrics = [
+            ("precisionAt", f"Precision@{k}"),
+            ("recallAt", f"Recall@{k}"),
+            ("hitRateAt", f"Hit Rate@{k}"),
+            ("ndcgAt", f"NDCG@{k}"),
+        ]
+
+        x = np.arange(len(rows))
+        width = 0.18
+        fig, ax = plt.subplots(figsize=(13, 7))
+        all_values: list[float] = []
+
+        for metric_index, (prefix, label) in enumerate(metrics):
+            values = [
+                metric_value(row, prefix, k)
+                for row in rows
+            ]
+            all_values.extend(values)
+            bars = ax.bar(
+                x + (metric_index - 1.5) * width,
+                values,
+                width,
+                label=label,
+            )
+            add_bar_labels(ax, bars)
+
+        ax.set_title(
+            f"So sánh chất lượng xếp hạng các mô hình tại K={k}",
+            fontsize=17,
+            fontweight="bold",
+            pad=18,
+        )
+        ax.text(
+            0.5,
+            1.01,
+            dataset_subtitle(run),
+            transform=ax.transAxes,
+            ha="center",
+            fontsize=10,
+        )
+        ax.set_xticks(x)
+        ax.set_xticklabels(
+            [MODEL_LABELS[row["modelName"]] for row in rows],
+            rotation=14,
+            ha="right",
+        )
+        ax.set_ylabel("Giá trị chỉ số")
+        ax.set_ylim(
+            0,
+            max(all_values) * 1.25 + 0.01
+            if all_values and max(all_values) > 0
+            else 1,
+        )
+        ax.legend(ncol=4, loc="upper left")
+        clean_axes(ax)
+        fig.tight_layout()
+        save_figure(fig, output_dir, f"01_ranking_metrics_k{k}")
+
+
+def plot_coverage_diversity_all_k(
+    payload: dict[str, Any],
+    output_dir: Path,
+) -> None:
+    runs = payload["_runs"]
+    models = [
+        name
+        for name in MODEL_ORDER
+        if any(
+            any(row["modelName"] == name for row in run["_orderedResults"])
+            for run in runs
+        )
+    ]
+
+    x = np.arange(len(models))
+    series: list[tuple[list[float], str]] = []
+
+    for run in runs:
+        k = run["_k"]
+        by_name = {
+            row["modelName"]: row
+            for row in run["_orderedResults"]
+        }
+        series.append(
+            (
+                [float(by_name.get(model, {}).get("coverage", 0) or 0) for model in models],
+                f"Coverage@{k}",
+            )
+        )
+        series.append(
+            (
+                [float(by_name.get(model, {}).get("diversity", 0) or 0) for model in models],
+                f"Diversity@{k}",
+            )
+        )
+
+    total_series = len(series)
+    width = min(0.12, 0.72 / max(total_series, 1))
+
+    fig, ax = plt.subplots(figsize=(14, 7.5))
+
+    for index, (values, label) in enumerate(series):
+        offset = (index - (total_series - 1) / 2) * width
+        ax.bar(x + offset, values, width, label=label)
+
+    ax.set_title(
+        "So sánh Coverage và Diversity tại các giá trị K",
+        fontsize=17,
         fontweight="bold",
         pad=18,
     )
-    ax.text(
-        0.5,
-        1.01,
-        dataset_subtitle(payload),
-        transform=ax.transAxes,
-        ha="center",
-        fontsize=10.5,
-    )
-
-    ax.set_ylabel("Mức thay đổi (%)")
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=25, ha="right")
-    clean_axes(ax)
-
-    finite = [value for value in values if np.isfinite(value)]
-    if finite:
-        lower = min(finite + [0])
-        upper = max(finite + [0])
-        margin = max((upper - lower) * 0.18, 10)
-        ax.set_ylim(lower - margin, upper + margin)
-
-    fig.text(
-        0.5,
-        0.02,
-        "Hybrid tăng Precision, Recall, Coverage và Diversity nhưng NDCG thấp hơn Collaborative; "
-        "đây là sự đánh đổi cần trình bày trung thực.",
-        ha="center",
-        fontsize=9.5,
+    ax.set_xticklabels(
+        [MODEL_LABELS[model] for model in models],
+        rotation=14,
+        ha="right",
     )
+    ax.set_ylabel("Giá trị chuẩn hóa")
+    ax.set_ylim(0, 1.05)
+    ax.legend(ncol=3, loc="upper left")
+    clean_axes(ax)
+    fig.tight_layout()
+    save_figure(fig, output_dir, "02_coverage_diversity_all_k")
 
-    fig.tight_layout(rect=[0, 0.08, 1, 1])
-    save_figure(fig, output_dir, "03_hybrid_tradeoff_real")
 
+def plot_collaborative_vs_hybrid(
+    payload: dict[str, Any],
+    output_dir: Path,
+) -> None:
+    runs = payload["_runs"]
+    metrics = [
+        ("precisionAt", "Precision"),
+        ("recallAt", "Recall"),
+        ("hitRateAt", "Hit Rate"),
+        ("ndcgAt", "NDCG"),
+    ]
 
-def plot_train_tour_distribution(payload: dict[str, Any], output_dir: Path) -> None:
-    details = payload.get("evaluatedUserDetails", []) or []
+    fig, ax = plt.subplots(figsize=(12.5, 7))
 
-    if not details:
-        return
+    for prefix, label in metrics:
+        collaborative_values = []
+        hybrid_values = []
+        k_values = []
 
-    train_tours = [int(item.get("trainTours", 0) or 0) for item in details]
-    test_tours = [int(item.get("testTours", 0) or 0) for item in details]
+        for run in runs:
+            k = run["_k"]
+            by_name = {
+                row["modelName"]: row
+                for row in run["_orderedResults"]
+            }
+            if "Collaborative" not in by_name or "Hybrid" not in by_name:
+                continue
 
-    sorted_train = sorted(train_tours, reverse=True)
-    x = np.arange(1, len(sorted_train) + 1)
+            k_values.append(k)
+            collaborative_values.append(
+                metric_value(by_name["Collaborative"], prefix, k)
+            )
+            hybrid_values.append(
+                metric_value(by_name["Hybrid"], prefix, k)
+            )
 
-    fig, ax = plt.subplots(figsize=(12, 6.5))
-    ax.bar(x, sorted_train)
+        ax.plot(
+            k_values,
+            collaborative_values,
+            marker="o",
+            label=f"Collaborative - {label}",
+        )
+        ax.plot(
+            k_values,
+            hybrid_values,
+            marker="s",
+            linestyle="--",
+            label=f"Hybrid - {label}",
+        )
 
     ax.set_title(
-        "Phân bố số tour huấn luyện theo người dùng",
-        fontsize=18,
+        "So sánh Collaborative và Hybrid theo K",
+        fontsize=17,
         fontweight="bold",
         pad=18,
     )
-    ax.text(
-        0.5,
-        1.01,
-        (
-            f"{len(train_tours)} người dùng · "
-            f"Trung vị trainTours = {np.median(train_tours):.1f} · "
-            f"Min = {min(train_tours)} · Max = {max(train_tours)}"
-        ),
-        transform=ax.transAxes,
-        ha="center",
-        fontsize=10.5,
-    )
-
-    ax.set_xlabel("Người dùng (sắp xếp giảm dần theo trainTours)")
-    ax.set_ylabel("Số tour trong tập train")
+    ax.set_xlabel("K")
+    ax.set_ylabel("Giá trị chỉ số")
+    ax.set_xticks([run["_k"] for run in runs])
+    ax.legend(ncol=2, fontsize=8.5)
     clean_axes(ax)
+    fig.tight_layout()
+    save_figure(fig, output_dir, "03_collaborative_vs_hybrid")
 
-    fig.text(
-        0.5,
-        0.02,
-        "Biểu đồ cho thấy dữ liệu không cân bằng: một vài user có lịch sử rất lớn, "
-        "trong khi đa số chỉ có 4 tour train và 2 tour test.",
-        ha="center",
-        fontsize=9.5,
+
+def plot_validation_weights(
+    payload: dict[str, Any],
+    output_dir: Path,
+) -> None:
+    runs = payload["_runs"]
+    weight_names = [
+        ("RECO_HYBRID_CONTENT_WEIGHT", "Content-Based"),
+        ("RECO_HYBRID_COLLABORATIVE_WEIGHT", "Collaborative"),
+        ("RECO_HYBRID_MF_WEIGHT", "Matrix Factorization"),
+        ("RECO_HYBRID_SEMANTIC_WEIGHT", "Semantic Embedding"),
+    ]
+
+    x = np.arange(len(runs))
+    width = 0.19
+    fig, ax = plt.subplots(figsize=(11.5, 6.8))
+
+    for index, (env_key, label) in enumerate(weight_names):
+        values = []
+        for run in runs:
+            env = run.get("recommendedProductionEnv", {}) or {}
+            values.append(float(env.get(env_key, 0) or 0))
+
+        bars = ax.bar(
+            x + (index - 1.5) * width,
+            values,
+            width,
+            label=label,
+        )
+        add_bar_labels(ax, bars, decimals=1)
+
+    ax.set_title(
+        "Trọng số Hybrid được chọn trên tập validation",
+        fontsize=17,
+        fontweight="bold",
+        pad=18,
     )
-
-    fig.tight_layout(rect=[0, 0.06, 1, 1])
-    save_figure(fig, output_dir, "04_train_tour_distribution")
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"K={run['_k']}" for run in runs])
+    ax.set_ylabel("Trọng số")
+    ax.set_ylim(0, 1.0)
+    ax.legend(ncol=2, loc="upper left")
+    clean_axes(ax)
+    fig.tight_layout()
+    save_figure(fig, output_dir, "04_validation_weights")
 
 
 def write_summary(payload: dict[str, Any], output_dir: Path) -> None:
-    rows = payload["_orderedResults"]
-    by_name = {row["modelName"]: row for row in rows}
-
-    dataset = payload.get("dataset", {}) or {}
-    config = payload.get("config", {}) or {}
-    leakage = payload.get("leakageProtection", {}) or {}
-    details = payload.get("evaluatedUserDetails", []) or []
-
-    train_tours = [int(item.get("trainTours", 0) or 0) for item in details]
-
     lines = [
-        "KẾT QUẢ ĐÁNH GIÁ THẬT HỆ THỐNG GỢI Ý TRAVELA",
+        "KẾT QUẢ ĐÁNH GIÁ HỆ THỐNG GỢI Ý TRAVELA",
         "=" * 58,
         "",
-        f"Thời điểm tạo: {payload.get('generatedAt', '-')}",
-        f"Nguồn: {payload.get('source', '-')}",
-        f"Phương pháp: {payload.get('evaluationMethod', '-')}",
-        "",
-        "Cấu hình:",
-        f"- K: {config.get('k', '-')}",
-        f"- Số user tối đa: {config.get('maxUsers', '-')}",
-        f"- Số tour tối thiểu/user: {config.get('minUniqueTours', '-')}",
-        f"- Số test item/user: {config.get('testItems', '-')}",
-        f"- Số user tương tự: {config.get('topSimilarUsers', '-')}",
-        f"- Trọng số Content-Based: {config.get('hybridWeights', {}).get('contentBased', '-')}",
-        f"- Trọng số Collaborative: {config.get('hybridWeights', {}).get('collaborative', '-')}",
-        "",
-        "Dữ liệu:",
-        f"- Tour đang xuất bản: {dataset.get('activeTours', '-')}",
-        f"- Hành vi đã đọc: {dataset.get('loadedBehaviors', '-')}",
-        f"- User đủ điều kiện: {dataset.get('eligibleUsers', '-')}",
-        f"- User được đánh giá: {dataset.get('evaluatedUsers', '-')}",
     ]
 
-    if train_tours:
+    for run in payload["_runs"]:
+        k = run["_k"]
+        rows = run["_orderedResults"]
+        by_name = {row["modelName"]: row for row in rows}
+
         lines.extend(
             [
-                f"- TrainTours trung vị: {np.median(train_tours):.1f}",
-                f"- TrainTours nhỏ nhất: {min(train_tours)}",
-                f"- TrainTours lớn nhất: {max(train_tours)}",
+                f"K={k}",
+                "-" * 20,
             ]
         )
 
+        if "Collaborative" in by_name and "Hybrid" in by_name:
+            collaborative = by_name["Collaborative"]
+            hybrid = by_name["Hybrid"]
+
+            for prefix, label in [
+                ("precisionAt", "Precision"),
+                ("recallAt", "Recall"),
+                ("hitRateAt", "Hit Rate"),
+                ("ndcgAt", "NDCG"),
+            ]:
+                collaborative_value = metric_value(collaborative, prefix, k)
+                hybrid_value = metric_value(hybrid, prefix, k)
+                difference = hybrid_value - collaborative_value
+
+                lines.append(
+                    f"- {label}@{k}: Collaborative={collaborative_value:.4f}; "
+                    f"Hybrid={hybrid_value:.4f}; "
+                    f"Hybrid-Collaborative={difference:+.4f}"
+                )
+
+            lines.append(
+                f"- Coverage: Collaborative={float(collaborative.get('coverage', 0)):.4f}; "
+                f"Hybrid={float(hybrid.get('coverage', 0)):.4f}"
+            )
+            lines.append(
+                f"- Diversity: Collaborative={float(collaborative.get('diversity', 0)):.4f}; "
+                f"Hybrid={float(hybrid.get('diversity', 0)):.4f}"
+            )
+
+        lines.append("")
+
     lines.extend(
         [
-            "",
-            "Chống rò rỉ dữ liệu:",
-            f"- Loại test của target user khỏi train: {leakage.get('targetUserTestRemovedFromTraining', False)}",
-            f"- Loại hành vi sau cutoff: {leakage.get('behaviorsAfterTestCutoffRemovedFromCollaborativeMatrix', False)}",
-            "",
-            "Kết quả:",
-        ]
-    )
-
-    for model_name in MODEL_ORDER:
-        row = by_name[model_name]
-        lines.extend(
-            [
-                "",
-                MODEL_LABELS[model_name],
-                f"- Precision@10: {float(row.get('precisionAt10', 0)):.4f}",
-                f"- Recall@10: {float(row.get('recallAt10', 0)):.4f}",
-                f"- NDCG@10: {float(row.get('ndcgAt10', 0)):.4f}",
-                f"- Coverage: {float(row.get('coverage', 0)):.4f}",
-                f"- Diversity: {float(row.get('diversity', 0)):.4f}",
-            ]
-        )
-
-    lines.extend(
-        [
-            "",
-            "Nhận xét:",
-            "- Hybrid cao nhất về Precision@10, Recall@10, Coverage và Diversity.",
-            "- Collaborative cao nhất về NDCG@10 trong lần chạy này.",
-            "- Vì vậy không kết luận Hybrid tốt nhất ở mọi chỉ số.",
-            "- Dữ liệu có độ lệch lớn: nhiều user chỉ có 4 tour train, trong khi một số user có hơn 120 tour.",
-            "- Các cutoff 2026-04-29 lặp lại ở nhiều user cho thấy dữ liệu seed hoặc dữ liệu sinh hàng loạt; cần nêu đây là hạn chế của tập đánh giá.",
+            "NHẬN XÉT",
+            "- Collaborative cao hơn Hybrid về Precision, Recall, Hit Rate và NDCG ở cả K=3, K=5 và K=10.",
+            "- Đây không phải lỗi vẽ biểu đồ. Đó là kết quả thật của lần đánh giá hiện tại.",
+            "- Hybrid không bắt buộc phải tốt nhất ở mọi chỉ số.",
+            "- Hybrid vẫn có vai trò cân bằng nhiều nguồn tín hiệu và hỗ trợ cold-start.",
+            "- Với giao diện hiển thị 3 tour, nên dùng bộ trọng số validation của K=3 cho production.",
+            "- Không nên sửa số liệu để làm Hybrid cao hơn Collaborative.",
         ]
     )
 
@@ -451,26 +565,28 @@ def main() -> None:
         if len(sys.argv) >= 2
         else Path("scripts/recommendation_metrics_real.json")
     )
-
     output_dir = (
         Path(sys.argv[2])
         if len(sys.argv) >= 3
-        else Path("recommendation_charts")
+        else Path("scripts/recommendation_charts_real")
     )
 
     payload = load_payload(json_path)
 
-    plot_accuracy_metrics(payload, output_dir)
-    plot_coverage_diversity(payload, output_dir)
-    plot_hybrid_tradeoff(payload, output_dir)
-    plot_train_tour_distribution(payload, output_dir)
+    plot_evaluation_pipeline(payload, output_dir)
+    plot_ranking_metrics_for_each_k(payload, output_dir)
+    plot_coverage_diversity_all_k(payload, output_dir)
+    plot_collaborative_vs_hybrid(payload, output_dir)
+    plot_validation_weights(payload, output_dir)
     write_summary(payload, output_dir)
 
     print(f"Đã tạo biểu đồ tại: {output_dir.resolve()}")
-    print("- 01_accuracy_metrics_real.png / .svg")
-    print("- 02_coverage_diversity_real.png / .svg")
-    print("- 03_hybrid_tradeoff_real.png / .svg")
-    print("- 04_train_tour_distribution.png / .svg")
+    print("- 00_evaluation_pipeline.png / .svg")
+    for run in payload["_runs"]:
+        print(f"- 01_ranking_metrics_k{run['_k']}.png / .svg")
+    print("- 02_coverage_diversity_all_k.png / .svg")
+    print("- 03_collaborative_vs_hybrid.png / .svg")
+    print("- 04_validation_weights.png / .svg")
     print("- summary_real.txt")
 
 

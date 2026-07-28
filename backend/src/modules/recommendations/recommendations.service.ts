@@ -119,7 +119,16 @@ export class RecommendationsService {
       1,
     );
 
-    const scored = (activeTours as any[]).map((tour) => {
+    const unseenTours = (activeTours as any[]).filter(
+      (tour) => !interactedTourIds.has(String(tour.id)),
+    );
+    // Ưu tiên tuyệt đối tour chưa tương tác. Chỉ fallback về toàn bộ tour khi
+    // người dùng đã tương tác với tất cả tour đang hoạt động.
+    const candidateTours = unseenTours.length
+      ? unseenTours
+      : (activeTours as any[]);
+
+    const scored = candidateTours.map((tour) => {
       const content = this.contentBased.calcContentScore(tour, signals);
       const exactIntent = this.contentBased.calcExactIntentBonus(tour, signals);
       const destinationPenalty =
@@ -136,9 +145,10 @@ export class RecommendationsService {
         maxBookingCount,
         maxFavoriteCount,
       );
-      const alreadyInteractedPenalty = interactedTourIds.has(String(tour.id))
-        ? 8
-        : 0;
+      const alreadyInteractedPenalty =
+        unseenTours.length === 0 && interactedTourIds.has(String(tour.id))
+          ? 12
+          : 0;
 
       const agreementBonus =
         content.score >= 50 && deepLearningScore >= 50
@@ -154,30 +164,27 @@ export class RecommendationsService {
             ? 2
             : 0;
 
-      const weightedHybrid = clampScore(
+      // Điểm lõi phải dùng đúng bốn trọng số được chọn trên validation.
+      // Không dùng Math.max với một semantic fallback khác vì điều đó làm
+      // trọng số Hybrid đã đánh giá không còn quyết định thứ hạng production.
+      const personalizedCore = clampScore(
         HYBRID_WEIGHTS.content * content.score +
           HYBRID_WEIGHTS.collaborative * collaborativeScore +
           HYBRID_WEIGHTS.matrixFactorization * matrixFactorizationScore +
-          HYBRID_WEIGHTS.deepLearning * deepLearningScore +
-          HYBRID_WEIGHTS.business * businessScore +
-          HYBRID_WEIGHTS.exactIntentBonus * exactIntent.score +
-          0.4 * agreementBonus +
-          0.4 * communityBonus -
+          HYBRID_WEIGHTS.deepLearning * deepLearningScore,
+      );
+
+      // Business và exact intent chỉ là bước rerank nhỏ, không được lấn át
+      // mô hình cá nhân hóa lõi.
+      const finalScore = clampScore(
+        personalizedCore +
+          0.05 * businessScore +
+          0.03 * exactIntent.score +
+          0.2 * agreementBonus +
+          0.2 * communityBonus -
           destinationPenalty -
           alreadyInteractedPenalty,
       );
-
-      const semanticFallback = clampScore(
-        0.72 * deepLearningScore +
-          0.18 * content.score +
-          0.1 * businessScore +
-          0.04 * exactIntent.score +
-          0.03 * Math.max(collaborativeScore, matrixFactorizationScore) -
-          destinationPenalty -
-          alreadyInteractedPenalty,
-      );
-
-      const finalScore = clampScore(Math.max(weightedHybrid, semanticFallback));
 
       const reasons = Array.from(
         new Set([...content.reasons, ...exactIntent.reasons]),

@@ -285,6 +285,31 @@ export class RecommendationEvalService {
     return unique;
   }
 
+  private isPositiveEvaluationRow(row: BehaviorRow) {
+    const configured = String(
+      process.env.RECO_EVAL_POSITIVE_ACTIONS || "favorite,booking,review",
+    )
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    return configured.includes(String(row.action || "").trim());
+  }
+
+  private buildTargetTrainRows(
+    rows: BehaviorRow[],
+    cutoff: Date,
+    heldOutTourIds: Set<string>,
+    maxRows: number,
+  ) {
+    return rows
+      .filter((row) => row.tourId)
+      .filter((row) => row.createdAt.getTime() < cutoff.getTime())
+      .filter((row) => !heldOutTourIds.has(String(row.tourId)))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, maxRows);
+  }
+
   private average(values: number[]) {
     return values.length
       ? values.reduce((sum, value) => sum + value, 0) / values.length
@@ -466,13 +491,17 @@ export class RecommendationEvalService {
   }
 
   async evaluate(k = 10) {
+    const safeK = Math.min(Math.max(Math.round(Number(k) || 10), 1), 100);
     const evaluationNow = new Date();
     const maxUsers = Math.max(Number(process.env.RECO_EVAL_MAX_USERS || 50), 1);
     const testItems = Math.max(
       Number(process.env.RECO_EVAL_TEST_ITEMS || 2),
       1,
     );
-    const validationItems = 1;
+    const validationItems = Math.max(
+      Number(process.env.RECO_EVAL_VALIDATION_ITEMS || 1),
+      1,
+    );
     const minUniqueTours = Math.max(
       Number(process.env.RECO_EVAL_MIN_UNIQUE_TOURS || 6),
       testItems + validationItems + 3,
@@ -481,9 +510,9 @@ export class RecommendationEvalService {
       Number(process.env.RECO_EVAL_TOP_SIMILAR_USERS || 30),
       1,
     );
-    const maxTrainToursPerUser = Math.max(
-      Number(process.env.RECO_MAX_TOURS_PER_USER || 25),
-      4,
+    const maxTrainRowsPerUser = Math.max(
+      Number(process.env.RECO_EVAL_MAX_TRAIN_ROWS_PER_USER || 250),
+      10,
     );
 
     const activeTours = (await this.loadActiveTours()) as any[];
@@ -499,7 +528,6 @@ export class RecommendationEvalService {
       where: {
         userId: { not: null },
         tourId: { not: null },
-        // Chặn bản ghi có thời gian tương lai ngay từ truy vấn.
         createdAt: { lte: evaluationNow },
       },
       include: { tour: { include: { destination: true } } },
@@ -520,12 +548,15 @@ export class RecommendationEvalService {
 
     const sourceCounts: Record<string, number> = {};
     const rowsByUser = new Map<string, BehaviorRow[]>();
+
     for (const row of loadedRows) {
       const source = getRecommendationDataSource(row.meta);
       sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+
       if (recommendationSourceWeight(source) <= 0) continue;
       if (!row.userId || !row.tourId) continue;
       if (!activeTourMap.has(String(row.tourId))) continue;
+
       const userId = String(row.userId);
       const bucket = rowsByUser.get(userId) || [];
       bucket.push(row);
@@ -533,12 +564,17 @@ export class RecommendationEvalService {
     }
 
     const eligibleUsers = [...rowsByUser.entries()]
-      .map(([userId, rows]) => ({
-        userId,
-        rows,
-        uniqueRows: this.uniqueLatestTourRows(rows),
-      }))
-      .filter((item) => item.uniqueRows.length >= minUniqueTours)
+      .map(([userId, rows]) => {
+        const positiveRows = rows.filter((row) =>
+          this.isPositiveEvaluationRow(row),
+        );
+        return {
+          userId,
+          rows,
+          uniquePositiveRows: this.uniqueLatestTourRows(positiveRows),
+        };
+      })
+      .filter((item) => item.uniquePositiveRows.length >= minUniqueTours)
       .sort((a, b) => Number(a.userId) - Number(b.userId))
       .slice(0, maxUsers);
 
@@ -554,60 +590,107 @@ export class RecommendationEvalService {
     }> = [];
 
     for (const item of eligibleUsers) {
-      const uniqueRows = item.uniqueRows;
-      const testRows = uniqueRows.slice(0, testItems);
-      const validationRows = uniqueRows.slice(
+      // uniquePositiveRows được sắp xếp mới nhất -> cũ nhất.
+      const positives = item.uniquePositiveRows;
+      const testRows = positives.slice(0, testItems);
+      const validationRows = positives.slice(
         testItems,
         testItems + validationItems,
       );
-      const baseTrainRows = uniqueRows
-        .slice(testItems + validationItems)
-        .slice(0, maxTrainToursPerUser);
-      if (baseTrainRows.length < 3 || !validationRows.length) continue;
+
+      if (
+        testRows.length < testItems ||
+        validationRows.length < validationItems
+      ) {
+        continue;
+      }
+
+      /*
+       * VALIDATION:
+       * - cutoff là thời điểm positive validation cũ nhất.
+       * - loại toàn bộ tour test + validation khỏi lịch sử đích.
+       * Điều này ngăn trường hợp người dùng đã view tour trước khi favorite/booking,
+       * làm rò rỉ chính item cần dự đoán.
+       */
+      const validationCutoff = new Date(
+        Math.min(...validationRows.map((row) => row.createdAt.getTime())),
+      );
+      const validationHeldOut = new Set(
+        [...testRows, ...validationRows].map((row) => String(row.tourId)),
+      );
+      const validationTrainRows = this.buildTargetTrainRows(
+        item.rows,
+        validationCutoff,
+        validationHeldOut,
+        maxTrainRowsPerUser,
+      );
+
+      if (this.uniqueLatestTourRows(validationTrainRows).length < 3) continue;
 
       const validationRelevant = new Set(
         validationRows.map((row) => String(row.tourId)),
       );
-      const validationCutoff = validationRows[0].createdAt;
       const validationMaps = await this.buildComponentMaps(
         item.userId,
-        baseTrainRows,
+        validationTrainRows,
         loadedRows,
         validationCutoff,
         activeTours,
         destinations as any[],
         topSimilarUsers,
       );
+
       validationCases.push({
         maps: validationMaps,
-        interacted: new Set(baseTrainRows.map((row) => String(row.tourId))),
+        interacted: new Set(
+          validationTrainRows
+            .filter((row) => row.tourId)
+            .map((row) => String(row.tourId)),
+        ),
         relevantIds: validationRelevant,
       });
 
-      const finalTrainRows = [...validationRows, ...baseTrainRows].slice(
-        0,
-        maxTrainToursPerUser,
-      );
-      const cutoff = new Date(
+      /*
+       * TEST:
+       * - cutoff là thời điểm test cũ nhất.
+       * - chỉ loại test item; validation item đã xảy ra trước cutoff có thể được
+       *   dùng như lịch sử thật.
+       */
+      const testCutoff = new Date(
         Math.min(...testRows.map((row) => row.createdAt.getTime())),
       );
+      const testHeldOut = new Set(testRows.map((row) => String(row.tourId)));
+      const testTrainRows = this.buildTargetTrainRows(
+        item.rows,
+        testCutoff,
+        testHeldOut,
+        maxTrainRowsPerUser,
+      );
+
+      if (this.uniqueLatestTourRows(testTrainRows).length < 3) continue;
+
       const relevantIds = new Set(testRows.map((row) => String(row.tourId)));
       const testMaps = await this.buildComponentMaps(
         item.userId,
-        finalTrainRows,
+        testTrainRows,
         loadedRows,
-        cutoff,
+        testCutoff,
         activeTours,
         destinations as any[],
         topSimilarUsers,
       );
+
       preparedCases.push({
         userId: item.userId,
-        trainRows: finalTrainRows,
+        trainRows: testTrainRows,
         testRows,
-        cutoff,
+        cutoff: testCutoff,
         testMaps,
-        interacted: new Set(finalTrainRows.map((row) => String(row.tourId))),
+        interacted: new Set(
+          testTrainRows
+            .filter((row) => row.tourId)
+            .map((row) => String(row.tourId)),
+        ),
         relevantIds,
       });
     }
@@ -615,7 +698,7 @@ export class RecommendationEvalService {
     const weightSelection = this.selectHybridWeights(
       validationCases,
       activeTourIds,
-      k,
+      safeK,
     );
 
     const modelRows: Record<string, ModelAccumulator> = {
@@ -628,7 +711,8 @@ export class RecommendationEvalService {
 
     const evaluatedUserDetails: Array<{
       userId: string;
-      trainTours: number;
+      trainRows: number;
+      trainUniqueTours: number;
       validationTours: number;
       testTours: number;
       cutoff: string;
@@ -643,20 +727,23 @@ export class RecommendationEvalService {
           activeTourIds,
         ),
       };
+
       for (const [modelName, scoreMap] of Object.entries(scoreMaps)) {
-        const ranked = this.rank(scoreMap, k, item.interacted);
+        const ranked = this.rank(scoreMap, safeK, item.interacted);
         this.addMetrics(
           modelRows[modelName],
           ranked,
           item.relevantIds,
-          k,
+          safeK,
           activeTourMap,
         );
       }
+
       evaluatedUserDetails.push({
         userId: item.userId,
-        trainTours: item.trainRows.length,
-        validationTours: 1,
+        trainRows: item.trainRows.length,
+        trainUniqueTours: this.uniqueLatestTourRows(item.trainRows).length,
+        validationTours: validationItems,
         testTours: item.relevantIds.size,
         cutoff: item.cutoff.toISOString(),
       });
@@ -664,10 +751,10 @@ export class RecommendationEvalService {
 
     const result = Object.entries(modelRows).map(([modelName, row]) => ({
       modelName,
-      [`precisionAt${k}`]: Number(this.average(row.precision).toFixed(4)),
-      [`recallAt${k}`]: Number(this.average(row.recall).toFixed(4)),
-      [`hitRateAt${k}`]: Number(this.average(row.hitRate).toFixed(4)),
-      [`ndcgAt${k}`]: Number(this.average(row.ndcg).toFixed(4)),
+      [`precisionAt${safeK}`]: Number(this.average(row.precision).toFixed(4)),
+      [`recallAt${safeK}`]: Number(this.average(row.recall).toFixed(4)),
+      [`hitRateAt${safeK}`]: Number(this.average(row.hitRate).toFixed(4)),
+      [`ndcgAt${safeK}`]: Number(this.average(row.ndcg).toFixed(4)),
       coverage: Number(
         this.metrics.coverage(row.lists, activeTours.length).toFixed(4),
       ),
@@ -678,21 +765,33 @@ export class RecommendationEvalService {
     return {
       generatedAt: evaluationNow.toISOString(),
       source: "database",
-      evaluationMethod: "nested-temporal-holdout-by-unique-tour",
+      evaluationMethod:
+        "nested-temporal-holdout-positive-actions-by-unique-tour",
+      relevanceDefinition: {
+        positiveActions: String(
+          process.env.RECO_EVAL_POSITIVE_ACTIONS || "favorite,booking,review",
+        )
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        note: "View/search/ask_ai vẫn được dùng làm tín hiệu huấn luyện nhưng không mặc định được xem là ground truth.",
+      },
       leakageProtection: {
         futureBehaviorsExcluded: true,
-        targetUserValidationAndTestRemovedFromTraining: true,
+        targetHeldOutToursRemovedFromTargetTraining: true,
+        targetUserValidationAndTestRemovedFromValidationTraining: true,
+        targetUserTestRemovedFromTestTraining: true,
         behaviorsAfterEachCutoffRemovedFromCollaborativeAndMF: true,
         hybridWeightsSelectedOnValidationNotTest: true,
       },
       config: {
-        k,
+        k: safeK,
         maxUsers,
         minUniqueTours,
         validationItems,
         testItems,
         topSimilarUsers,
-        maxTrainToursPerUser,
+        maxTrainRowsPerUser,
         sourceWeights: {
           real: recommendationSourceWeight("real"),
           recommendation_persona_seed_v2: recommendationSourceWeight(
@@ -700,6 +799,7 @@ export class RecommendationEvalService {
           ),
           seed: recommendationSourceWeight("seed"),
           extra_huge_seed: recommendationSourceWeight("extra_huge_seed"),
+          evaluation_seed: recommendationSourceWeight("evaluation_seed"),
         },
         hybridWeightSelection: weightSelection,
       },
@@ -709,6 +809,7 @@ export class RecommendationEvalService {
         excludedFutureBehaviors: futureBehaviorCount,
         sourceCounts,
         eligibleUsers: eligibleUsers.length,
+        validationCases: validationCases.length,
         evaluatedUsers: evaluatedUserDetails.length,
       },
       result,

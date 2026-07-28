@@ -12194,3 +12194,1114 @@ ON DUPLICATE KEY UPDATE
 
 
 
+-- seed hệ thống gợi ý
+SET SQL_SAFE_UPDATES = 0;
+
+SET @seed_source = 'recommendation_persona_seed_v2';
+SET @seed_version = 2;
+SET @max_users = 80;
+SET @min_tours = 8;
+SET @max_tours = 20;
+SET @seed_value = 20260727;
+
+-- Xóa lần seed persona trước để chạy lại không bị trùng.
+DELETE FROM user_behaviors
+WHERE JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source')) = @seed_source;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_personas;
+CREATE TEMPORARY TABLE tmp_reco_personas (
+    persona_id INT PRIMARY KEY,
+    code VARCHAR(50) NOT NULL,
+    label_name VARCHAR(150) NOT NULL,
+    themes JSON NOT NULL,
+    destinations JSON NOT NULL,
+    keywords JSON NOT NULL,
+    favorite_pct INT NOT NULL,
+    booking_pct INT NOT NULL
+);
+
+INSERT INTO tmp_reco_personas
+(persona_id, code, label_name, themes, destinations, keywords, favorite_pct, booking_pct)
+VALUES
+(1, 'beach_family', 'Gia đình nghỉ dưỡng biển',
+ JSON_ARRAY('beach','family','luxury'),
+ JSON_ARRAY('Phú Quốc','Nha Trang','Vũng Tàu','Côn Đảo','Mũi Né','Quy Nhơn'),
+ JSON_ARRAY('biển','gia đình','nghỉ dưỡng','trẻ nhỏ','resort'), 58, 32),
+
+(2, 'mountain_adventure', 'Khám phá núi và săn mây',
+ JSON_ARRAY('mountain','adventure','eco'),
+ JSON_ARRAY('Đà Lạt','Sa Pa','Hà Giang','Mộc Châu','Ninh Bình'),
+ JSON_ARRAY('săn mây','núi','khám phá','thiên nhiên','check-in'), 62, 27),
+
+(3, 'culture_city', 'Văn hóa và thành phố',
+ JSON_ARRAY('culture','city','family'),
+ JSON_ARRAY('Huế','Hội An','Đà Nẵng','Tây Ninh','Buôn Ma Thuột'),
+ JSON_ARRAY('văn hóa','di tích','ẩm thực','thành phố','kiến trúc'), 48, 24),
+
+(4, 'mekong_eco', 'Sinh thái miền Tây',
+ JSON_ARRAY('eco','culture','family'),
+ JSON_ARRAY('Cần Thơ','An Giang','Cà Mau'),
+ JSON_ARRAY('miền tây','sông nước','sinh thái','chợ nổi','địa phương'), 55, 25),
+
+(5, 'premium_relax', 'Nghỉ dưỡng cao cấp',
+ JSON_ARRAY('luxury','beach','family'),
+ JSON_ARRAY('Phú Quốc','Nha Trang','Hạ Long','Đà Nẵng','Vũng Tàu'),
+ JSON_ARRAY('cao cấp','resort','riêng tư','dịch vụ tốt','nghỉ dưỡng'), 50, 36),
+
+(6, 'short_budget', 'Tour ngắn ngày và tiết kiệm',
+ JSON_ARRAY('city','culture','family','eco'),
+ JSON_ARRAY('Đà Nẵng','Huế','Cần Thơ','Tây Ninh','Vũng Tàu'),
+ JSON_ARRAY('2 ngày 1 đêm','ngắn ngày','tiết kiệm','cuối tuần','giá tốt'), 44, 20);
+
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_users;
+CREATE TEMPORARY TABLE tmp_reco_users AS
+WITH ranked_users AS (
+    SELECT
+        u.id AS user_id,
+        u.full_name,
+        ROW_NUMBER() OVER (ORDER BY u.id) AS user_no
+    FROM users u
+    WHERE u.role = 'user'
+      AND u.status = 'active'
+)
+SELECT
+    ru.user_id,
+    ru.full_name,
+    ru.user_no,
+    MOD(ru.user_no - 1, 6) + 1 AS persona_id,
+    @min_tours
+      + MOD(
+          CRC32(CONCAT(@seed_value, ':user:', ru.user_id)),
+          GREATEST(1, @max_tours - @min_tours + 1)
+        ) AS target_tours
+FROM ranked_users ru
+WHERE ru.user_no <= @max_users;
+
+-- Tạo tập ứng viên và đánh dấu tour có phù hợp persona hay không.
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_candidates;
+CREATE TEMPORARY TABLE tmp_reco_candidates AS
+SELECT
+    u.user_id,
+    u.user_no,
+    u.target_tours,
+    p.persona_id,
+    p.code AS persona_code,
+    p.label_name AS persona_label,
+    p.favorite_pct,
+    p.booking_pct,
+    t.id AS tour_id,
+    t.tour_theme,
+    d.name AS destination_name,
+    CASE
+        WHEN JSON_CONTAINS(p.themes, JSON_QUOTE(COALESCE(t.tour_theme, '')))
+          OR JSON_CONTAINS(p.destinations, JSON_QUOTE(COALESCE(d.name, '')))
+        THEN 1 ELSE 0
+    END AS is_preferred,
+    JSON_UNQUOTE(
+      JSON_EXTRACT(
+        p.keywords,
+        CONCAT(
+          '$[',
+          MOD(
+            CRC32(CONCAT(@seed_value, ':keyword:', u.user_id, ':', t.id)),
+            JSON_LENGTH(p.keywords)
+          ),
+          ']'
+        )
+      )
+    ) AS keyword_value,
+    CRC32(CONCAT(@seed_value, ':tour:', u.user_id, ':', t.id)) AS random_key
+FROM tmp_reco_users u
+JOIN tmp_reco_personas p ON p.persona_id = u.persona_id
+CROSS JOIN tours t
+JOIN destinations d ON d.id = t.destination_id
+WHERE t.status = 'published';
+
+-- Chọn khoảng 75% tour đúng sở thích và phần còn lại là tour khám phá.
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_selected_tours;
+CREATE TEMPORARY TABLE tmp_reco_selected_tours AS
+WITH ranked AS (
+    SELECT
+        c.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY c.user_id, c.is_preferred
+            ORDER BY c.random_key, c.tour_id
+        ) AS group_rank
+    FROM tmp_reco_candidates c
+),
+selected AS (
+    SELECT *
+    FROM ranked
+    WHERE
+      (
+        is_preferred = 1
+        AND group_rank <= GREATEST(4, ROUND(target_tours * 0.75))
+      )
+      OR
+      (
+        is_preferred = 0
+        AND group_rank <= GREATEST(0, target_tours - GREATEST(4, ROUND(target_tours * 0.75)))
+      )
+)
+SELECT
+    s.*,
+    ROW_NUMBER() OVER (
+        PARTITION BY s.user_id
+        ORDER BY CRC32(CONCAT(@seed_value, ':selected:', s.user_id, ':', s.tour_id))
+    ) AS tour_order,
+    TIMESTAMP(
+        DATE_SUB(
+            CURDATE(),
+            INTERVAL (
+                1 + MOD(
+                    CRC32(CONCAT(@seed_value, ':date:', s.user_id, ':', s.tour_id)),
+                    150
+                )
+            ) DAY
+        ),
+        MAKETIME(
+            7 + MOD(CRC32(CONCAT(@seed_value, ':hour:', s.user_id, ':', s.tour_id)), 16),
+            MOD(CRC32(CONCAT(@seed_value, ':minute:', s.user_id, ':', s.tour_id)), 60),
+            MOD(CRC32(CONCAT(@seed_value, ':second:', s.user_id, ':', s.tour_id)), 60)
+        )
+    ) AS base_created_at
+FROM selected s;
+
+-- 1) VIEW: tất cả tour đã chọn đều có hành vi xem.
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    s.user_id,
+    s.tour_id,
+    'view',
+    1,
+    s.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', s.persona_code,
+        'personaLabel', s.persona_label,
+        'preferred', IF(s.is_preferred = 1, TRUE, FALSE),
+        'destination', s.destination_name,
+        'theme', s.tour_theme,
+        'stage', 'awareness'
+    ),
+    s.base_created_at
+FROM tmp_reco_selected_tours s;
+
+-- 2) VIEW DETAIL: khoảng 70%.
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    s.user_id,
+    s.tour_id,
+    'view_detail',
+    2,
+    s.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', s.persona_code,
+        'personaLabel', s.persona_label,
+        'preferred', IF(s.is_preferred = 1, TRUE, FALSE),
+        'destination', s.destination_name,
+        'theme', s.tour_theme,
+        'stage', 'consideration'
+    ),
+    DATE_ADD(
+        s.base_created_at,
+        INTERVAL (2 + MOD(CRC32(CONCAT(@seed_value, ':detail:', s.user_id, ':', s.tour_id)), 89)) MINUTE
+    )
+FROM tmp_reco_selected_tours s
+WHERE MOD(CRC32(CONCAT(@seed_value, ':detail-prob:', s.user_id, ':', s.tour_id)), 100) < 70;
+
+-- 3) SEARCH hoặc ASK_AI: theo chu kỳ và xác suất bổ sung.
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    s.user_id,
+    s.tour_id,
+    CASE
+      WHEN MOD(CRC32(CONCAT(@seed_value, ':discovery-action:', s.user_id, ':', s.tour_id)), 100) < 55
+      THEN 'search'
+      ELSE 'ask_ai'
+    END,
+    2,
+    s.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', s.persona_code,
+        'personaLabel', s.persona_label,
+        'preferred', IF(s.is_preferred = 1, TRUE, FALSE),
+        'destination', s.destination_name,
+        'theme', s.tour_theme,
+        'stage', 'discovery'
+    ),
+    DATE_ADD(
+        s.base_created_at,
+        INTERVAL (5 + MOD(CRC32(CONCAT(@seed_value, ':discovery-time:', s.user_id, ':', s.tour_id)), 136)) MINUTE
+    )
+FROM tmp_reco_selected_tours s
+WHERE MOD(s.tour_order, 3) = 1
+   OR MOD(CRC32(CONCAT(@seed_value, ':discovery-prob:', s.user_id, ':', s.tour_id)), 100) < 22;
+
+-- 4) FAVORITE: xác suất phụ thuộc persona và độ phù hợp.
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    s.user_id,
+    s.tour_id,
+    'favorite',
+    4,
+    s.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', s.persona_code,
+        'personaLabel', s.persona_label,
+        'preferred', IF(s.is_preferred = 1, TRUE, FALSE),
+        'destination', s.destination_name,
+        'theme', s.tour_theme,
+        'stage', 'preference'
+    ),
+    DATE_ADD(
+        s.base_created_at,
+        INTERVAL (60 + MOD(CRC32(CONCAT(@seed_value, ':favorite-time:', s.user_id, ':', s.tour_id)), 301)) MINUTE
+    )
+FROM tmp_reco_selected_tours s
+WHERE MOD(CRC32(CONCAT(@seed_value, ':favorite-prob:', s.user_id, ':', s.tour_id)), 100)
+      < LEAST(90, GREATEST(10, s.favorite_pct + IF(s.is_preferred = 1, 12, -18)));
+
+-- 5) BOOKING hoặc BOOKING_DRAFT.
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_booking_events;
+CREATE TEMPORARY TABLE tmp_reco_booking_events AS
+SELECT
+    s.*,
+    CASE
+      WHEN MOD(CRC32(CONCAT(@seed_value, ':booking-action:', s.user_id, ':', s.tour_id)), 100) < 78
+      THEN 'booking'
+      ELSE 'booking_draft'
+    END AS booking_action,
+    DATE_ADD(
+        s.base_created_at,
+        INTERVAL (420 + MOD(CRC32(CONCAT(@seed_value, ':booking-time:', s.user_id, ':', s.tour_id)), 1981)) MINUTE
+    ) AS booking_created_at
+FROM tmp_reco_selected_tours s
+WHERE MOD(CRC32(CONCAT(@seed_value, ':booking-prob:', s.user_id, ':', s.tour_id)), 100)
+      < LEAST(80, GREATEST(4, s.booking_pct + IF(s.is_preferred = 1, 12, -18)));
+
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    b.user_id,
+    b.tour_id,
+    b.booking_action,
+    CASE WHEN b.booking_action = 'booking' THEN 10 ELSE 5 END,
+    b.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', b.persona_code,
+        'personaLabel', b.persona_label,
+        'preferred', IF(b.is_preferred = 1, TRUE, FALSE),
+        'destination', b.destination_name,
+        'theme', b.tour_theme,
+        'stage', 'conversion'
+    ),
+    b.booking_created_at
+FROM tmp_reco_booking_events b;
+
+-- 6) REVIEW: khoảng 42% trên các booking/booking draft đã tạo.
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    b.user_id,
+    b.tour_id,
+    'review',
+    6,
+    b.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', b.persona_code,
+        'personaLabel', b.persona_label,
+        'preferred', IF(b.is_preferred = 1, TRUE, FALSE),
+        'destination', b.destination_name,
+        'theme', b.tour_theme,
+        'stage', 'post_trip'
+    ),
+    DATE_ADD(
+        b.booking_created_at,
+        INTERVAL (18 + MOD(CRC32(CONCAT(@seed_value, ':review-day:', b.user_id, ':', b.tour_id)), 38)) DAY
+    )
+FROM tmp_reco_booking_events b
+WHERE MOD(CRC32(CONCAT(@seed_value, ':review-prob:', b.user_id, ':', b.tour_id)), 100) < 42;
+
+-- Thống kê kết quả sau seed.
+SELECT
+    JSON_UNQUOTE(JSON_EXTRACT(meta, '$.persona')) AS persona,
+    COUNT(*) AS behavior_count,
+    COUNT(DISTINCT user_id) AS user_count,
+    COUNT(DISTINCT tour_id) AS tour_count
+FROM user_behaviors
+WHERE JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source')) = @seed_source
+GROUP BY JSON_UNQUOTE(JSON_EXTRACT(meta, '$.persona'))
+ORDER BY persona;
+
+SELECT
+    COUNT(*) AS total_behaviors,
+    COUNT(DISTINCT user_id) AS total_users,
+    COUNT(DISTINCT tour_id) AS total_tours
+FROM user_behaviors
+WHERE JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source')) = @seed_source;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_booking_events;
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_selected_tours;
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_candidates;
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_users;
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_personas;
+
+SET SQL_SAFE_UPDATES = 1;
+
+
+
+SELECT
+  COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source')), 'real') AS source,
+  COUNT(*) AS behavior_count,
+  COUNT(DISTINCT user_id) AS user_count,
+  COUNT(DISTINCT tour_id) AS tour_count
+FROM user_behaviors
+GROUP BY source
+ORDER BY behavior_count DESC;
+
+SET SQL_SAFE_UPDATES = 0;
+
+-- Xem trước dữ liệu sẽ được sửa.
+SELECT
+    id,
+    user_id,
+    tour_id,
+    action,
+    created_at,
+    JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source')) AS source
+FROM user_behaviors
+WHERE created_at > NOW()
+  AND JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source')) = 'recommendation_persona_seed_v2'
+ORDER BY created_at;
+
+-- Đưa thời gian về 1-30 ngày trước thời điểm chạy script.
+UPDATE user_behaviors
+SET created_at = DATE_SUB(
+    NOW(),
+    INTERVAL (1 + MOD(CAST(id AS UNSIGNED), 30)) DAY
+)
+WHERE created_at > NOW()
+  AND JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source')) = 'recommendation_persona_seed_v2';
+
+-- Kiểm tra lại. Kết quả phải bằng 0.
+SELECT COUNT(*) AS remaining_future_persona_behaviors
+FROM user_behaviors
+WHERE created_at > NOW()
+  AND JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source')) = 'recommendation_persona_seed_v2';
+
+SET SQL_SAFE_UPDATES = 1;
+
+
+
+
+
+
+
+SET SQL_SAFE_UPDATES = 0;
+
+SET @seed_source = 'recommendation_persona_seed_v3';
+SET @old_seed_source = 'recommendation_persona_seed_v2';
+SET @seed_version = 3;
+SET @max_users = 80;
+SET @min_tours = 8;
+SET @max_tours = 20;
+SET @seed_value = 20260728;
+
+-- Tỷ lệ cấu trúc hành vi
+SET @core_ratio = 0.60;
+SET @explore_ratio = 0.30;
+SET @novelty_ratio = 0.10;
+
+-- Xóa dữ liệu seed cũ và seed v3 nếu chạy lại
+DELETE FROM user_behaviors
+WHERE JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source'))
+      IN (@old_seed_source, @seed_source);
+
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_personas;
+CREATE TEMPORARY TABLE tmp_reco_personas (
+    persona_id INT PRIMARY KEY,
+    code VARCHAR(50) NOT NULL,
+    label_name VARCHAR(150) NOT NULL,
+    themes JSON NOT NULL,
+    destinations JSON NOT NULL,
+    keywords JSON NOT NULL,
+    favorite_pct INT NOT NULL,
+    booking_pct INT NOT NULL
+);
+
+INSERT INTO tmp_reco_personas
+(persona_id, code, label_name, themes, destinations, keywords, favorite_pct, booking_pct)
+VALUES
+(1, 'beach_family', 'Gia đình nghỉ dưỡng biển',
+ JSON_ARRAY('beach','family','luxury'),
+ JSON_ARRAY('Phú Quốc','Nha Trang','Vũng Tàu','Côn Đảo','Mũi Né','Quy Nhơn'),
+ JSON_ARRAY('biển','gia đình','nghỉ dưỡng','trẻ nhỏ','resort'), 58, 32),
+
+(2, 'mountain_adventure', 'Khám phá núi và săn mây',
+ JSON_ARRAY('mountain','adventure','eco'),
+ JSON_ARRAY('Đà Lạt','Sa Pa','Hà Giang','Mộc Châu','Ninh Bình'),
+ JSON_ARRAY('săn mây','núi','khám phá','thiên nhiên','check-in'), 62, 27),
+
+(3, 'culture_city', 'Văn hóa và thành phố',
+ JSON_ARRAY('culture','city','family'),
+ JSON_ARRAY('Huế','Hội An','Đà Nẵng','Tây Ninh','Buôn Ma Thuột'),
+ JSON_ARRAY('văn hóa','di tích','ẩm thực','thành phố','kiến trúc'), 48, 24),
+
+(4, 'mekong_eco', 'Sinh thái miền Tây',
+ JSON_ARRAY('eco','culture','family'),
+ JSON_ARRAY('Cần Thơ','An Giang','Cà Mau'),
+ JSON_ARRAY('miền tây','sông nước','sinh thái','chợ nổi','địa phương'), 55, 25),
+
+(5, 'premium_relax', 'Nghỉ dưỡng cao cấp',
+ JSON_ARRAY('luxury','beach','family'),
+ JSON_ARRAY('Phú Quốc','Nha Trang','Hạ Long','Đà Nẵng','Vũng Tàu'),
+ JSON_ARRAY('cao cấp','resort','riêng tư','dịch vụ tốt','nghỉ dưỡng'), 50, 36),
+
+(6, 'short_budget', 'Tour ngắn ngày và tiết kiệm',
+ JSON_ARRAY('city','culture','family','eco'),
+ JSON_ARRAY('Đà Nẵng','Huế','Cần Thơ','Tây Ninh','Vũng Tàu'),
+ JSON_ARRAY('2 ngày 1 đêm','ngắn ngày','tiết kiệm','cuối tuần','giá tốt'), 44, 20);
+
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_users;
+CREATE TEMPORARY TABLE tmp_reco_users AS
+WITH ranked_users AS (
+    SELECT
+        u.id AS user_id,
+        u.full_name,
+        ROW_NUMBER() OVER (ORDER BY u.id) AS user_no
+    FROM users u
+    WHERE u.role = 'user'
+      AND u.status = 'active'
+)
+SELECT
+    ru.user_id,
+    ru.full_name,
+    ru.user_no,
+    MOD(ru.user_no - 1, 6) + 1 AS persona_id,
+    @min_tours
+      + MOD(
+          CRC32(CONCAT(@seed_value, ':user:', ru.user_id)),
+          GREATEST(1, @max_tours - @min_tours + 1)
+        ) AS target_tours
+FROM ranked_users ru
+WHERE ru.user_no <= @max_users;
+
+-- affinity_tier:
+-- 3 = vừa đúng điểm đến vừa đúng theme (core mạnh)
+-- 2 = đúng điểm đến hoặc đúng theme (core)
+-- 1 = cùng theme nhưng khác điểm đến persona (khám phá có cấu trúc)
+-- 0 = khác cả theme lẫn điểm đến (novelty/noise)
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_candidates;
+CREATE TEMPORARY TABLE tmp_reco_candidates AS
+SELECT
+    u.user_id,
+    u.user_no,
+    u.target_tours,
+    p.persona_id,
+    p.code AS persona_code,
+    p.label_name AS persona_label,
+    p.favorite_pct,
+    p.booking_pct,
+    t.id AS tour_id,
+    t.tour_theme,
+    d.name AS destination_name,
+
+    CASE
+      WHEN JSON_CONTAINS(p.themes, JSON_QUOTE(COALESCE(t.tour_theme, '')))
+       AND JSON_CONTAINS(p.destinations, JSON_QUOTE(COALESCE(d.name, '')))
+      THEN 3
+
+      WHEN JSON_CONTAINS(p.destinations, JSON_QUOTE(COALESCE(d.name, '')))
+      THEN 2
+
+      WHEN JSON_CONTAINS(p.themes, JSON_QUOTE(COALESCE(t.tour_theme, '')))
+      THEN 1
+
+      ELSE 0
+    END AS affinity_tier,
+
+    JSON_UNQUOTE(
+      JSON_EXTRACT(
+        p.keywords,
+        CONCAT(
+          '$[',
+          MOD(
+            CRC32(CONCAT(@seed_value, ':keyword:', u.user_id, ':', t.id)),
+            JSON_LENGTH(p.keywords)
+          ),
+          ']'
+        )
+      )
+    ) AS keyword_value,
+
+    CRC32(CONCAT(@seed_value, ':tour:', u.user_id, ':', t.id)) AS random_key
+FROM tmp_reco_users u
+JOIN tmp_reco_personas p ON p.persona_id = u.persona_id
+CROSS JOIN tours t
+JOIN destinations d ON d.id = t.destination_id
+WHERE t.status = 'published';
+
+-- Chọn:
+-- 60% core: tier 3 hoặc 2
+-- 30% structured exploration: tier 1
+-- 10% novelty: tier 0
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_selected_tours;
+CREATE TEMPORARY TABLE tmp_reco_selected_tours AS
+WITH ranked AS (
+    SELECT
+        c.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY c.user_id, c.affinity_tier
+            ORDER BY c.random_key, c.tour_id
+        ) AS tier_rank
+    FROM tmp_reco_candidates c
+),
+quota AS (
+    SELECT
+        r.*,
+        GREATEST(1, ROUND(r.target_tours * @core_ratio)) AS core_quota,
+        GREATEST(1, ROUND(r.target_tours * @explore_ratio)) AS explore_quota,
+        GREATEST(
+            1,
+            r.target_tours
+              - GREATEST(1, ROUND(r.target_tours * @core_ratio))
+              - GREATEST(1, ROUND(r.target_tours * @explore_ratio))
+        ) AS novelty_quota
+    FROM ranked r
+),
+selected AS (
+    SELECT *
+    FROM quota
+    WHERE
+      (
+        affinity_tier IN (2, 3)
+        AND tier_rank <= core_quota
+      )
+      OR
+      (
+        affinity_tier = 1
+        AND tier_rank <= explore_quota
+      )
+      OR
+      (
+        affinity_tier = 0
+        AND tier_rank <= novelty_quota
+      )
+),
+deduplicated AS (
+    SELECT
+        s.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY s.user_id, s.tour_id
+            ORDER BY s.affinity_tier DESC
+        ) AS duplicate_rank
+    FROM selected s
+)
+SELECT
+    s.*,
+    CASE
+      WHEN s.affinity_tier IN (2, 3) THEN 'core'
+      WHEN s.affinity_tier = 1 THEN 'structured_exploration'
+      ELSE 'novelty'
+    END AS behavior_segment,
+
+    ROW_NUMBER() OVER (
+        PARTITION BY s.user_id
+        ORDER BY CRC32(
+            CONCAT(
+                @seed_value,
+                ':selected:',
+                s.user_id,
+                ':',
+                s.tour_id
+            )
+        )
+    ) AS tour_order,
+
+    TIMESTAMP(
+        DATE_SUB(
+            CURDATE(),
+            INTERVAL (
+                1 + MOD(
+                    CRC32(
+                        CONCAT(
+                            @seed_value,
+                            ':date:',
+                            s.user_id,
+                            ':',
+                            s.tour_id
+                        )
+                    ),
+                    180
+                )
+            ) DAY
+        ),
+        MAKETIME(
+            7 + MOD(
+                CRC32(
+                    CONCAT(
+                        @seed_value,
+                        ':hour:',
+                        s.user_id,
+                        ':',
+                        s.tour_id
+                    )
+                ),
+                16
+            ),
+            MOD(
+                CRC32(
+                    CONCAT(
+                        @seed_value,
+                        ':minute:',
+                        s.user_id,
+                        ':',
+                        s.tour_id
+                    )
+                ),
+                60
+            ),
+            MOD(
+                CRC32(
+                    CONCAT(
+                        @seed_value,
+                        ':second:',
+                        s.user_id,
+                        ':',
+                        s.tour_id
+                    )
+                ),
+                60
+            )
+        )
+    ) AS base_created_at
+FROM deduplicated s
+WHERE s.duplicate_rank = 1;
+
+-- VIEW: tất cả tour đã chọn
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    s.user_id,
+    s.tour_id,
+    'view',
+    1,
+    s.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', s.persona_code,
+        'personaLabel', s.persona_label,
+        'affinityTier', s.affinity_tier,
+        'behaviorSegment', s.behavior_segment,
+        'destination', s.destination_name,
+        'theme', s.tour_theme,
+        'stage', 'awareness'
+    ),
+    s.base_created_at
+FROM tmp_reco_selected_tours s;
+
+-- VIEW DETAIL:
+-- core 82%, structured exploration 72%, novelty 35%
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    s.user_id,
+    s.tour_id,
+    'view_detail',
+    2,
+    s.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', s.persona_code,
+        'personaLabel', s.persona_label,
+        'affinityTier', s.affinity_tier,
+        'behaviorSegment', s.behavior_segment,
+        'destination', s.destination_name,
+        'theme', s.tour_theme,
+        'stage', 'consideration'
+    ),
+    DATE_ADD(
+        s.base_created_at,
+        INTERVAL (
+            2 + MOD(
+                CRC32(
+                    CONCAT(
+                        @seed_value,
+                        ':detail:',
+                        s.user_id,
+                        ':',
+                        s.tour_id
+                    )
+                ),
+                89
+            )
+        ) MINUTE
+    )
+FROM tmp_reco_selected_tours s
+WHERE MOD(
+    CRC32(
+        CONCAT(
+            @seed_value,
+            ':detail-prob:',
+            s.user_id,
+            ':',
+            s.tour_id
+        )
+    ),
+    100
+) <
+CASE
+    WHEN s.behavior_segment = 'core' THEN 82
+    WHEN s.behavior_segment = 'structured_exploration' THEN 72
+    ELSE 35
+END;
+
+-- SEARCH / ASK_AI:
+-- structured exploration được tăng xác suất để tạo tín hiệu nội dung/ngữ nghĩa
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    s.user_id,
+    s.tour_id,
+    CASE
+      WHEN MOD(
+          CRC32(
+              CONCAT(
+                  @seed_value,
+                  ':discovery-action:',
+                  s.user_id,
+                  ':',
+                  s.tour_id
+              )
+          ),
+          100
+      ) < 50
+      THEN 'search'
+      ELSE 'ask_ai'
+    END,
+    2,
+    s.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', s.persona_code,
+        'personaLabel', s.persona_label,
+        'affinityTier', s.affinity_tier,
+        'behaviorSegment', s.behavior_segment,
+        'destination', s.destination_name,
+        'theme', s.tour_theme,
+        'stage', 'discovery'
+    ),
+    DATE_ADD(
+        s.base_created_at,
+        INTERVAL (
+            5 + MOD(
+                CRC32(
+                    CONCAT(
+                        @seed_value,
+                        ':discovery-time:',
+                        s.user_id,
+                        ':',
+                        s.tour_id
+                    )
+                ),
+                136
+            )
+        ) MINUTE
+    )
+FROM tmp_reco_selected_tours s
+WHERE
+    (
+      s.behavior_segment = 'structured_exploration'
+      AND MOD(
+          CRC32(
+              CONCAT(
+                  @seed_value,
+                  ':explore-discovery:',
+                  s.user_id,
+                  ':',
+                  s.tour_id
+              )
+          ),
+          100
+      ) < 78
+    )
+    OR
+    (
+      s.behavior_segment = 'core'
+      AND MOD(
+          CRC32(
+              CONCAT(
+                  @seed_value,
+                  ':core-discovery:',
+                  s.user_id,
+                  ':',
+                  s.tour_id
+              )
+          ),
+          100
+      ) < 45
+    )
+    OR
+    (
+      s.behavior_segment = 'novelty'
+      AND MOD(
+          CRC32(
+              CONCAT(
+                  @seed_value,
+                  ':novelty-discovery:',
+                  s.user_id,
+                  ':',
+                  s.tour_id
+              )
+          ),
+          100
+      ) < 20
+    );
+
+-- FAVORITE:
+-- exploration vẫn có xác suất dương đáng kể, giúp holdout có "sở thích mới"
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    s.user_id,
+    s.tour_id,
+    'favorite',
+    4,
+    s.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', s.persona_code,
+        'personaLabel', s.persona_label,
+        'affinityTier', s.affinity_tier,
+        'behaviorSegment', s.behavior_segment,
+        'destination', s.destination_name,
+        'theme', s.tour_theme,
+        'stage', 'preference'
+    ),
+    DATE_ADD(
+        s.base_created_at,
+        INTERVAL (
+            60 + MOD(
+                CRC32(
+                    CONCAT(
+                        @seed_value,
+                        ':favorite-time:',
+                        s.user_id,
+                        ':',
+                        s.tour_id
+                    )
+                ),
+                301
+            )
+        ) MINUTE
+    )
+FROM tmp_reco_selected_tours s
+WHERE MOD(
+    CRC32(
+        CONCAT(
+            @seed_value,
+            ':favorite-prob:',
+            s.user_id,
+            ':',
+            s.tour_id
+        )
+    ),
+    100
+) <
+CASE
+    WHEN s.behavior_segment = 'core'
+      THEN LEAST(90, s.favorite_pct + 14)
+    WHEN s.behavior_segment = 'structured_exploration'
+      THEN LEAST(70, s.favorite_pct + 2)
+    ELSE 8
+END;
+
+-- BOOKING / BOOKING_DRAFT
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_booking_events;
+CREATE TEMPORARY TABLE tmp_reco_booking_events AS
+SELECT
+    s.*,
+    CASE
+      WHEN MOD(
+          CRC32(
+              CONCAT(
+                  @seed_value,
+                  ':booking-action:',
+                  s.user_id,
+                  ':',
+                  s.tour_id
+              )
+          ),
+          100
+      ) < 78
+      THEN 'booking'
+      ELSE 'booking_draft'
+    END AS booking_action,
+
+    DATE_ADD(
+        s.base_created_at,
+        INTERVAL (
+            420 + MOD(
+                CRC32(
+                    CONCAT(
+                        @seed_value,
+                        ':booking-time:',
+                        s.user_id,
+                        ':',
+                        s.tour_id
+                    )
+                ),
+                1981
+            )
+        ) MINUTE
+    ) AS booking_created_at
+FROM tmp_reco_selected_tours s
+WHERE MOD(
+    CRC32(
+        CONCAT(
+            @seed_value,
+            ':booking-prob:',
+            s.user_id,
+            ':',
+            s.tour_id
+        )
+    ),
+    100
+) <
+CASE
+    WHEN s.behavior_segment = 'core'
+      THEN LEAST(80, s.booking_pct + 14)
+    WHEN s.behavior_segment = 'structured_exploration'
+      THEN LEAST(55, s.booking_pct)
+    ELSE 4
+END;
+
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    b.user_id,
+    b.tour_id,
+    b.booking_action,
+    CASE WHEN b.booking_action = 'booking' THEN 10 ELSE 5 END,
+    b.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', b.persona_code,
+        'personaLabel', b.persona_label,
+        'affinityTier', b.affinity_tier,
+        'behaviorSegment', b.behavior_segment,
+        'destination', b.destination_name,
+        'theme', b.tour_theme,
+        'stage', 'conversion'
+    ),
+    b.booking_created_at
+FROM tmp_reco_booking_events b;
+
+-- REVIEW trên booking thật; không review booking_draft
+INSERT INTO user_behaviors
+(user_id, tour_id, action, score, keyword, meta, created_at)
+SELECT
+    b.user_id,
+    b.tour_id,
+    'review',
+    6,
+    b.keyword_value,
+    JSON_OBJECT(
+        'source', @seed_source,
+        'version', @seed_version,
+        'persona', b.persona_code,
+        'personaLabel', b.persona_label,
+        'affinityTier', b.affinity_tier,
+        'behaviorSegment', b.behavior_segment,
+        'destination', b.destination_name,
+        'theme', b.tour_theme,
+        'stage', 'post_trip'
+    ),
+    DATE_ADD(
+        b.booking_created_at,
+        INTERVAL (
+            18 + MOD(
+                CRC32(
+                    CONCAT(
+                        @seed_value,
+                        ':review-day:',
+                        b.user_id,
+                        ':',
+                        b.tour_id
+                    )
+                ),
+                38
+            )
+        ) DAY
+    )
+FROM tmp_reco_booking_events b
+WHERE b.booking_action = 'booking'
+  AND MOD(
+      CRC32(
+          CONCAT(
+              @seed_value,
+              ':review-prob:',
+              b.user_id,
+              ':',
+              b.tour_id
+          )
+      ),
+      100
+  ) < 42;
+
+-- Kiểm tra tỷ lệ hành vi theo segment
+SELECT
+    JSON_UNQUOTE(JSON_EXTRACT(meta, '$.behaviorSegment')) AS behavior_segment,
+    action,
+    COUNT(*) AS behavior_count,
+    COUNT(DISTINCT user_id) AS user_count,
+    COUNT(DISTINCT tour_id) AS tour_count
+FROM user_behaviors
+WHERE JSON_UNQUOTE(JSON_EXTRACT(meta, '$.source')) = @seed_source
+GROUP BY
+    JSON_UNQUOTE(JSON_EXTRACT(meta, '$.behaviorSegment')),
+    action
+ORDER BY behavior_segment, action;
+
+-- Kiểm tra phân bố tour đã chọn trước khi xóa temporary tables
+SELECT
+    behavior_segment,
+    COUNT(*) AS selected_rows,
+    COUNT(DISTINCT user_id) AS users,
+    COUNT(DISTINCT tour_id) AS tours,
+    ROUND(
+        100.0 * COUNT(*) / SUM(COUNT(*)) OVER (),
+        2
+    ) AS pct
+FROM tmp_reco_selected_tours
+GROUP BY behavior_segment
+ORDER BY behavior_segment;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_booking_events;
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_selected_tours;
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_candidates;
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_users;
+DROP TEMPORARY TABLE IF EXISTS tmp_reco_personas;
+
+SET SQL_SAFE_UPDATES = 1;

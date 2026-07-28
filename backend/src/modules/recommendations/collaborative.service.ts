@@ -27,7 +27,7 @@ export class CollaborativeService {
       where: {
         userId: { not: null },
         tourId: { not: null },
-        createdAt: { gte: since },
+        createdAt: { gte: since, lte: new Date() },
       },
       select: {
         userId: true,
