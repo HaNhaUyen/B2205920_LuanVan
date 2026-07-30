@@ -15,7 +15,7 @@
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
   --radius: 24px;
   --radius-sm: 16px;
-  --container: 1200px;
+  --container: 1380px;
 }
 
 * {
@@ -69,7 +69,7 @@ button {
 }
 
 .container {
-  width: min(var(--container), calc(100vw - 32px));
+  width: min(var(--container), calc(100vw - 40px));
   margin: 0 auto;
 }
 

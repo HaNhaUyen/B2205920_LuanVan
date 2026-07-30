@@ -150,7 +150,7 @@ export default function HomePage() {
 
   const featuredTours = useMemo(() => tours.slice(0, 6), [tours]);
   const topDestinations = useMemo(
-    () => destinations.slice(0, 6),
+    () => destinations.slice(0, 8),
     [destinations],
   );
 
@@ -211,6 +211,22 @@ export default function HomePage() {
             background: #ff9f1a !important;
             color: #fff !important;
             transform: scale(1.1);
+          }
+
+          .home-destination-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          }
+
+          @media (max-width: 1180px) {
+            .home-destination-grid {
+              grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            }
+          }
+
+          @media (max-width: 680px) {
+            .home-destination-grid {
+              grid-template-columns: 1fr !important;
+            }
           }
         `,
         }}
@@ -457,7 +473,7 @@ export default function HomePage() {
                 href={item.href}
                 className="section-card floating-card"
                 style={{
-                  padding: "32px 24px",
+                  padding: "26px 20px",
                   background: "#fff",
                   borderRadius: "24px",
                   display: "flex",
@@ -687,10 +703,10 @@ export default function HomePage() {
           </div>
 
           <div
-            className="destination-chip-grid"
+            className="destination-chip-grid home-destination-grid"
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
               gap: "24px",
             }}
           >
@@ -712,7 +728,7 @@ export default function HomePage() {
                     display: "flex",
                     flexDirection: "column",
                     justifyContent: "flex-end",
-                    minHeight: "220px",
+                    minHeight: "210px",
                     border: "none",
                     borderRadius: "24px",
                     boxShadow: "0 12px 30px rgba(0,0,0,0.08)",
@@ -774,7 +790,7 @@ export default function HomePage() {
                       </small>
                       <strong
                         style={{
-                          fontSize: "1.8rem",
+                          fontSize: "1.45rem",
                           display: "block",
                           color: "#fff",
                           textShadow: "0 2px 4px rgba(0,0,0,0.5)",

@@ -111,20 +111,40 @@ export default function LoginPage() {
     payload.email = String(payload.email || "")
       .trim()
       .toLowerCase();
-    payload.phone = String(payload.phone || "").trim();
     payload.password = String(payload.password || "");
+    payload.confirmPassword = String(payload.confirmPassword || "");
 
-    if (!payload.fullName) {
-      showToast("Bạn hãy nhập họ và tên.", "error");
+    if (
+      !payload.fullName ||
+      !payload.email ||
+      !payload.password ||
+      !payload.confirmPassword
+    ) {
+      showToast("Vui lòng nhập đầy đủ thông tin.", "error");
       setSending(false);
       return;
     }
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(payload.email)) {
+      showToast("Vui lòng nhập địa chỉ email hợp lệ.", "error");
+      setSending(false);
+      return;
+    }
+
     if (payload.password.length < 6) {
-      showToast("Mật khẩu cần tối thiểu 6 ký tự.", "error");
+      showToast("Vui lòng nhập mật khẩu từ 6 ký tự trở lên.", "error");
       setSending(false);
       return;
     }
-    if (!payload.phone) delete payload.phone;
+
+    if (payload.password !== payload.confirmPassword) {
+      showToast("Mật khẩu không khớp.", "error");
+      setSending(false);
+      return;
+    }
+
+    delete payload.confirmPassword;
 
     try {
       const session = await apiFetch("/auth/register", {
@@ -482,13 +502,12 @@ export default function LoginPage() {
                 </button>
               </form>
             ) : (
-              <form onSubmit={handleRegister}>
+              <form onSubmit={handleRegister} noValidate>
                 <div style={{ marginBottom: "20px" }}>
                   <label className="auth-label">Họ và tên</label>
                   <input
                     name="fullName"
                     placeholder="VD: Nguyễn Văn A"
-                    required
                     className="auth-input"
                   />
                 </div>
@@ -498,25 +517,26 @@ export default function LoginPage() {
                     name="email"
                     type="email"
                     placeholder="VD: ban@example.com"
-                    required
                     className="auth-input"
                   />
                 </div>
                 <div style={{ marginBottom: "20px" }}>
-                  <label className="auth-label">Số điện thoại (Tùy chọn)</label>
-                  <input
-                    name="phone"
-                    placeholder="VD: 0901 234 567"
-                    className="auth-input"
-                  />
-                </div>
-                <div style={{ marginBottom: "32px" }}>
                   <label className="auth-label">Mật khẩu</label>
                   <input
                     name="password"
                     type="password"
                     placeholder="Tối thiểu 6 ký tự"
-                    required
+                    autoComplete="new-password"
+                    className="auth-input"
+                  />
+                </div>
+                <div style={{ marginBottom: "32px" }}>
+                  <label className="auth-label">Nhập lại mật khẩu</label>
+                  <input
+                    name="confirmPassword"
+                    type="password"
+                    placeholder="Nhập lại mật khẩu"
+                    autoComplete="new-password"
                     className="auth-input"
                   />
                 </div>

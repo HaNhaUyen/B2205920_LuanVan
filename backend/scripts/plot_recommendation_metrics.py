@@ -15,6 +15,7 @@ MODEL_ORDER = [
     "Collaborative",
     "MatrixFactorization",
     "SemanticEmbedding",
+    "Trending",
     "Hybrid",
 ]
 
@@ -23,6 +24,7 @@ MODEL_LABELS = {
     "Collaborative": "Collaborative",
     "MatrixFactorization": "Matrix Factorization",
     "SemanticEmbedding": "Semantic Embedding",
+    "Trending": "Trending",
     "Hybrid": "Hybrid",
 }
 
@@ -153,6 +155,43 @@ def metric_value(row: dict[str, Any], prefix: str, k: int) -> float:
     return float(row.get(f"{prefix}{k}", 0) or 0)
 
 
+def get_selected_weights(run: dict[str, Any]) -> dict[str, float]:
+    """Đọc bộ trọng số Hybrid được chọn trên tập validation."""
+    config = run.get("config", {}) or {}
+    selection = config.get("hybridWeightSelection", {}) or {}
+    selected = selection.get("selected", {}) or {}
+
+    if selected:
+        return {
+            "CBF": float(selected.get("contentBased", 0) or 0),
+            "CF": float(selected.get("collaborative", 0) or 0),
+            "MF": float(selected.get("matrixFactorization", 0) or 0),
+            "Semantic": float(selected.get("semanticEmbedding", 0) or 0),
+            "Trending": float(selected.get("trending", 0) or 0),
+        }
+
+    env = run.get("recommendedProductionEnv", {}) or {}
+    return {
+        "CBF": float(env.get("RECO_HYBRID_CONTENT_WEIGHT", 0) or 0),
+        "CF": float(env.get("RECO_HYBRID_COLLABORATIVE_WEIGHT", 0) or 0),
+        "MF": float(env.get("RECO_HYBRID_MF_WEIGHT", 0) or 0),
+        "Semantic": float(env.get("RECO_HYBRID_SEMANTIC_WEIGHT", 0) or 0),
+        "Trending": float(env.get("RECO_HYBRID_TRENDING_WEIGHT", 0) or 0),
+    }
+
+
+def hybrid_weight_text(run: dict[str, Any]) -> str:
+    weights = get_selected_weights(run)
+    return (
+        "Trọng số Hybrid được chọn trên validation: "
+        f"CBF={weights['CBF']:.1f} · "
+        f"CF={weights['CF']:.1f} · "
+        f"MF={weights['MF']:.1f} · "
+        f"Semantic={weights['Semantic']:.1f} · "
+        f"Trending={weights['Trending']:.1f}"
+    )
+
+
 def plot_evaluation_pipeline(payload: dict[str, Any], output_dir: Path) -> None:
     first_run = payload["_runs"][0]
     dataset = first_run.get("dataset", {}) or {}
@@ -254,6 +293,7 @@ def plot_ranking_metrics_for_each_k(
     for run in payload["_runs"]:
         k = run["_k"]
         rows = run["_orderedResults"]
+        selected_weights = get_selected_weights(run)
 
         metrics = [
             ("precisionAt", f"Precision@{k}"),
@@ -264,14 +304,11 @@ def plot_ranking_metrics_for_each_k(
 
         x = np.arange(len(rows))
         width = 0.18
-        fig, ax = plt.subplots(figsize=(13, 7))
+        fig, ax = plt.subplots(figsize=(13, 8.2))
         all_values: list[float] = []
 
         for metric_index, (prefix, label) in enumerate(metrics):
-            values = [
-                metric_value(row, prefix, k)
-                for row in rows
-            ]
+            values = [metric_value(row, prefix, k) for row in rows]
             all_values.extend(values)
             bars = ax.bar(
                 x + (metric_index - 1.5) * width,
@@ -285,22 +322,53 @@ def plot_ranking_metrics_for_each_k(
             f"So sánh chất lượng xếp hạng các mô hình tại K={k}",
             fontsize=17,
             fontweight="bold",
-            pad=18,
+            pad=52,
         )
+
         ax.text(
             0.5,
-            1.01,
+            1.065,
             dataset_subtitle(run),
             transform=ax.transAxes,
             ha="center",
+            va="bottom",
             fontsize=10,
         )
-        ax.set_xticks(x)
-        ax.set_xticklabels(
-            [MODEL_LABELS[row["modelName"]] for row in rows],
-            rotation=14,
-            ha="right",
+
+        ax.text(
+            0.5,
+            1.015,
+            hybrid_weight_text(run),
+            transform=ax.transAxes,
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+            bbox={
+                "boxstyle": "round,pad=0.35",
+                "facecolor": "white",
+                "edgecolor": "gray",
+                "alpha": 0.96,
+            },
         )
+
+        model_labels = []
+        for row in rows:
+            model_name = row["modelName"]
+            if model_name == "Hybrid":
+                model_labels.append(
+                    "Hybrid\n"
+                    f"CBF={selected_weights['CBF']:.1f}; "
+                    f"CF={selected_weights['CF']:.1f}\n"
+                    f"MF={selected_weights['MF']:.1f}; "
+                    f"Sem={selected_weights['Semantic']:.1f}; "
+                    f"Trend={selected_weights['Trending']:.1f}"
+                )
+            else:
+                model_labels.append(MODEL_LABELS[model_name])
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(model_labels, rotation=12, ha="right")
         ax.set_ylabel("Giá trị chỉ số")
         ax.set_ylim(
             0,
@@ -310,9 +378,8 @@ def plot_ranking_metrics_for_each_k(
         )
         ax.legend(ncol=4, loc="upper left")
         clean_axes(ax)
-        fig.tight_layout()
+        fig.tight_layout(rect=[0, 0.04, 1, 0.91])
         save_figure(fig, output_dir, f"01_ranking_metrics_k{k}")
-
 
 def plot_coverage_diversity_all_k(
     payload: dict[str, Any],
@@ -454,10 +521,11 @@ def plot_validation_weights(
         ("RECO_HYBRID_COLLABORATIVE_WEIGHT", "Collaborative"),
         ("RECO_HYBRID_MF_WEIGHT", "Matrix Factorization"),
         ("RECO_HYBRID_SEMANTIC_WEIGHT", "Semantic Embedding"),
+        ("RECO_HYBRID_TRENDING_WEIGHT", "Trending"),
     ]
 
     x = np.arange(len(runs))
-    width = 0.19
+    width = min(0.16, 0.78 / max(len(weight_names), 1))
     fig, ax = plt.subplots(figsize=(11.5, 6.8))
 
     for index, (env_key, label) in enumerate(weight_names):
@@ -467,7 +535,7 @@ def plot_validation_weights(
             values.append(float(env.get(env_key, 0) or 0))
 
         bars = ax.bar(
-            x + (index - 1.5) * width,
+            x + (index - (len(weight_names) - 1) / 2) * width,
             values,
             width,
             label=label,
@@ -490,6 +558,77 @@ def plot_validation_weights(
     save_figure(fig, output_dir, "04_validation_weights")
 
 
+
+def plot_top_hybrid_weight_candidates(
+    payload: dict[str, Any],
+    output_dir: Path,
+) -> None:
+    for run in payload["_runs"]:
+        k = run["_k"]
+        selection = (
+            (run.get("config") or {})
+            .get("hybridWeightSelection", {})
+        )
+        candidates = selection.get("topCandidates", []) or []
+        if not candidates:
+            continue
+
+        labels: list[str] = []
+        ndcg_values: list[float] = []
+        recall_values: list[float] = []
+        precision_values: list[float] = []
+
+        for index, row in enumerate(candidates, start=1):
+            weights = row.get("weights", {}) or {}
+            labels.append(
+                f"{index}. "
+                f"CBF={float(weights.get('contentBased', 0)):.1f}; "
+                f"CF={float(weights.get('collaborative', 0)):.1f}; "
+                f"MF={float(weights.get('matrixFactorization', 0)):.1f}; "
+                f"Sem={float(weights.get('semanticEmbedding', 0)):.1f}; "
+                f"Trend={float(weights.get('trending', 0)):.1f}"
+            )
+            ndcg_values.append(float(row.get("validationNdcgAtK", 0) or 0))
+            recall_values.append(float(row.get("validationRecallAtK", 0) or 0))
+            precision_values.append(float(row.get("validationPrecisionAtK", 0) or 0))
+
+        y = np.arange(len(labels))
+        fig, ax = plt.subplots(figsize=(14, 8))
+        bars = ax.barh(y, ndcg_values)
+
+        # Gạch chéo cấu hình được chọn để phân biệt mà không phụ thuộc màu sắc.
+        if bars:
+            bars[0].set_hatch("///")
+            bars[0].set_linewidth(2.0)
+
+        ax.set_yticks(y)
+        ax.set_yticklabels(labels, fontsize=9)
+        ax.invert_yaxis()
+        ax.set_xlabel(f"NDCG@{k} trên tập validation")
+        ax.set_title(
+            f"So sánh các cấu hình trọng số Hybrid tại K={k}\n"
+            f"Cấu hình đầu tiên được chọn theo NDCG@{k} cao nhất",
+            fontsize=16,
+            fontweight="bold",
+            pad=16,
+        )
+
+        for bar, ndcg, recall, precision in zip(
+            bars, ndcg_values, recall_values, precision_values
+        ):
+            ax.text(
+                ndcg + 0.00015,
+                bar.get_y() + bar.get_height() / 2,
+                f"NDCG={ndcg:.4f} | Recall={recall:.4f} | Precision={precision:.4f}",
+                va="center",
+                fontsize=8.5,
+            )
+
+        ax.set_xlim(0, max(ndcg_values) * 1.3 if ndcg_values else 1)
+        clean_axes(ax)
+        fig.tight_layout()
+        save_figure(fig, output_dir, f"05_top_hybrid_weight_candidates_k{k}")
+
 def write_summary(payload: dict[str, Any], output_dir: Path) -> None:
     lines = [
         "KẾT QUẢ ĐÁNH GIÁ HỆ THỐNG GỢI Ý TRAVELA",
@@ -501,13 +640,35 @@ def write_summary(payload: dict[str, Any], output_dir: Path) -> None:
         k = run["_k"]
         rows = run["_orderedResults"]
         by_name = {row["modelName"]: row for row in rows}
+        weights = get_selected_weights(run)
 
-        lines.extend(
-            [
-                f"K={k}",
-                "-" * 20,
-            ]
+        lines.extend([
+            f"K={k}",
+            "-" * 20,
+            (
+                "- Trọng số Hybrid được chọn trên validation: "
+                f"CBF={weights['CBF']:.1f}; "
+                f"CF={weights['CF']:.1f}; "
+                f"MF={weights['MF']:.1f}; "
+                f"Semantic={weights['Semantic']:.1f}"
+            ),
+        ])
+
+        selection = (
+            (run.get("config") or {})
+            .get("hybridWeightSelection", {})
         )
+        top_candidates = selection.get("topCandidates", []) or []
+        if top_candidates:
+            best = top_candidates[0]
+            lines.append(
+                f"- Validation: NDCG@{k}="
+                f"{float(best.get('validationNdcgAtK', 0)):.4f}; "
+                f"Recall@{k}="
+                f"{float(best.get('validationRecallAtK', 0)):.4f}; "
+                f"Precision@{k}="
+                f"{float(best.get('validationPrecisionAtK', 0)):.4f}"
+            )
 
         if "Collaborative" in by_name and "Hybrid" in by_name:
             collaborative = by_name["Collaborative"]
@@ -522,9 +683,9 @@ def write_summary(payload: dict[str, Any], output_dir: Path) -> None:
                 collaborative_value = metric_value(collaborative, prefix, k)
                 hybrid_value = metric_value(hybrid, prefix, k)
                 difference = hybrid_value - collaborative_value
-
                 lines.append(
-                    f"- {label}@{k}: Collaborative={collaborative_value:.4f}; "
+                    f"- Test {label}@{k}: "
+                    f"Collaborative={collaborative_value:.4f}; "
                     f"Hybrid={hybrid_value:.4f}; "
                     f"Hybrid-Collaborative={difference:+.4f}"
                 )
@@ -540,24 +701,38 @@ def write_summary(payload: dict[str, Any], output_dir: Path) -> None:
 
         lines.append("")
 
-    lines.extend(
-        [
-            "NHẬN XÉT",
-            "- Collaborative cao hơn Hybrid về Precision, Recall, Hit Rate và NDCG ở cả K=3, K=5 và K=10.",
-            "- Đây không phải lỗi vẽ biểu đồ. Đó là kết quả thật của lần đánh giá hiện tại.",
-            "- Hybrid không bắt buộc phải tốt nhất ở mọi chỉ số.",
-            "- Hybrid vẫn có vai trò cân bằng nhiều nguồn tín hiệu và hỗ trợ cold-start.",
-            "- Với giao diện hiển thị 3 tour, nên dùng bộ trọng số validation của K=3 cho production.",
-            "- Không nên sửa số liệu để làm Hybrid cao hơn Collaborative.",
-        ]
-    )
+    production_k = payload.get("productionK")
+    production_env = payload.get("productionEnv") or {}
+    lines.extend(["CẤU HÌNH PRODUCTION", "-" * 20])
+
+    if production_k is not None:
+        lines.append(f"- K dùng để chọn trọng số production: {production_k}")
+
+    if production_env:
+        lines.append(
+            "- Trọng số production: "
+            f"CBF={float(production_env.get('RECO_HYBRID_CONTENT_WEIGHT', 0)):.1f}; "
+            f"CF={float(production_env.get('RECO_HYBRID_COLLABORATIVE_WEIGHT', 0)):.1f}; "
+            f"MF={float(production_env.get('RECO_HYBRID_MF_WEIGHT', 0)):.1f}; "
+            f"Semantic={float(production_env.get('RECO_HYBRID_SEMANTIC_WEIGHT', 0)):.1f}; "
+            f"Trending={float(production_env.get('RECO_HYBRID_TRENDING_WEIGHT', 0)):.1f}"
+        )
+
+    lines.extend([
+        "",
+        "GIẢI THÍCH",
+        "- Trọng số không được chọn ngẫu nhiên.",
+        "- Với mỗi K, chương trình tạo các tổ hợp trọng số có tổng bằng 1 theo bước grid search.",
+        "- Mỗi tổ hợp được chấm trên tập validation bằng NDCG@K.",
+        "- Nếu NDCG@K bằng nhau, chương trình ưu tiên Recall@K rồi Precision@K.",
+        "- Vì độ dài danh sách thay đổi theo K nên bộ trọng số tốt nhất tại K=3, K=5 và K=10 có thể khác nhau.",
+    ])
 
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "summary_real.txt").write_text(
         "\n".join(lines),
         encoding="utf-8",
     )
-
 
 def main() -> None:
     json_path = (
@@ -578,6 +753,7 @@ def main() -> None:
     plot_coverage_diversity_all_k(payload, output_dir)
     plot_collaborative_vs_hybrid(payload, output_dir)
     plot_validation_weights(payload, output_dir)
+    plot_top_hybrid_weight_candidates(payload, output_dir)
     write_summary(payload, output_dir)
 
     print(f"Đã tạo biểu đồ tại: {output_dir.resolve()}")
@@ -587,6 +763,8 @@ def main() -> None:
     print("- 02_coverage_diversity_all_k.png / .svg")
     print("- 03_collaborative_vs_hybrid.png / .svg")
     print("- 04_validation_weights.png / .svg")
+    for run in payload["_runs"]:
+        print(f"- 05_top_hybrid_weight_candidates_k{run['_k']}.png / .svg")
     print("- summary_real.txt")
 
 

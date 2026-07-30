@@ -13,6 +13,7 @@ import { PrismaModule } from "../../prisma/prisma.module";
 import { BookingsModule } from "../bookings/bookings.module";
 import { PaymentsModule } from "../payments/payments.module";
 import { RefundsModule } from "../refunds/refunds.module";
+import { RecommendationsModule } from "../recommendations/recommendations.module";
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { RefundsModule } from "../refunds/refunds.module";
     BookingsModule,
     PaymentsModule,
     RefundsModule,
+    RecommendationsModule,
   ],
   controllers: [ChatbotController],
   providers: [

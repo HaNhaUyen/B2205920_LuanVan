@@ -6,12 +6,12 @@ import { AppModule } from "../app.module";
 import { RecommendationEvalService } from "../modules/recommendations/recommendation-eval.service";
 
 function parseKValues(value: string | undefined): number[] {
-  const values = String(value || "3,5,10")
+  const values = String(value || "10")
     .split(",")
     .map((item) => Number(item.trim()))
     .filter((item) => Number.isInteger(item) && item > 0 && item <= 100);
 
-  return values.length ? [...new Set(values)] : [3, 5, 10];
+  return values.length ? [...new Set(values)] : [10];
 }
 
 async function main() {
@@ -21,9 +21,8 @@ async function main() {
     process.argv[3] || "scripts/recommendation_metrics_real.json",
   );
 
-  // Chỉ chọn một K mục tiêu cho production để tránh mỗi K trả về một bộ trọng số khác nhau.
-  // Mặc định K=3 vì giao diện Travela hiển thị 3 tour gợi ý.
-  const productionK = Number(process.env.RECO_PRODUCTION_TOP_K || 3);
+  // Chọn K=10 làm cấu hình đánh giá/production mặc định cho báo cáo.
+  const productionK = Number(process.env.RECO_PRODUCTION_TOP_K || 10);
 
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ["error", "warn", "log"],

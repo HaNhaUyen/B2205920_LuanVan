@@ -66,6 +66,15 @@ function getMatchPercent(tour) {
   return Math.max(60, Math.min(99, Math.round(normalized)));
 }
 
+function shouldSkipNextImageOptimization(url = "") {
+  const value = String(url || "");
+
+  return (
+    value.startsWith("data:image") ||
+    /^https?:\/\/(?:localhost|127\.0\.0\.1):3001\/uploads\//i.test(value)
+  );
+}
+
 const FALLBACK_TOUR_IMAGE =
   "data:image/svg+xml;charset=UTF-8," +
   encodeURIComponent(`
@@ -549,7 +558,7 @@ export default function TourCard({
           sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           quality={90}
           priority={false}
-          unoptimized={cover.startsWith("data:image")}
+          unoptimized={shouldSkipNextImageOptimization(cover)}
           style={{
             objectFit: "cover",
             objectPosition: "center",

@@ -383,41 +383,108 @@ export class RecommendationsService {
 
   private applyDiversity(items: HybridScoredTour[], take: number) {
     const selected: HybridScoredTour[] = [];
+    const selectedIds = new Set<string>();
     const destinationCount: Record<string, number> = {};
     const themeCount: Record<string, number> = {};
 
-    for (const item of items) {
-      const destinationId = String(item.tour.destinationId || "");
-      const theme = String(item.tour.tourTheme || "");
-      const currentDestinationCount = destinationCount[destinationId] || 0;
-      const currentThemeCount = themeCount[theme] || 0;
+    const maxPerDestination = Math.max(
+      1,
+      Number(process.env.RECO_MAX_PER_DESTINATION || 2),
+    );
+    const maxPerTheme = Math.max(
+      1,
+      Number(process.env.RECO_MAX_PER_THEME || 3),
+    );
 
-      if (
-        selected.length >= Math.ceil(take * 0.6) &&
-        (currentDestinationCount >= 3 || currentThemeCount >= 4)
-      )
-        continue;
+    const trySelect = (
+      item: HybridScoredTour,
+      destinationLimit: number,
+      themeLimit: number,
+    ) => {
+      const tourId = String(item.tour.id);
+      if (selectedIds.has(tourId)) return false;
+
+      const destinationId = String(item.tour.destinationId || "unknown");
+      const theme = String(item.tour.tourTheme || "unknown");
+
+      if ((destinationCount[destinationId] || 0) >= destinationLimit)
+        return false;
+      if ((themeCount[theme] || 0) >= themeLimit) return false;
+
       selected.push(item);
-      destinationCount[destinationId] = currentDestinationCount + 1;
-      themeCount[theme] = currentThemeCount + 1;
+      selectedIds.add(tourId);
+      destinationCount[destinationId] =
+        (destinationCount[destinationId] || 0) + 1;
+      themeCount[theme] = (themeCount[theme] || 0) + 1;
+      return true;
+    };
+
+    // Vòng 1: ưu tiên phủ nhiều điểm đến nhất, mỗi điểm đến tối đa 1 tour.
+    for (const item of items) {
+      trySelect(item, 1, Math.min(2, maxPerTheme));
+      if (selected.length >= take) return selected;
+    }
+
+    // Vòng 2: cho phép tối đa 2 tour/điểm đến (có thể chỉnh bằng biến môi trường).
+    for (const item of items) {
+      trySelect(item, maxPerDestination, maxPerTheme);
+      if (selected.length >= take) return selected;
+    }
+
+    // Vòng 3: chỉ dùng khi dữ liệu không đủ đa dạng để trả đủ số lượng.
+    for (const item of items) {
+      const tourId = String(item.tour.id);
+      if (selectedIds.has(tourId)) continue;
+      selected.push(item);
+      selectedIds.add(tourId);
       if (selected.length >= take) break;
     }
 
-    if (selected.length < take) {
-      for (const item of items) {
-        if (
-          selected.some((selectedItem) => selectedItem.tour.id === item.tour.id)
-        )
-          continue;
-        selected.push(item);
-        if (selected.length >= take) break;
-      }
+    return selected;
+  }
+
+  private applyPlainTourDiversity(tours: any[], take: number) {
+    const selected: any[] = [];
+    const selectedIds = new Set<string>();
+    const destinationCount: Record<string, number> = {};
+    const maxPerDestination = Math.max(
+      1,
+      Number(process.env.RECO_MAX_PER_DESTINATION || 2),
+    );
+
+    const addWithLimit = (tour: any, limit: number) => {
+      const tourId = String(tour.id);
+      if (selectedIds.has(tourId)) return;
+      const destinationId = String(tour.destinationId || "unknown");
+      if ((destinationCount[destinationId] || 0) >= limit) return;
+
+      selected.push(tour);
+      selectedIds.add(tourId);
+      destinationCount[destinationId] =
+        (destinationCount[destinationId] || 0) + 1;
+    };
+
+    for (const tour of tours) {
+      addWithLimit(tour, 1);
+      if (selected.length >= take) return selected;
     }
+
+    for (const tour of tours) {
+      addWithLimit(tour, maxPerDestination);
+      if (selected.length >= take) return selected;
+    }
+
+    for (const tour of tours) {
+      if (selectedIds.has(String(tour.id))) continue;
+      selected.push(tour);
+      if (selected.length >= take) break;
+    }
+
     return selected;
   }
 
   private async popular(take: number, strategy: string) {
-    const data = await this.prisma.tour.findMany({
+    const candidates = await this.prisma.tour.findMany({
       where: { status: "published" },
       include: {
         destination: true,
@@ -447,8 +514,14 @@ export class RecommendationsService {
         },
       },
       orderBy: [{ createdAt: "desc" }],
-      take,
+      take: Math.min(Math.max(take * 5, 20), 100),
     });
+
+    const activeCandidates = (candidates as any[]).filter(
+      (tour) => Array.isArray(tour.departures) && tour.departures.length > 0,
+    );
+    const data = this.applyPlainTourDiversity(activeCandidates, take);
+
     return { strategy, data };
   }
 

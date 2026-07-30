@@ -87,6 +87,28 @@ export default function DestinationsPage() {
             box-shadow: 0 0 0 4px rgba(114, 180, 75, 0.2);
             border-color: #72b44b !important;
           }
+
+          .destination-page-grid-4 {
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          }
+
+          @media (max-width: 1280px) {
+            .destination-page-grid-4 {
+              grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            }
+          }
+
+          @media (max-width: 980px) {
+            .destination-page-grid-4 {
+              grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            }
+          }
+
+          @media (max-width: 680px) {
+            .destination-page-grid-4 {
+              grid-template-columns: 1fr !important;
+            }
+          }
         `,
         }}
       />
@@ -346,11 +368,11 @@ export default function DestinationsPage() {
             </div>
           ) : (
             <div
-              className="card-grid destination-page-grid"
+              className="card-grid destination-page-grid destination-page-grid-4"
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
-                gap: "32px",
+                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                gap: "22px",
               }}
             >
               {filtered.map((destination, index) => {
@@ -369,7 +391,7 @@ export default function DestinationsPage() {
                       display: "flex",
                       flexDirection: "column",
                       justifyContent: "flex-end",
-                      minHeight: "420px",
+                      minHeight: "360px",
                       background: "#fff",
                       boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
                     }}
@@ -403,7 +425,7 @@ export default function DestinationsPage() {
                       style={{
                         position: "relative",
                         zIndex: 2,
-                        padding: "28px",
+                        padding: "22px",
                         display: "flex",
                         flexDirection: "column",
                         height: "100%",
@@ -449,7 +471,7 @@ export default function DestinationsPage() {
                         </div>
                         <h3
                           style={{
-                            fontSize: "1.8rem",
+                            fontSize: "1.45rem",
                             color: "#fff",
                             margin: "0 0 12px",
                             textShadow: "0 2px 4px rgba(0,0,0,0.5)",

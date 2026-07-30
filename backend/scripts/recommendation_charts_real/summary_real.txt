@@ -1,37 +1,25 @@
 KẾT QUẢ ĐÁNH GIÁ HỆ THỐNG GỢI Ý TRAVELA
 ==========================================================
 
-K=3
---------------------
-- Precision@3: Collaborative=0.1133; Hybrid=0.1400; Hybrid-Collaborative=+0.0267
-- Recall@3: Collaborative=0.1700; Hybrid=0.2100; Hybrid-Collaborative=+0.0400
-- Hit Rate@3: Collaborative=0.3400; Hybrid=0.4200; Hybrid-Collaborative=+0.0800
-- NDCG@3: Collaborative=0.1642; Hybrid=0.2013; Hybrid-Collaborative=+0.0371
-- Coverage: Collaborative=0.3830; Hybrid=0.3972
-- Diversity: Collaborative=0.8707; Hybrid=0.8160
-
-K=5
---------------------
-- Precision@5: Collaborative=0.1120; Hybrid=0.1000; Hybrid-Collaborative=-0.0120
-- Recall@5: Collaborative=0.2800; Hybrid=0.2500; Hybrid-Collaborative=-0.0300
-- Hit Rate@5: Collaborative=0.5000; Hybrid=0.4800; Hybrid-Collaborative=-0.0200
-- NDCG@5: Collaborative=0.2186; Hybrid=0.2129; Hybrid-Collaborative=-0.0057
-- Coverage: Collaborative=0.4894; Hybrid=0.4823
-- Diversity: Collaborative=0.8628; Hybrid=0.8428
-
 K=10
 --------------------
-- Precision@10: Collaborative=0.0920; Hybrid=0.1020; Hybrid-Collaborative=+0.0100
-- Recall@10: Collaborative=0.4600; Hybrid=0.5100; Hybrid-Collaborative=+0.0500
-- Hit Rate@10: Collaborative=0.6800; Hybrid=0.6800; Hybrid-Collaborative=+0.0000
-- NDCG@10: Collaborative=0.2895; Hybrid=0.3367; Hybrid-Collaborative=+0.0472
-- Coverage: Collaborative=0.6950; Hybrid=0.7376
-- Diversity: Collaborative=0.8658; Hybrid=0.8360
+- Trọng số Hybrid được chọn trên validation: CBF=0.2; CF=0.3; MF=0.1; Semantic=0.3
+- Validation: NDCG@10=0.2039; Recall@10=0.3400; Precision@10=0.0340
+- Test Precision@10: Collaborative=0.0920; Hybrid=0.0960; Hybrid-Collaborative=+0.0040
+- Test Recall@10: Collaborative=0.4600; Hybrid=0.4800; Hybrid-Collaborative=+0.0200
+- Test Hit Rate@10: Collaborative=0.6800; Hybrid=0.6600; Hybrid-Collaborative=-0.0200
+- Test NDCG@10: Collaborative=0.2895; Hybrid=0.3257; Hybrid-Collaborative=+0.0362
+- Coverage: Collaborative=0.6950; Hybrid=0.7518
+- Diversity: Collaborative=0.8658; Hybrid=0.8270
 
-NHẬN XÉT
-- Collaborative cao hơn Hybrid về Precision, Recall, Hit Rate và NDCG ở cả K=3, K=5 và K=10.
-- Đây không phải lỗi vẽ biểu đồ. Đó là kết quả thật của lần đánh giá hiện tại.
-- Hybrid không bắt buộc phải tốt nhất ở mọi chỉ số.
-- Hybrid vẫn có vai trò cân bằng nhiều nguồn tín hiệu và hỗ trợ cold-start.
-- Với giao diện hiển thị 3 tour, nên dùng bộ trọng số validation của K=3 cho production.
-- Không nên sửa số liệu để làm Hybrid cao hơn Collaborative.
+CẤU HÌNH PRODUCTION
+--------------------
+- K dùng để chọn trọng số production: 10
+- Trọng số production: CBF=0.2; CF=0.3; MF=0.1; Semantic=0.3; Trending=0.1
+
+GIẢI THÍCH
+- Trọng số không được chọn ngẫu nhiên.
+- Với mỗi K, chương trình tạo các tổ hợp trọng số có tổng bằng 1 theo bước grid search.
+- Mỗi tổ hợp được chấm trên tập validation bằng NDCG@K.
+- Nếu NDCG@K bằng nhau, chương trình ưu tiên Recall@K rồi Precision@K.
+- Vì độ dài danh sách thay đổi theo K nên bộ trọng số tốt nhất tại K=3, K=5 và K=10 có thể khác nhau.

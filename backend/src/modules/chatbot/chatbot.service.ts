@@ -8,6 +8,7 @@ import { LocationResolverService } from "./location-resolver.service";
 import { BookingsService } from "../bookings/bookings.service";
 import { PaymentsService } from "../payments/payments.service";
 import { RefundsService } from "../refunds/refunds.service";
+import { RecommendationsService } from "../recommendations/recommendations.service";
 import { RagService } from "./rag.service";
 import type { RagHit } from "./rag.service";
 import { ChatbotNluService } from "./chatbot-nlu.service";
@@ -264,6 +265,7 @@ export class ChatbotService {
     private readonly confidenceService: ChatbotConfidenceService,
     private readonly guideChatbotService: GuideChatbotService,
     private readonly locationResolver: LocationResolverService,
+    private readonly recommendationsService: RecommendationsService,
   ) {
     const enableGemini = this.isEnvEnabled("CHATBOT_ENABLE_GEMINI", false);
     const apiKey = this.configService.get<string>("GEMINI_API_KEY") || "";
@@ -409,6 +411,20 @@ export class ChatbotService {
       )
     ) {
       intent = "tour_search";
+      (nlu as any).intent = intent;
+    }
+
+    // Guard: câu xin gợi ý "phù hợp với tôi/cho tôi/cá nhân hóa" phải đi đúng
+    // personal_recommendation, kể cả khi NLU trả nhầm tour_search.
+    // Nhờ đó khách vãng lai được báo rõ chưa thể cá nhân hóa, còn người đăng nhập
+    // mới dùng lịch sử hành vi và hệ thống gợi ý Hybrid.
+    const asksPersonalRecommendation =
+      /\b(goi y tour phu hop voi toi|goi y phu hop voi toi|tour phu hop voi toi|goi y tour cho toi|de xuat tour cho toi|goi y ca nhan|ca nhan hoa|dua tren so thich cua toi|theo so thich cua toi)\b/.test(
+        normalizedForIntentGuard,
+      );
+
+    if (asksPersonalRecommendation) {
+      intent = "personal_recommendation";
       (nlu as any).intent = intent;
     }
 
@@ -3044,7 +3060,7 @@ export class ChatbotService {
   }
 
   private mentionsUnsupportedDestination(normalized: string) {
-    return /\b(nhat ban|japan|han quoc|korea|trung quoc|china|thai lan|thailand|singapore|malaysia|chau au|europe|my|usa|uc|australia|phap|france|y|italy)\b/.test(
+    return /\b(nhat ban|japan|han quoc|korea|trung quoc|china|thai lan|thailand|singapore|malaysia|chau au|europe|my|usa|uc|australia|phap|france|nuoc y|italy|italia)\b/.test(
       normalized,
     );
   }
@@ -4310,105 +4326,59 @@ export class ChatbotService {
     user: AuthUser,
     memory: MemoryState,
   ): Promise<TourCard[]> {
-    if (!user?.userId) return this.findRelevantTours(memory, "");
-
-    const since = new Date();
-    since.setDate(since.getDate() - 60);
-
-    const behaviors = await this.prisma.userBehavior.findMany({
-      where: { userId: user.userId, createdAt: { gte: since } },
-      include: { tour: { include: { destination: true } } },
-      orderBy: { createdAt: "desc" },
-      take: 120,
-    });
-
-    if (!behaviors.length) return this.findRelevantTours(memory, "");
-
-    const destinations = await this.prisma.destination.findMany({
-      where: { status: "active" },
-    });
-    const tourScore: Record<string, number> = {};
-    const destinationScore: Record<string, number> = {};
-    const themeScore: Record<string, number> = {};
-
-    const add = (map: Record<string, number>, key: any, score: number) => {
-      if (!key) return;
-      const safe = String(key);
-      map[safe] = (map[safe] || 0) + score;
-    };
-
-    for (const behavior of behaviors as any[]) {
-      const score = Number(
-        behavior.score || ACTION_SCORE[behavior.action] || 1,
+    try {
+      // Dùng trực tiếp hệ thống gợi ý Hybrid đang chạy ở trang chủ để chatbot
+      // và giao diện trả cùng một kết quả, tránh duy trì hai thuật toán khác nhau.
+      const result = await this.recommendationsService.recommend(
+        user?.userId,
+        5,
+        false,
       );
-      if (behavior.tour) {
-        add(tourScore, behavior.tour.id, score * 1.5);
-        add(destinationScore, behavior.tour.destinationId, score * 2);
-        add(themeScore, behavior.tour.tourTheme, score * 1.2);
-      }
 
-      const keyword = this.stripText(behavior.keyword || "");
-      if (keyword) {
-        for (const dest of destinations as any[]) {
-          const destName = this.stripText(dest.name);
-          const province = this.stripText(dest.province || "");
-          if (
-            keyword.includes(destName) ||
-            destName.includes(keyword) ||
-            (province && keyword.includes(province))
-          ) {
-            add(destinationScore, dest.id, score * 2.5);
-          }
-        }
-        if (/bien|dao|phu quoc|nha trang|quy nhon|ha long/.test(keyword))
-          add(themeScore, "beach", score * 1.5);
-        if (/da lat|sapa|sa pa|san may|nui|trek/.test(keyword))
-          add(themeScore, "mountain", score * 1.5);
-        if (/van hoa|pho co|di tich|hue|hoi an/.test(keyword))
-          add(themeScore, "culture", score * 1.5);
-        if (/gia dinh|family|tre em/.test(keyword))
-          add(themeScore, "family", score * 1.5);
-      }
+      const rows = Array.isArray((result as any)?.data)
+        ? (result as any).data
+        : [];
+
+      const cards = rows
+        .filter((tour: any) => tour?.id)
+        .map((tour: any) => {
+          const departure = Array.isArray(tour.departures)
+            ? tour.departures.find((item: any) => {
+                const remaining =
+                  Number(item?.totalSlots || 0) -
+                  Number(item?.bookedSlots || 0) -
+                  Number(item?.heldSlots || 0);
+                return remaining > 0;
+              }) || tour.departures[0]
+            : null;
+
+          const reasons = Array.isArray(tour.recommendationReasons)
+            ? tour.recommendationReasons.filter(Boolean)
+            : [];
+
+          return this.toTourCard(
+            tour,
+            departure,
+            reasons.length
+              ? reasons.slice(0, 3)
+              : [
+                  user?.userId
+                    ? "phù hợp với hành vi và sở thích gần đây của bạn"
+                    : "tour nổi bật đang có lịch khởi hành",
+                ],
+          );
+        });
+
+      if (cards.length) return cards;
+    } catch (error: any) {
+      console.error(
+        "[Chatbot personalized recommendation error]",
+        error?.message || error,
+      );
     }
 
-    const rows = await this.prisma.tour.findMany({
-      where: { status: "published" as any },
-      include: {
-        destination: true,
-        media: { where: { isCover: true }, take: 1 },
-        reviews: {
-          where: { status: "approved" as any },
-          select: { rating: true },
-        },
-        departures: {
-          where: { status: { in: ["open", "full"] as any } },
-          orderBy: { departureDate: "asc" },
-          take: 2,
-        },
-      },
-      take: 80,
-    });
-
-    return rows
-      .map((tour: any) => {
-        const nextDeparture = tour.departures?.[0] ?? null;
-        const score =
-          Number(tourScore[String(tour.id)] || 0) * 1.6 +
-          Number(destinationScore[String(tour.destinationId)] || 0) * 2.2 +
-          Number(themeScore[String(tour.tourTheme)] || 0) * 1.4 +
-          (tour.isTrending ? 0.3 : 0) +
-          (tour.isBestDeal ? 0.25 : 0) +
-          this.averageRating(tour.reviews || []) * 0.08;
-        return { tour, nextDeparture, score };
-      })
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map((item) =>
-        this.toTourCard(item.tour, item.nextDeparture, [
-          "phù hợp với lịch sử tìm kiếm/xem tour gần đây của bạn",
-        ]),
-      );
+    // Fallback an toàn khi recommendation service tạm lỗi hoặc chưa có dữ liệu.
+    return this.findRelevantTours(memory, "");
   }
 
   private async findRelevantFaqs(
@@ -7158,13 +7128,15 @@ YÊU CẦU TRẢ LỜI:
     }
 
     if (ctx.intent === "personal_recommendation") {
-      if (!ctx.userProfile.loggedIn) {
-        return "Bạn cần đăng nhập để mình xem lịch sử tìm kiếm/xem tour và gợi ý cá nhân hóa. Trước mắt, mình gửi bạn vài tour nổi bật để tham khảo nha.";
-      }
       if (ctx.tours.length) {
-        return `Dựa trên hành vi gần đây của bạn, mình gợi ý ${ctx.tours.length} tour phù hợp nhất. Bạn có thể bấm “Xem tour” hoặc hỏi mình so sánh giữa các tour này.`;
+        return ctx.userProfile.loggedIn
+          ? `Dựa trên lịch sử xem, tìm kiếm, yêu thích và đặt tour của bạn, mình đã chọn ${ctx.tours.length} tour phù hợp nhất. Các tour được xếp theo điểm gợi ý Hybrid của Travela; bạn có thể mở chi tiết hoặc yêu cầu mình so sánh.`
+          : `Bạn đang dùng Travela với tư cách khách vãng lai nên mình chưa thể cá nhân hóa theo lịch sử xem, yêu thích hoặc đặt tour. Trước mắt, mình gửi ${ctx.tours.length} tour nổi bật đang còn lịch khởi hành để bạn tham khảo. Hãy đăng nhập để nhận gợi ý riêng theo sở thích, hoặc nói thêm điểm đến, ngân sách và số ngày để mình lọc chính xác hơn.`;
       }
-      return "Mình chưa có đủ dữ liệu cá nhân hóa. Bạn hãy xem/yêu thích vài tour, hoặc nói cho mình điểm đến, số ngày và ngân sách để mình lọc chính xác hơn.";
+
+      return ctx.userProfile.loggedIn
+        ? "Mình chưa có đủ dữ liệu cá nhân hóa hoặc hiện chưa có tour còn lịch phù hợp. Bạn hãy xem/yêu thích vài tour, hoặc nói điểm đến, số ngày và ngân sách để mình lọc tiếp nha."
+        : "Hiện mình chưa tìm được tour còn lịch để gợi ý. Bạn nói thêm điểm đến, ngân sách hoặc số ngày muốn đi để mình kiểm tra lại nha.";
     }
 
     if (ctx.intent === "booking_create") {

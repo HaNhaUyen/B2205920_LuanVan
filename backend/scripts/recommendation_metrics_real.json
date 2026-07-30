@@ -1,1290 +1,19 @@
 {
-  "generatedAt": "2026-07-28T09:03:56.277Z",
+  "generatedAt": "2026-07-29T10:38:52.679Z",
   "kValues": [
-    3,
-    5,
     10
   ],
-  "productionK": 3,
+  "productionK": 10,
   "productionEnv": {
-    "RECO_HYBRID_CONTENT_WEIGHT": 0.1,
-    "RECO_HYBRID_COLLABORATIVE_WEIGHT": 0.2,
-    "RECO_HYBRID_MF_WEIGHT": 0.6,
-    "RECO_HYBRID_SEMANTIC_WEIGHT": 0.1
+    "RECO_HYBRID_CONTENT_WEIGHT": 0.2,
+    "RECO_HYBRID_COLLABORATIVE_WEIGHT": 0.3,
+    "RECO_HYBRID_MF_WEIGHT": 0.1,
+    "RECO_HYBRID_SEMANTIC_WEIGHT": 0.3,
+    "RECO_HYBRID_TRENDING_WEIGHT": 0.1
   },
   "runs": [
     {
-      "generatedAt": "2026-07-28T09:03:16.523Z",
-      "source": "database",
-      "evaluationMethod": "nested-temporal-holdout-positive-actions-by-unique-tour",
-      "relevanceDefinition": {
-        "positiveActions": [
-          "favorite",
-          "booking",
-          "review"
-        ],
-        "note": "View/search/ask_ai vẫn được dùng làm tín hiệu huấn luyện nhưng không mặc định được xem là ground truth."
-      },
-      "leakageProtection": {
-        "futureBehaviorsExcluded": true,
-        "targetHeldOutToursRemovedFromTargetTraining": true,
-        "targetUserValidationAndTestRemovedFromValidationTraining": true,
-        "targetUserTestRemovedFromTestTraining": true,
-        "behaviorsAfterEachCutoffRemovedFromCollaborativeAndMF": true,
-        "hybridWeightsSelectedOnValidationNotTest": true
-      },
-      "config": {
-        "k": 3,
-        "maxUsers": 50,
-        "minUniqueTours": 6,
-        "validationItems": 1,
-        "testItems": 2,
-        "topSimilarUsers": 30,
-        "maxTrainRowsPerUser": 250,
-        "sourceWeights": {
-          "real": 1,
-          "recommendation_persona_seed_v2": 0.8,
-          "seed": 0,
-          "extra_huge_seed": 0,
-          "evaluation_seed": 0
-        },
-        "hybridWeightSelection": {
-          "selected": {
-            "contentBased": 0.1,
-            "collaborative": 0.2,
-            "matrixFactorization": 0.6,
-            "semanticEmbedding": 0.1
-          },
-          "criterion": "Chọn trọng số có NDCG@K trung bình cao nhất trên tập validation; nếu bằng nhau ưu tiên Recall@K rồi Precision@K.",
-          "step": 0.1,
-          "validationCases": 50,
-          "topCandidates": [
-            {
-              "weights": {
-                "contentBased": 0.1,
-                "collaborative": 0.2,
-                "matrixFactorization": 0.6,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            },
-            {
-              "weights": {
-                "contentBased": 0.1,
-                "collaborative": 0.3,
-                "matrixFactorization": 0.5,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            },
-            {
-              "weights": {
-                "contentBased": 0.1,
-                "collaborative": 0.4,
-                "matrixFactorization": 0.4,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            },
-            {
-              "weights": {
-                "contentBased": 0.1,
-                "collaborative": 0.5,
-                "matrixFactorization": 0.3,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.3,
-                "matrixFactorization": 0.4,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.4,
-                "matrixFactorization": 0.2,
-                "semanticEmbedding": 0.2
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.5,
-                "matrixFactorization": 0.2,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.6,
-                "matrixFactorization": 0,
-                "semanticEmbedding": 0.2
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.6,
-                "matrixFactorization": 0.1,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.7,
-                "matrixFactorization": 0,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1452,
-              "validationRecallAtK": 0.16,
-              "validationPrecisionAtK": 0.0533
-            }
-          ]
-        }
-      },
-      "dataset": {
-        "activeTours": 141,
-        "loadedBehaviors": 7068,
-        "excludedFutureBehaviors": 24,
-        "sourceCounts": {
-          "recommendation_persona_seed_v3": 4466,
-          "unknown": 598,
-          "real": 474,
-          "extra_huge_seed": 1198,
-          "seed": 332
-        },
-        "eligibleUsers": 50,
-        "validationCases": 50,
-        "evaluatedUsers": 50
-      },
-      "result": [
-        {
-          "modelName": "ContentBased",
-          "precisionAt3": 0.0467,
-          "recallAt3": 0.07,
-          "hitRateAt3": 0.12,
-          "ndcgAt3": 0.0493,
-          "coverage": 0.5177,
-          "diversity": 0.4507,
-          "evaluatedUsers": 50
-        },
-        {
-          "modelName": "Collaborative",
-          "precisionAt3": 0.1133,
-          "recallAt3": 0.17,
-          "hitRateAt3": 0.34,
-          "ndcgAt3": 0.1642,
-          "coverage": 0.383,
-          "diversity": 0.8707,
-          "evaluatedUsers": 50
-        },
-        {
-          "modelName": "MatrixFactorization",
-          "precisionAt3": 0.0267,
-          "recallAt3": 0.04,
-          "hitRateAt3": 0.08,
-          "ndcgAt3": 0.0384,
-          "coverage": 0.3972,
-          "diversity": 0.8693,
-          "evaluatedUsers": 50
-        },
-        {
-          "modelName": "SemanticEmbedding",
-          "precisionAt3": 0.04,
-          "recallAt3": 0.06,
-          "hitRateAt3": 0.12,
-          "ndcgAt3": 0.0629,
-          "coverage": 0.5887,
-          "diversity": 0.376,
-          "evaluatedUsers": 50
-        },
-        {
-          "modelName": "Hybrid",
-          "precisionAt3": 0.14,
-          "recallAt3": 0.21,
-          "hitRateAt3": 0.42,
-          "ndcgAt3": 0.2013,
-          "coverage": 0.3972,
-          "diversity": 0.816,
-          "evaluatedUsers": 50
-        }
-      ],
-      "evaluatedUserDetails": [
-        {
-          "userId": "2",
-          "trainRows": 110,
-          "trainUniqueTours": 17,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-21T01:27:04.000Z"
-        },
-        {
-          "userId": "3",
-          "trainRows": 44,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-18T20:43:19.000Z"
-        },
-        {
-          "userId": "4",
-          "trainRows": 47,
-          "trainUniqueTours": 14,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T01:01:46.000Z"
-        },
-        {
-          "userId": "5",
-          "trainRows": 62,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-26T16:42:04.000Z"
-        },
-        {
-          "userId": "6",
-          "trainRows": 64,
-          "trainUniqueTours": 19,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-01T03:31:25.000Z"
-        },
-        {
-          "userId": "7",
-          "trainRows": 60,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T17:38:37.000Z"
-        },
-        {
-          "userId": "8",
-          "trainRows": 28,
-          "trainUniqueTours": 8,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-21T15:16:07.000Z"
-        },
-        {
-          "userId": "9",
-          "trainRows": 39,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-27T15:22:22.000Z"
-        },
-        {
-          "userId": "10",
-          "trainRows": 51,
-          "trainUniqueTours": 17,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-08T12:43:27.000Z"
-        },
-        {
-          "userId": "11",
-          "trainRows": 39,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-09T21:04:28.000Z"
-        },
-        {
-          "userId": "12",
-          "trainRows": 66,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-20T03:25:59.000Z"
-        },
-        {
-          "userId": "13",
-          "trainRows": 37,
-          "trainUniqueTours": 11,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-12T23:35:17.000Z"
-        },
-        {
-          "userId": "14",
-          "trainRows": 67,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-23T05:58:16.000Z"
-        },
-        {
-          "userId": "15",
-          "trainRows": 37,
-          "trainUniqueTours": 11,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-07T22:53:10.000Z"
-        },
-        {
-          "userId": "16",
-          "trainRows": 52,
-          "trainUniqueTours": 16,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-02T20:59:19.000Z"
-        },
-        {
-          "userId": "17",
-          "trainRows": 47,
-          "trainUniqueTours": 15,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-12T17:06:09.000Z"
-        },
-        {
-          "userId": "18",
-          "trainRows": 57,
-          "trainUniqueTours": 19,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-07T13:36:05.000Z"
-        },
-        {
-          "userId": "19",
-          "trainRows": 39,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-08T19:29:43.000Z"
-        },
-        {
-          "userId": "20",
-          "trainRows": 51,
-          "trainUniqueTours": 17,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-22T09:35:10.000Z"
-        },
-        {
-          "userId": "21",
-          "trainRows": 28,
-          "trainUniqueTours": 8,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-24T13:11:09.000Z"
-        },
-        {
-          "userId": "22",
-          "trainRows": 56,
-          "trainUniqueTours": 17,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T13:41:13.000Z"
-        },
-        {
-          "userId": "23",
-          "trainRows": 49,
-          "trainUniqueTours": 15,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T11:29:15.000Z"
-        },
-        {
-          "userId": "24",
-          "trainRows": 63,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T06:25:25.000Z"
-        },
-        {
-          "userId": "25",
-          "trainRows": 41,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-17T00:21:00.000Z"
-        },
-        {
-          "userId": "27",
-          "trainRows": 41,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-08T00:24:18.000Z"
-        },
-        {
-          "userId": "28",
-          "trainRows": 60,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-19T16:05:42.000Z"
-        },
-        {
-          "userId": "29",
-          "trainRows": 43,
-          "trainUniqueTours": 14,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-29T00:09:27.000Z"
-        },
-        {
-          "userId": "30",
-          "trainRows": 41,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-12T00:37:10.000Z"
-        },
-        {
-          "userId": "31",
-          "trainRows": 75,
-          "trainUniqueTours": 25,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-14T21:18:32.000Z"
-        },
-        {
-          "userId": "33",
-          "trainRows": 50,
-          "trainUniqueTours": 16,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-21T14:50:46.000Z"
-        },
-        {
-          "userId": "34",
-          "trainRows": 61,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-26T14:07:37.000Z"
-        },
-        {
-          "userId": "36",
-          "trainRows": 48,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-04T03:41:12.000Z"
-        },
-        {
-          "userId": "37",
-          "trainRows": 56,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-26T16:14:31.000Z"
-        },
-        {
-          "userId": "38",
-          "trainRows": 54,
-          "trainUniqueTours": 16,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-18T11:46:14.000Z"
-        },
-        {
-          "userId": "39",
-          "trainRows": 52,
-          "trainUniqueTours": 16,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-29T12:42:34.000Z"
-        },
-        {
-          "userId": "40",
-          "trainRows": 65,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-10T13:52:59.000Z"
-        },
-        {
-          "userId": "41",
-          "trainRows": 32,
-          "trainUniqueTours": 10,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-22T01:51:30.000Z"
-        },
-        {
-          "userId": "42",
-          "trainRows": 52,
-          "trainUniqueTours": 14,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-10T01:49:23.000Z"
-        },
-        {
-          "userId": "43",
-          "trainRows": 32,
-          "trainUniqueTours": 11,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T12:22:32.000Z"
-        },
-        {
-          "userId": "44",
-          "trainRows": 39,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-01T15:22:02.000Z"
-        },
-        {
-          "userId": "45",
-          "trainRows": 29,
-          "trainUniqueTours": 8,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-03T22:58:46.000Z"
-        },
-        {
-          "userId": "46",
-          "trainRows": 44,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-18T23:28:51.000Z"
-        },
-        {
-          "userId": "47",
-          "trainRows": 46,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-10T00:28:50.000Z"
-        },
-        {
-          "userId": "48",
-          "trainRows": 70,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-03T14:30:58.000Z"
-        },
-        {
-          "userId": "49",
-          "trainRows": 78,
-          "trainUniqueTours": 26,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-16T17:00:53.000Z"
-        },
-        {
-          "userId": "50",
-          "trainRows": 32,
-          "trainUniqueTours": 11,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-27T17:00:42.000Z"
-        },
-        {
-          "userId": "51",
-          "trainRows": 49,
-          "trainUniqueTours": 15,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-12T19:53:33.000Z"
-        },
-        {
-          "userId": "52",
-          "trainRows": 51,
-          "trainUniqueTours": 15,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-15T00:57:20.000Z"
-        },
-        {
-          "userId": "53",
-          "trainRows": 38,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-12T18:55:19.000Z"
-        },
-        {
-          "userId": "54",
-          "trainRows": 71,
-          "trainUniqueTours": 21,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-25T09:02:16.000Z"
-        }
-      ],
-      "recommendedProductionEnv": {
-        "RECO_HYBRID_CONTENT_WEIGHT": 0.1,
-        "RECO_HYBRID_COLLABORATIVE_WEIGHT": 0.2,
-        "RECO_HYBRID_MF_WEIGHT": 0.6,
-        "RECO_HYBRID_SEMANTIC_WEIGHT": 0.1
-      }
-    },
-    {
-      "generatedAt": "2026-07-28T09:03:31.196Z",
-      "source": "database",
-      "evaluationMethod": "nested-temporal-holdout-positive-actions-by-unique-tour",
-      "relevanceDefinition": {
-        "positiveActions": [
-          "favorite",
-          "booking",
-          "review"
-        ],
-        "note": "View/search/ask_ai vẫn được dùng làm tín hiệu huấn luyện nhưng không mặc định được xem là ground truth."
-      },
-      "leakageProtection": {
-        "futureBehaviorsExcluded": true,
-        "targetHeldOutToursRemovedFromTargetTraining": true,
-        "targetUserValidationAndTestRemovedFromValidationTraining": true,
-        "targetUserTestRemovedFromTestTraining": true,
-        "behaviorsAfterEachCutoffRemovedFromCollaborativeAndMF": true,
-        "hybridWeightsSelectedOnValidationNotTest": true
-      },
-      "config": {
-        "k": 5,
-        "maxUsers": 50,
-        "minUniqueTours": 6,
-        "validationItems": 1,
-        "testItems": 2,
-        "topSimilarUsers": 30,
-        "maxTrainRowsPerUser": 250,
-        "sourceWeights": {
-          "real": 1,
-          "recommendation_persona_seed_v2": 0.8,
-          "seed": 0,
-          "extra_huge_seed": 0,
-          "evaluation_seed": 0
-        },
-        "hybridWeightSelection": {
-          "selected": {
-            "contentBased": 0.1,
-            "collaborative": 0.6,
-            "matrixFactorization": 0,
-            "semanticEmbedding": 0.3
-          },
-          "criterion": "Chọn trọng số có NDCG@K trung bình cao nhất trên tập validation; nếu bằng nhau ưu tiên Recall@K rồi Precision@K.",
-          "step": 0.1,
-          "validationCases": 50,
-          "topCandidates": [
-            {
-              "weights": {
-                "contentBased": 0.1,
-                "collaborative": 0.6,
-                "matrixFactorization": 0,
-                "semanticEmbedding": 0.3
-              },
-              "validationNdcgAtK": 0.1533,
-              "validationRecallAtK": 0.2,
-              "validationPrecisionAtK": 0.04
-            },
-            {
-              "weights": {
-                "contentBased": 0.1,
-                "collaborative": 0.2,
-                "matrixFactorization": 0.6,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.153,
-              "validationRecallAtK": 0.18,
-              "validationPrecisionAtK": 0.036
-            },
-            {
-              "weights": {
-                "contentBased": 0.1,
-                "collaborative": 0.3,
-                "matrixFactorization": 0.5,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.153,
-              "validationRecallAtK": 0.18,
-              "validationPrecisionAtK": 0.036
-            },
-            {
-              "weights": {
-                "contentBased": 0.1,
-                "collaborative": 0.4,
-                "matrixFactorization": 0.4,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.153,
-              "validationRecallAtK": 0.18,
-              "validationPrecisionAtK": 0.036
-            },
-            {
-              "weights": {
-                "contentBased": 0.1,
-                "collaborative": 0.5,
-                "matrixFactorization": 0.3,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.153,
-              "validationRecallAtK": 0.18,
-              "validationPrecisionAtK": 0.036
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.3,
-                "matrixFactorization": 0.4,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.153,
-              "validationRecallAtK": 0.18,
-              "validationPrecisionAtK": 0.036
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.4,
-                "matrixFactorization": 0.2,
-                "semanticEmbedding": 0.2
-              },
-              "validationNdcgAtK": 0.153,
-              "validationRecallAtK": 0.18,
-              "validationPrecisionAtK": 0.036
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.5,
-                "matrixFactorization": 0.2,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.153,
-              "validationRecallAtK": 0.18,
-              "validationPrecisionAtK": 0.036
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.6,
-                "matrixFactorization": 0,
-                "semanticEmbedding": 0.2
-              },
-              "validationNdcgAtK": 0.153,
-              "validationRecallAtK": 0.18,
-              "validationPrecisionAtK": 0.036
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.6,
-                "matrixFactorization": 0.1,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.153,
-              "validationRecallAtK": 0.18,
-              "validationPrecisionAtK": 0.036
-            }
-          ]
-        }
-      },
-      "dataset": {
-        "activeTours": 141,
-        "loadedBehaviors": 7068,
-        "excludedFutureBehaviors": 24,
-        "sourceCounts": {
-          "recommendation_persona_seed_v3": 4466,
-          "unknown": 598,
-          "real": 474,
-          "extra_huge_seed": 1198,
-          "seed": 332
-        },
-        "eligibleUsers": 50,
-        "validationCases": 50,
-        "evaluatedUsers": 50
-      },
-      "result": [
-        {
-          "modelName": "ContentBased",
-          "precisionAt5": 0.052,
-          "recallAt5": 0.13,
-          "hitRateAt5": 0.2,
-          "ndcgAt5": 0.0789,
-          "coverage": 0.695,
-          "diversity": 0.5692,
-          "evaluatedUsers": 50
-        },
-        {
-          "modelName": "Collaborative",
-          "precisionAt5": 0.112,
-          "recallAt5": 0.28,
-          "hitRateAt5": 0.5,
-          "ndcgAt5": 0.2186,
-          "coverage": 0.4894,
-          "diversity": 0.8628,
-          "evaluatedUsers": 50
-        },
-        {
-          "modelName": "MatrixFactorization",
-          "precisionAt5": 0.016,
-          "recallAt5": 0.04,
-          "hitRateAt5": 0.08,
-          "ndcgAt5": 0.0384,
-          "coverage": 0.6099,
-          "diversity": 0.89,
-          "evaluatedUsers": 50
-        },
-        {
-          "modelName": "SemanticEmbedding",
-          "precisionAt5": 0.024,
-          "recallAt5": 0.06,
-          "hitRateAt5": 0.12,
-          "ndcgAt5": 0.0629,
-          "coverage": 0.773,
-          "diversity": 0.4796,
-          "evaluatedUsers": 50
-        },
-        {
-          "modelName": "Hybrid",
-          "precisionAt5": 0.1,
-          "recallAt5": 0.25,
-          "hitRateAt5": 0.48,
-          "ndcgAt5": 0.2129,
-          "coverage": 0.4823,
-          "diversity": 0.8428,
-          "evaluatedUsers": 50
-        }
-      ],
-      "evaluatedUserDetails": [
-        {
-          "userId": "2",
-          "trainRows": 110,
-          "trainUniqueTours": 17,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-21T01:27:04.000Z"
-        },
-        {
-          "userId": "3",
-          "trainRows": 44,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-18T20:43:19.000Z"
-        },
-        {
-          "userId": "4",
-          "trainRows": 47,
-          "trainUniqueTours": 14,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T01:01:46.000Z"
-        },
-        {
-          "userId": "5",
-          "trainRows": 62,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-26T16:42:04.000Z"
-        },
-        {
-          "userId": "6",
-          "trainRows": 64,
-          "trainUniqueTours": 19,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-01T03:31:25.000Z"
-        },
-        {
-          "userId": "7",
-          "trainRows": 60,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T17:38:37.000Z"
-        },
-        {
-          "userId": "8",
-          "trainRows": 28,
-          "trainUniqueTours": 8,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-21T15:16:07.000Z"
-        },
-        {
-          "userId": "9",
-          "trainRows": 39,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-27T15:22:22.000Z"
-        },
-        {
-          "userId": "10",
-          "trainRows": 51,
-          "trainUniqueTours": 17,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-08T12:43:27.000Z"
-        },
-        {
-          "userId": "11",
-          "trainRows": 39,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-09T21:04:28.000Z"
-        },
-        {
-          "userId": "12",
-          "trainRows": 66,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-20T03:25:59.000Z"
-        },
-        {
-          "userId": "13",
-          "trainRows": 37,
-          "trainUniqueTours": 11,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-12T23:35:17.000Z"
-        },
-        {
-          "userId": "14",
-          "trainRows": 67,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-23T05:58:16.000Z"
-        },
-        {
-          "userId": "15",
-          "trainRows": 37,
-          "trainUniqueTours": 11,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-07T22:53:10.000Z"
-        },
-        {
-          "userId": "16",
-          "trainRows": 52,
-          "trainUniqueTours": 16,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-02T20:59:19.000Z"
-        },
-        {
-          "userId": "17",
-          "trainRows": 47,
-          "trainUniqueTours": 15,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-12T17:06:09.000Z"
-        },
-        {
-          "userId": "18",
-          "trainRows": 57,
-          "trainUniqueTours": 19,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-07T13:36:05.000Z"
-        },
-        {
-          "userId": "19",
-          "trainRows": 39,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-08T19:29:43.000Z"
-        },
-        {
-          "userId": "20",
-          "trainRows": 51,
-          "trainUniqueTours": 17,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-22T09:35:10.000Z"
-        },
-        {
-          "userId": "21",
-          "trainRows": 28,
-          "trainUniqueTours": 8,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-24T13:11:09.000Z"
-        },
-        {
-          "userId": "22",
-          "trainRows": 56,
-          "trainUniqueTours": 17,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T13:41:13.000Z"
-        },
-        {
-          "userId": "23",
-          "trainRows": 49,
-          "trainUniqueTours": 15,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T11:29:15.000Z"
-        },
-        {
-          "userId": "24",
-          "trainRows": 63,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T06:25:25.000Z"
-        },
-        {
-          "userId": "25",
-          "trainRows": 41,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-17T00:21:00.000Z"
-        },
-        {
-          "userId": "27",
-          "trainRows": 41,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-08T00:24:18.000Z"
-        },
-        {
-          "userId": "28",
-          "trainRows": 60,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-19T16:05:42.000Z"
-        },
-        {
-          "userId": "29",
-          "trainRows": 43,
-          "trainUniqueTours": 14,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-29T00:09:27.000Z"
-        },
-        {
-          "userId": "30",
-          "trainRows": 41,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-12T00:37:10.000Z"
-        },
-        {
-          "userId": "31",
-          "trainRows": 75,
-          "trainUniqueTours": 25,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-14T21:18:32.000Z"
-        },
-        {
-          "userId": "33",
-          "trainRows": 50,
-          "trainUniqueTours": 16,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-21T14:50:46.000Z"
-        },
-        {
-          "userId": "34",
-          "trainRows": 61,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-26T14:07:37.000Z"
-        },
-        {
-          "userId": "36",
-          "trainRows": 48,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-04T03:41:12.000Z"
-        },
-        {
-          "userId": "37",
-          "trainRows": 56,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-26T16:14:31.000Z"
-        },
-        {
-          "userId": "38",
-          "trainRows": 54,
-          "trainUniqueTours": 16,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-18T11:46:14.000Z"
-        },
-        {
-          "userId": "39",
-          "trainRows": 52,
-          "trainUniqueTours": 16,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-06-29T12:42:34.000Z"
-        },
-        {
-          "userId": "40",
-          "trainRows": 65,
-          "trainUniqueTours": 18,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-10T13:52:59.000Z"
-        },
-        {
-          "userId": "41",
-          "trainRows": 32,
-          "trainUniqueTours": 10,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-22T01:51:30.000Z"
-        },
-        {
-          "userId": "42",
-          "trainRows": 52,
-          "trainUniqueTours": 14,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-10T01:49:23.000Z"
-        },
-        {
-          "userId": "43",
-          "trainRows": 32,
-          "trainUniqueTours": 11,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-13T12:22:32.000Z"
-        },
-        {
-          "userId": "44",
-          "trainRows": 39,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-01T15:22:02.000Z"
-        },
-        {
-          "userId": "45",
-          "trainRows": 29,
-          "trainUniqueTours": 8,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-03T22:58:46.000Z"
-        },
-        {
-          "userId": "46",
-          "trainRows": 44,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-18T23:28:51.000Z"
-        },
-        {
-          "userId": "47",
-          "trainRows": 46,
-          "trainUniqueTours": 13,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-10T00:28:50.000Z"
-        },
-        {
-          "userId": "48",
-          "trainRows": 70,
-          "trainUniqueTours": 20,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-03T14:30:58.000Z"
-        },
-        {
-          "userId": "49",
-          "trainRows": 78,
-          "trainUniqueTours": 26,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-16T17:00:53.000Z"
-        },
-        {
-          "userId": "50",
-          "trainRows": 32,
-          "trainUniqueTours": 11,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-27T17:00:42.000Z"
-        },
-        {
-          "userId": "51",
-          "trainRows": 49,
-          "trainUniqueTours": 15,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-12T19:53:33.000Z"
-        },
-        {
-          "userId": "52",
-          "trainRows": 51,
-          "trainUniqueTours": 15,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-15T00:57:20.000Z"
-        },
-        {
-          "userId": "53",
-          "trainRows": 38,
-          "trainUniqueTours": 12,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-12T18:55:19.000Z"
-        },
-        {
-          "userId": "54",
-          "trainRows": 71,
-          "trainUniqueTours": 21,
-          "validationTours": 1,
-          "testTours": 2,
-          "cutoff": "2026-07-25T09:02:16.000Z"
-        }
-      ],
-      "recommendedProductionEnv": {
-        "RECO_HYBRID_CONTENT_WEIGHT": 0.1,
-        "RECO_HYBRID_COLLABORATIVE_WEIGHT": 0.6,
-        "RECO_HYBRID_MF_WEIGHT": 0,
-        "RECO_HYBRID_SEMANTIC_WEIGHT": 0.3
-      }
-    },
-    {
-      "generatedAt": "2026-07-28T09:03:44.058Z",
+      "generatedAt": "2026-07-29T10:38:36.628Z",
       "source": "database",
       "evaluationMethod": "nested-temporal-holdout-positive-actions-by-unique-tour",
       "relevanceDefinition": {
@@ -1320,10 +49,11 @@
         },
         "hybridWeightSelection": {
           "selected": {
-            "contentBased": 0.3,
-            "collaborative": 0.5,
-            "matrixFactorization": 0,
-            "semanticEmbedding": 0.2
+            "contentBased": 0.2,
+            "collaborative": 0.3,
+            "matrixFactorization": 0.1,
+            "semanticEmbedding": 0.3,
+            "trending": 0.1
           },
           "criterion": "Chọn trọng số có NDCG@K trung bình cao nhất trên tập validation; nếu bằng nhau ưu tiên Recall@K rồi Precision@K.",
           "step": 0.1,
@@ -1331,10 +61,23 @@
           "topCandidates": [
             {
               "weights": {
+                "contentBased": 0.2,
+                "collaborative": 0.3,
+                "matrixFactorization": 0.1,
+                "semanticEmbedding": 0.3,
+                "trending": 0.1
+              },
+              "validationNdcgAtK": 0.2039,
+              "validationRecallAtK": 0.34,
+              "validationPrecisionAtK": 0.034
+            },
+            {
+              "weights": {
                 "contentBased": 0.3,
                 "collaborative": 0.5,
                 "matrixFactorization": 0,
-                "semanticEmbedding": 0.2
+                "semanticEmbedding": 0.2,
+                "trending": 0
               },
               "validationNdcgAtK": 0.2038,
               "validationRecallAtK": 0.34,
@@ -1343,9 +86,58 @@
             {
               "weights": {
                 "contentBased": 0.3,
+                "collaborative": 0.3,
+                "matrixFactorization": 0.3,
+                "semanticEmbedding": 0,
+                "trending": 0.1
+              },
+              "validationNdcgAtK": 0.2033,
+              "validationRecallAtK": 0.34,
+              "validationPrecisionAtK": 0.034
+            },
+            {
+              "weights": {
+                "contentBased": 0.4,
+                "collaborative": 0.4,
+                "matrixFactorization": 0.1,
+                "semanticEmbedding": 0,
+                "trending": 0.1
+              },
+              "validationNdcgAtK": 0.2031,
+              "validationRecallAtK": 0.34,
+              "validationPrecisionAtK": 0.034
+            },
+            {
+              "weights": {
+                "contentBased": 0.2,
+                "collaborative": 0.2,
+                "matrixFactorization": 0.4,
+                "semanticEmbedding": 0.1,
+                "trending": 0.1
+              },
+              "validationNdcgAtK": 0.2022,
+              "validationRecallAtK": 0.36,
+              "validationPrecisionAtK": 0.036
+            },
+            {
+              "weights": {
+                "contentBased": 0.3,
+                "collaborative": 0.3,
+                "matrixFactorization": 0.2,
+                "semanticEmbedding": 0.1,
+                "trending": 0.1
+              },
+              "validationNdcgAtK": 0.2014,
+              "validationRecallAtK": 0.34,
+              "validationPrecisionAtK": 0.034
+            },
+            {
+              "weights": {
+                "contentBased": 0.3,
                 "collaborative": 0.4,
                 "matrixFactorization": 0,
-                "semanticEmbedding": 0.3
+                "semanticEmbedding": 0.3,
+                "trending": 0
               },
               "validationNdcgAtK": 0.2014,
               "validationRecallAtK": 0.34,
@@ -1356,7 +148,8 @@
                 "contentBased": 0.2,
                 "collaborative": 0.3,
                 "matrixFactorization": 0.3,
-                "semanticEmbedding": 0.2
+                "semanticEmbedding": 0.2,
+                "trending": 0
               },
               "validationNdcgAtK": 0.2013,
               "validationRecallAtK": 0.34,
@@ -1367,7 +160,8 @@
                 "contentBased": 0.2,
                 "collaborative": 0.4,
                 "matrixFactorization": 0.2,
-                "semanticEmbedding": 0.2
+                "semanticEmbedding": 0.2,
+                "trending": 0
               },
               "validationNdcgAtK": 0.1985,
               "validationRecallAtK": 0.32,
@@ -1378,64 +172,10 @@
                 "contentBased": 0.1,
                 "collaborative": 0.2,
                 "matrixFactorization": 0.6,
-                "semanticEmbedding": 0.1
+                "semanticEmbedding": 0.1,
+                "trending": 0
               },
               "validationNdcgAtK": 0.1983,
-              "validationRecallAtK": 0.32,
-              "validationPrecisionAtK": 0.032
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.3,
-                "matrixFactorization": 0.4,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1978,
-              "validationRecallAtK": 0.32,
-              "validationPrecisionAtK": 0.032
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.4,
-                "matrixFactorization": 0.1,
-                "semanticEmbedding": 0.3
-              },
-              "validationNdcgAtK": 0.1964,
-              "validationRecallAtK": 0.34,
-              "validationPrecisionAtK": 0.034
-            },
-            {
-              "weights": {
-                "contentBased": 0,
-                "collaborative": 0.4,
-                "matrixFactorization": 0,
-                "semanticEmbedding": 0.6
-              },
-              "validationNdcgAtK": 0.1963,
-              "validationRecallAtK": 0.34,
-              "validationPrecisionAtK": 0.034
-            },
-            {
-              "weights": {
-                "contentBased": 0.2,
-                "collaborative": 0.4,
-                "matrixFactorization": 0.3,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1957,
-              "validationRecallAtK": 0.32,
-              "validationPrecisionAtK": 0.032
-            },
-            {
-              "weights": {
-                "contentBased": 0.3,
-                "collaborative": 0.5,
-                "matrixFactorization": 0.1,
-                "semanticEmbedding": 0.1
-              },
-              "validationNdcgAtK": 0.1954,
               "validationRecallAtK": 0.32,
               "validationPrecisionAtK": 0.032
             }
@@ -1444,10 +184,10 @@
       },
       "dataset": {
         "activeTours": 141,
-        "loadedBehaviors": 7068,
-        "excludedFutureBehaviors": 24,
+        "loadedBehaviors": 7069,
+        "excludedFutureBehaviors": 23,
         "sourceCounts": {
-          "recommendation_persona_seed_v3": 4466,
+          "recommendation_persona_seed_v3": 4467,
           "unknown": 598,
           "real": 474,
           "extra_huge_seed": 1198,
@@ -1499,13 +239,23 @@
           "evaluatedUsers": 50
         },
         {
+          "modelName": "Trending",
+          "precisionAt10": 0.038,
+          "recallAt10": 0.19,
+          "hitRateAt10": 0.38,
+          "ndcgAt10": 0.1039,
+          "coverage": 0.234,
+          "diversity": 0.8655,
+          "evaluatedUsers": 50
+        },
+        {
           "modelName": "Hybrid",
-          "precisionAt10": 0.102,
-          "recallAt10": 0.51,
-          "hitRateAt10": 0.68,
-          "ndcgAt10": 0.3367,
-          "coverage": 0.7376,
-          "diversity": 0.836,
+          "precisionAt10": 0.096,
+          "recallAt10": 0.48,
+          "hitRateAt10": 0.66,
+          "ndcgAt10": 0.3257,
+          "coverage": 0.7518,
+          "diversity": 0.827,
           "evaluatedUsers": 50
         }
       ],
@@ -1912,10 +662,11 @@
         }
       ],
       "recommendedProductionEnv": {
-        "RECO_HYBRID_CONTENT_WEIGHT": 0.3,
-        "RECO_HYBRID_COLLABORATIVE_WEIGHT": 0.5,
-        "RECO_HYBRID_MF_WEIGHT": 0,
-        "RECO_HYBRID_SEMANTIC_WEIGHT": 0.2
+        "RECO_HYBRID_CONTENT_WEIGHT": 0.2,
+        "RECO_HYBRID_COLLABORATIVE_WEIGHT": 0.3,
+        "RECO_HYBRID_MF_WEIGHT": 0.1,
+        "RECO_HYBRID_SEMANTIC_WEIGHT": 0.3,
+        "RECO_HYBRID_TRENDING_WEIGHT": 0.1
       }
     }
   ]
