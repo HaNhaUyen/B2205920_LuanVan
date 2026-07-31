@@ -36,7 +36,7 @@ const tabs = [
   { key: "favorites", label: "Tour yêu thích", icon: Heart },
   { key: "bookings", label: "Tour đã đặt", icon: ShoppingBag },
   { key: "travelers", label: "Hành khách thường dùng", icon: UsersRound },
-  { key: "refunds", label: "Hoàn tiền", icon: RotateCcw },
+  { key: "refunds", label: "Hủy vé & hoàn tiền", icon: RotateCcw },
   { key: "vouchers", label: "Voucher của tôi", icon: Ticket },
   { key: "security", label: "Bảo mật", icon: Shield },
 ];
@@ -126,33 +126,29 @@ function getRefundEligibility(booking) {
     return { eligible: false, reason: "Không có thông tin booking." };
   }
 
-  const bookingStatus = String(booking.bookingStatus || "").toLowerCase();
-  const paymentStatus = getLatestPaymentStatus(booking);
-  const createdAt = booking.createdAt ? new Date(booking.createdAt) : null;
-  const departureDate = booking?.departure?.departureDate
-    ? new Date(booking.departure.departureDate)
-    : null;
-
   if (booking.refundRequests?.length) {
     return {
       eligible: false,
-      reason: "Booking đã có yêu cầu hoàn tiền.",
+      reason: "Booking đã có yêu cầu hủy vé/hoàn tiền.",
     };
   }
+
+  const bookingStatus = String(booking.bookingStatus || "").toLowerCase();
+  const paymentStatus = getLatestPaymentStatus(booking);
 
   if (!["confirmed", "waiting_confirmation"].includes(bookingStatus)) {
     return {
       eligible: false,
       reason:
         bookingStatus === "completed"
-          ? "Tour đã hoàn thành nên không còn đủ điều kiện hoàn."
-          : "Trạng thái booking chưa phù hợp để yêu cầu hoàn.",
+          ? "Tour đã hoàn thành nên không thể hủy vé."
+          : "Trạng thái booking chưa phù hợp để hủy vé.",
     };
   }
 
   if (
-    !["paid", "waiting_confirmation", "refunded"].includes(paymentStatus) &&
-    bookingStatus !== "confirmed"
+    bookingStatus !== "confirmed" &&
+    !["paid", "waiting_confirmation"].includes(paymentStatus)
   ) {
     return {
       eligible: false,
@@ -160,52 +156,10 @@ function getRefundEligibility(booking) {
     };
   }
 
-  if (!createdAt || Number.isNaN(createdAt.getTime())) {
-    return {
-      eligible: false,
-      reason: "Không xác định được thời điểm đặt tour.",
-    };
-  }
-
-  if (!departureDate || Number.isNaN(departureDate.getTime())) {
-    return {
-      eligible: false,
-      reason: "Không xác định được ngày khởi hành.",
-    };
-  }
-
-  const now = new Date();
-  const hoursAfterBooking =
-    (now.getTime() - createdAt.getTime()) / (60 * 60 * 1000);
-
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-
-  const departureStart = new Date(departureDate);
-  departureStart.setHours(0, 0, 0, 0);
-
-  const daysBeforeDeparture =
-    (departureStart.getTime() - todayStart.getTime()) / (24 * 60 * 60 * 1000);
-
-  if (hoursAfterBooking > 48) {
-    return {
-      eligible: false,
-      reason: "Đã quá 48 giờ kể từ thời điểm đặt tour.",
-    };
-  }
-
-  if (daysBeforeDeparture < 3) {
-    return {
-      eligible: false,
-      reason: "Không còn đủ 3 ngày trước ngày khởi hành.",
-    };
-  }
-
   return {
     eligible: true,
-    reason: "Đủ điều kiện gửi yêu cầu hoàn tiền.",
-    hoursAfterBooking,
-    daysBeforeDeparture,
+    reason:
+      "Bấm Hủy vé để hệ thống kiểm tra ngày làm việc và tính số tiền hoàn theo chính sách.",
   };
 }
 
@@ -289,12 +243,13 @@ function PaginationBar({ page, totalPages, onPageChange }) {
 
 const styles = {
   container: {
-    maxWidth: "1200px",
-    margin: "40px auto",
-    padding: "0 20px",
+    width: "calc(100% - 48px)",
+    maxWidth: "1480px",
+    margin: "32px auto",
+    padding: 0,
     display: "grid",
     gridTemplateColumns: "280px minmax(0, 1fr)",
-    gap: "32px",
+    gap: "24px",
     alignItems: "start",
   },
   card: {
@@ -467,6 +422,9 @@ export default function ProfilePage() {
     refundQrUrl: "",
   });
   const [refundModalBooking, setRefundModalBooking] = useState(null);
+  const [refundPreview, setRefundPreview] = useState(null);
+  const [loadingRefundPreview, setLoadingRefundPreview] = useState(false);
+  const [submittingRefund, setSubmittingRefund] = useState(false);
 
   const [profileForm, setProfileForm] = useState({
     fullName: "",
@@ -719,23 +677,49 @@ export default function ProfilePage() {
     refundQrUrl: "",
   });
 
-  const openRefundModal = (booking) => {
-    const eligibility = getRefundEligibility(booking);
+  const openRefundModal = async (booking) => {
+    const basicEligibility = getRefundEligibility(booking);
 
-    if (!eligibility.eligible) {
+    if (!basicEligibility.eligible) {
       showToast(
-        eligibility.reason || "Booking không đủ điều kiện hoàn tiền.",
+        basicEligibility.reason || "Booking không đủ điều kiện hủy vé.",
         "error",
       );
       return;
     }
 
-    setRefundModalBooking(booking);
-    setRefundForm(emptyRefundForm(String(booking.id)));
+    setLoadingRefundPreview(true);
+
+    try {
+      const preview = await apiFetch(
+        `/refunds/bookings/${booking.id}/preview`,
+        { cache: "no-store" },
+      );
+
+      if (!preview?.eligible) {
+        showToast(
+          preview?.message || "Booking không đủ điều kiện hủy vé.",
+          "error",
+        );
+        return;
+      }
+
+      setRefundPreview(preview);
+      setRefundModalBooking(booking);
+      setRefundForm(emptyRefundForm(String(booking.id)));
+    } catch (error) {
+      showToast(
+        error.message || "Không kiểm tra được chính sách hủy vé.",
+        "error",
+      );
+    } finally {
+      setLoadingRefundPreview(false);
+    }
   };
 
   const closeRefundModal = () => {
     setRefundModalBooking(null);
+    setRefundPreview(null);
     setRefundForm(emptyRefundForm());
   };
 
@@ -760,6 +744,8 @@ export default function ProfilePage() {
       );
     }
 
+    setSubmittingRefund(true);
+
     try {
       await apiFetch("/refunds", {
         method: "POST",
@@ -769,9 +755,14 @@ export default function ProfilePage() {
       closeRefundModal();
       await loadAll();
       setActiveTab("refunds");
-      showToast("Đã gửi yêu cầu hoàn tiền đến admin.", "success");
+      showToast(
+        "Đã gửi yêu cầu hủy vé. Vui lòng chờ admin xác nhận đã hoàn tiền.",
+        "success",
+      );
     } catch (error) {
       showToast(error.message, "error");
+    } finally {
+      setSubmittingRefund(false);
     }
   };
 
@@ -1487,7 +1478,7 @@ export default function ProfilePage() {
                                       }}
                                       title={refundEligibility.reason}
                                     >
-                                      Yêu cầu hoàn
+                                      Hủy vé
                                     </button>
                                   ) : (
                                     <span
@@ -1550,8 +1541,7 @@ export default function ProfilePage() {
                     style={{
                       width: "100%",
                       maxWidth: "100%",
-                      overflowX: "auto",
-                      overflowY: "hidden",
+                      overflow: "hidden",
                       borderRadius: "12px",
                       border: "1px solid #e2e8f0",
                     }}
@@ -1559,9 +1549,8 @@ export default function ProfilePage() {
                     <table
                       style={{
                         ...styles.table,
-                        width: "max-content",
-                        minWidth: "1080px",
-                        tableLayout: "auto",
+                        width: "100%",
+                        tableLayout: "fixed",
                         marginTop: 0,
                       }}
                     >
@@ -1570,28 +1559,59 @@ export default function ProfilePage() {
                           <th
                             style={{
                               ...styles.th,
-                              minWidth: "140px",
+                              width: "14%",
+                              whiteSpace: "normal",
                               borderTopLeftRadius: "12px",
                             }}
                           >
                             Booking
                           </th>
-                          <th style={{ ...styles.th, minWidth: "260px" }}>
-                            Tour
-                          </th>
-                          <th style={{ ...styles.th, minWidth: "200px" }}>
-                            Lý do
-                          </th>
-                          <th style={{ ...styles.th, minWidth: "130px" }}>
-                            Trạng thái
-                          </th>
-                          <th style={{ ...styles.th, minWidth: "260px" }}>
-                            Phản hồi Admin
-                          </th>
+
                           <th
                             style={{
                               ...styles.th,
-                              minWidth: "150px",
+                              width: "23%",
+                              whiteSpace: "normal",
+                            }}
+                          >
+                            Tour
+                          </th>
+
+                          <th
+                            style={{
+                              ...styles.th,
+                              width: "17%",
+                              whiteSpace: "normal",
+                            }}
+                          >
+                            Lý do
+                          </th>
+
+                          <th
+                            style={{
+                              ...styles.th,
+                              width: "12%",
+                              whiteSpace: "normal",
+                            }}
+                          >
+                            Trạng thái
+                          </th>
+
+                          <th
+                            style={{
+                              ...styles.th,
+                              width: "21%",
+                              whiteSpace: "normal",
+                            }}
+                          >
+                            Phản hồi Admin
+                          </th>
+
+                          <th
+                            style={{
+                              ...styles.th,
+                              width: "13%",
+                              whiteSpace: "normal",
                               borderTopRightRadius: "12px",
                             }}
                           >
@@ -1603,7 +1623,15 @@ export default function ProfilePage() {
                       <tbody>
                         {pagedRefunds.map((r) => (
                           <tr key={String(r.id)}>
-                            <td style={{ ...styles.td, fontWeight: 600 }}>
+                            <td
+                              style={{
+                                ...styles.td,
+                                fontWeight: 600,
+                                whiteSpace: "normal",
+                                wordBreak: "break-word",
+                                overflowWrap: "anywhere",
+                              }}
+                            >
                               {r.booking?.bookingCode || "--"}
                             </td>
 
@@ -1615,6 +1643,7 @@ export default function ProfilePage() {
                                   lineHeight: 1.45,
                                   whiteSpace: "normal",
                                   wordBreak: "break-word",
+                                  overflowWrap: "anywhere",
                                 }}
                                 title={r.booking?.tour?.name}
                               >
@@ -1633,6 +1662,7 @@ export default function ProfilePage() {
                                   lineHeight: 1.5,
                                   whiteSpace: "normal",
                                   wordBreak: "break-word",
+                                  overflowWrap: "anywhere",
                                 }}
                                 title={r.reason}
                               >
@@ -1640,7 +1670,12 @@ export default function ProfilePage() {
                               </div>
                             </td>
 
-                            <td style={styles.td}>
+                            <td
+                              style={{
+                                ...styles.td,
+                                whiteSpace: "normal",
+                              }}
+                            >
                               <StatusPill
                                 tone={
                                   r.status === "approved"
@@ -1666,6 +1701,7 @@ export default function ProfilePage() {
                                   lineHeight: 1.55,
                                   whiteSpace: "normal",
                                   wordBreak: "break-word",
+                                  overflowWrap: "anywhere",
                                   background: r.adminNote
                                     ? "#f8fafc"
                                     : "transparent",
@@ -1673,14 +1709,21 @@ export default function ProfilePage() {
                                     ? "1px solid #e2e8f0"
                                     : "none",
                                   borderRadius: "12px",
-                                  padding: r.adminNote ? "12px 14px" : 0,
+                                  padding: r.adminNote ? "10px 12px" : 0,
                                 }}
                               >
                                 {r.adminNote || "Đang chờ xử lý"}
                               </div>
                             </td>
 
-                            <td style={styles.td}>
+                            <td
+                              style={{
+                                ...styles.td,
+                                whiteSpace: "normal",
+                                wordBreak: "break-word",
+                                lineHeight: 1.5,
+                              }}
+                            >
                               {formatDateTime(r.createdAt)}
                             </td>
                           </tr>
@@ -2638,7 +2681,7 @@ export default function ProfilePage() {
                     letterSpacing: "0.5px",
                   }}
                 >
-                  Yêu cầu hoàn tiền
+                  Hủy vé & hoàn tiền
                 </span>
               </div>
 
@@ -2651,21 +2694,8 @@ export default function ProfilePage() {
                   fontWeight: 800,
                 }}
               >
-                Xác nhận hủy và hoàn tour
+                Xác nhận hủy vé
               </h2>
-
-              <p
-                style={{
-                  color: "#64748b",
-                  margin: 0,
-                  fontSize: "15px",
-                  lineHeight: 1.6,
-                }}
-              >
-                Admin sẽ xem xét yêu cầu của bạn. Nếu được duyệt, hệ thống sẽ
-                hoàn slot về tour và cập nhật trạng thái hoàn tiền tương ứng với
-                chính sách của chúng tôi.
-              </p>
             </div>
 
             <form
@@ -2772,6 +2802,131 @@ export default function ProfilePage() {
                     </strong>
                   </div>
                 </div>
+
+                {refundPreview ? (
+                  <div
+                    style={{
+                      marginBottom: "22px",
+                      padding: "20px",
+                      borderRadius: "16px",
+                      background:
+                        "linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%)",
+                      border: "1px solid #bfdbfe",
+                      boxShadow: "0 10px 24px rgba(37, 99, 235, 0.08)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "9px",
+                        marginBottom: "14px",
+                        color: "#1d4ed8",
+                      }}
+                    >
+                      <Info size={20} />
+                      <strong style={{ fontSize: "17px" }}>
+                        Số tiền dự kiến được hoàn
+                      </strong>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns:
+                          "repeat(auto-fit, minmax(180px, 1fr))",
+                        gap: "14px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: "14px 16px",
+                          borderRadius: "12px",
+                          background: "#fff",
+                          border: "1px solid #dbeafe",
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: "block",
+                            marginBottom: "6px",
+                            color: "#64748b",
+                            fontSize: "13px",
+                          }}
+                        >
+                          Tỷ lệ hoàn
+                        </span>
+                        <strong
+                          style={{
+                            color: "#2563eb",
+                            fontSize: "25px",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {Number(refundPreview.refundRate || 0)}%
+                        </strong>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: "14px 16px",
+                          borderRadius: "12px",
+                          background: "#fff",
+                          border: "1px solid #dbeafe",
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: "block",
+                            marginBottom: "6px",
+                            color: "#64748b",
+                            fontSize: "13px",
+                          }}
+                        >
+                          Số tiền hoàn
+                        </span>
+                        <strong
+                          style={{
+                            color: "#dc2626",
+                            fontSize: "25px",
+                            lineHeight: 1.2,
+                          }}
+                        >
+                          {formatCurrency(refundPreview.refundAmount || 0)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: "14px",
+                        paddingTop: "14px",
+                        borderTop: "1px dashed #bfdbfe",
+                        color: "#334155",
+                        fontSize: "14px",
+                        lineHeight: 1.65,
+                      }}
+                    >
+                      <strong>Chính sách áp dụng:</strong>{" "}
+                      {refundPreview.policyLabel ||
+                        refundPreview.message ||
+                        "Áp dụng theo chính sách hủy tour của Travela."}
+                    </div>
+
+                    <p
+                      style={{
+                        margin: "10px 0 0",
+                        color: "#64748b",
+                        fontSize: "13px",
+                        lineHeight: 1.55,
+                      }}
+                    >
+                      Số tiền trên được hệ thống tính từ giá trị booking sau
+                      voucher. Booking chỉ chuyển sang trạng thái đã hủy sau khi
+                      admin xác nhận đã hoàn tiền.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div style={{ marginBottom: "20px" }}>
                   <label style={styles.label}>
@@ -2929,6 +3084,7 @@ export default function ProfilePage() {
 
                 <button
                   type="submit"
+                  disabled={submittingRefund}
                   style={{
                     minWidth: "140px",
                     padding: "12px 22px",
@@ -2945,7 +3101,14 @@ export default function ProfilePage() {
                     boxShadow: "0 12px 26px rgba(239, 68, 68, 0.25)",
                   }}
                 >
-                  Gửi yêu cầu <ChevronRight size={18} />
+                  {submittingRefund
+                    ? "Đang gửi..."
+                    : refundPreview
+                      ? `Gửi yêu cầu hoàn ${formatCurrency(
+                          refundPreview.refundAmount || 0,
+                        )}`
+                      : "Gửi yêu cầu"}
+                  {!submittingRefund && <ChevronRight size={18} />}
                 </button>
               </div>
             </form>

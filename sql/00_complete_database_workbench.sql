@@ -13305,3 +13305,261 @@ DROP TEMPORARY TABLE IF EXISTS tmp_reco_users;
 DROP TEMPORARY TABLE IF EXISTS tmp_reco_personas;
 
 SET SQL_SAFE_UPDATES = 1;
+
+
+
+
+
+
+SET SQL_SAFE_UPDATES = 0;
+
+SET @refund_policy := CONCAT(
+  'Chính sách hủy tour và hoàn tiền của Travela: ',
+  'Yêu cầu hủy chỉ được tiếp nhận từ thứ Hai đến thứ Sáu và không thuộc ngày nghỉ lễ. ',
+  'Nếu khách hủy trong vòng 24 giờ kể từ thời điểm thanh toán thành công và tour còn trên 24 giờ mới khởi hành, Travela hoàn 70% giá trị booking sau voucher. ',
+  'Nếu đã quá 24 giờ kể từ lúc thanh toán và còn ít nhất 7 ngày trước ngày khởi hành, Travela hoàn 50%. ',
+  'Nếu còn từ 3 ngày đến dưới 7 ngày trước ngày khởi hành, Travela hoàn 30%. ',
+  'Nếu còn dưới 3 ngày, trong vòng 24 giờ trước ngày khởi hành hoặc tour đã khởi hành thì không hoàn tiền. ',
+  'Booking phải ở trạng thái đã thanh toán hoặc đã xác nhận và chưa có yêu cầu hủy đang xử lý. ',
+  'Số tiền hoàn do hệ thống tự tính từ giá trị booking sau voucher. ',
+  'Booking chỉ được hủy, số chỗ chỉ được hoàn lại và doanh thu chỉ được điều chỉnh sau khi admin xác nhận đã chuyển khoản hoàn tiền.'
+);
+
+-- 1. Cập nhật chính sách của toàn bộ tour.
+UPDATE tour_policies
+SET
+  content = @refund_policy,
+  updated_at = NOW()
+WHERE LOWER(policy_type) = 'cancel_policy'
+   OR LOWER(policy_type) LIKE '%cancel%'
+   OR LOWER(policy_type) LIKE '%refund%';
+
+-- 2. Cập nhật các FAQ hoàn tiền cũ.
+UPDATE faqs
+SET
+  answer = @refund_policy,
+  topic = 'refund_policy',
+  status = 'active',
+  updated_at = NOW()
+WHERE LOWER(COALESCE(topic, '')) LIKE '%refund%'
+   OR LOWER(COALESCE(topic, '')) LIKE '%cancel%'
+   OR question LIKE '%hoàn tiền%'
+   OR question LIKE '%hủy tour%'
+   OR answer LIKE '%48 giờ sau khi đặt tour%'
+   OR answer LIKE '%ít nhất 3 ngày trước ngày khởi hành%';
+
+-- 3. Bổ sung FAQ chuẩn nếu database chưa có.
+INSERT INTO faqs (
+  question,
+  answer,
+  topic,
+  status,
+  created_at,
+  updated_at
+)
+SELECT
+  'Chính sách hủy tour và hoàn tiền của Travela như thế nào?',
+  @refund_policy,
+  'refund_policy',
+  'active',
+  NOW(),
+  NOW()
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM faqs
+  WHERE question = 'Chính sách hủy tour và hoàn tiền của Travela như thế nào?'
+);
+
+-- 4. Xóa các tài liệu RAG đang lưu nội dung chính sách cũ.
+-- Sau bước này phải gọi API rebuild RAG để tạo lại tài liệu từ tour_policies và faqs.
+DELETE FROM rag_documents
+WHERE content LIKE '%48 giờ sau khi đặt tour%'
+   OR content LIKE '%ít nhất 3 ngày trước ngày khởi hành%'
+   OR LOWER(COALESCE(title, '')) LIKE '%hoàn tiền%'
+   OR LOWER(COALESCE(title, '')) LIKE '%hủy tour%'
+   OR LOWER(COALESCE(source_type, '')) IN (
+        'tour_policy',
+        'tour_policies',
+        'faq',
+        'faqs'
+      )
+      AND (
+        content LIKE '%hoàn tiền%'
+        OR content LIKE '%hủy tour%'
+        OR content LIKE '%cancel_policy%'
+      );
+
+SET SQL_SAFE_UPDATES = 1;
+
+-- 5. Kiểm tra kết quả.
+SELECT
+  id,
+  tour_id,
+  policy_type,
+  content,
+  updated_at
+FROM tour_policies
+WHERE LOWER(policy_type) LIKE '%cancel%'
+   OR LOWER(policy_type) LIKE '%refund%'
+ORDER BY tour_id
+LIMIT 20;
+
+SELECT
+  id,
+  question,
+  answer,
+  topic,
+  status,
+  updated_at
+FROM faqs
+WHERE LOWER(COALESCE(topic, '')) LIKE '%refund%'
+   OR question LIKE '%hoàn tiền%'
+   OR question LIKE '%hủy tour%'
+ORDER BY id;
+
+
+
+SET NAMES utf8mb4;
+
+CREATE TABLE system_holidays (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  holiday_date DATE NOT NULL,
+  holiday_name VARCHAR(255) NOT NULL,
+  status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_system_holidays_date (holiday_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE refund_requests
+  ADD COLUMN refund_rate DECIMAL(5,2) NULL AFTER refund_amount,
+  ADD COLUMN policy_code VARCHAR(80) NULL AFTER refund_rate,
+  ADD COLUMN policy_label VARCHAR(500) NULL AFTER policy_code,
+  ADD COLUMN days_before_departure DECIMAL(10,4) NULL AFTER policy_label,
+  ADD COLUMN hours_after_payment DECIMAL(10,4) NULL AFTER days_before_departure,
+  ADD COLUMN refunded_at DATETIME NULL AFTER reviewed_at;
+
+CREATE TABLE revenue_adjustments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  booking_id BIGINT UNSIGNED NOT NULL,
+  refund_request_id BIGINT UNSIGNED NOT NULL,
+  adjustment_type ENUM('refund', 'manual') NOT NULL DEFAULT 'refund',
+  amount DECIMAL(12,2) NOT NULL,
+  occurred_at DATETIME NOT NULL,
+  note TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_revenue_adjustment_refund (refund_request_id),
+  KEY idx_revenue_adjustment_occurred_at (occurred_at),
+  KEY idx_revenue_adjustment_booking (booking_id),
+  CONSTRAINT fk_revenue_adjustment_booking
+    FOREIGN KEY (booking_id) REFERENCES bookings(id)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_revenue_adjustment_refund
+    FOREIGN KEY (refund_request_id) REFERENCES refund_requests(id)
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Ngày lễ cố định năm 2026.
+-- Hãy bổ sung Tết Âm lịch, Giỗ Tổ Hùng Vương và ngày nghỉ bù đúng lịch thực tế.
+INSERT INTO system_holidays (holiday_date, holiday_name, status)
+VALUES
+  ('2026-01-01', 'Tết Dương lịch', 'active'),
+  ('2026-04-30', 'Ngày Giải phóng miền Nam', 'active'),
+  ('2026-05-01', 'Ngày Quốc tế Lao động', 'active'),
+  ('2026-09-02', 'Ngày Quốc khánh', 'active');
+
+
+
+
+SET SQL_SAFE_UPDATES = 0;
+
+SET @old_line = _utf8mb4'Booking chỉ được hủy, số chỗ chỉ được hoàn lại và doanh thu chỉ được điều chỉnh sau khi admin xác nhận đã chuyển khoản hoàn tiền.'
+                COLLATE utf8mb4_unicode_ci;
+
+-- 1. Cập nhật chính sách hủy/hoàn tiền của tour.
+-- Không dùng LIKE với biến khác collation; chỉ cập nhật đúng policy_type.
+UPDATE tour_policies
+SET
+  content = TRIM(
+    REPLACE(
+      content COLLATE utf8mb4_unicode_ci,
+      @old_line COLLATE utf8mb4_unicode_ci,
+      _utf8mb4'' COLLATE utf8mb4_unicode_ci
+    )
+  ),
+  updated_at = NOW()
+WHERE policy_type COLLATE utf8mb4_unicode_ci = _utf8mb4'cancel_policy' COLLATE utf8mb4_unicode_ci;
+
+-- 2. Cập nhật FAQ có nội dung hoàn tiền/hủy tour.
+UPDATE faqs
+SET
+  answer = TRIM(
+    REPLACE(
+      answer COLLATE utf8mb4_unicode_ci,
+      @old_line COLLATE utf8mb4_unicode_ci,
+      _utf8mb4'' COLLATE utf8mb4_unicode_ci
+    )
+  ),
+  updated_at = NOW()
+WHERE
+  topic COLLATE utf8mb4_unicode_ci IN (
+    _utf8mb4'refund_policy' COLLATE utf8mb4_unicode_ci,
+    _utf8mb4'cancel_policy' COLLATE utf8mb4_unicode_ci
+  )
+  OR question COLLATE utf8mb4_unicode_ci LIKE _utf8mb4'%hoàn tiền%' COLLATE utf8mb4_unicode_ci
+  OR question COLLATE utf8mb4_unicode_ci LIKE _utf8mb4'%hủy tour%' COLLATE utf8mb4_unicode_ci;
+
+-- 3. Xóa tài liệu RAG chứa chính sách cũ để rebuild lại.
+DELETE FROM rag_documents
+WHERE
+  content COLLATE utf8mb4_unicode_ci LIKE
+    CONCAT(
+      _utf8mb4'%' COLLATE utf8mb4_unicode_ci,
+      @old_line COLLATE utf8mb4_unicode_ci,
+      _utf8mb4'%' COLLATE utf8mb4_unicode_ci
+    )
+  OR content COLLATE utf8mb4_unicode_ci LIKE
+    _utf8mb4'%Chính sách hủy tour và hoàn tiền của Travela:%'
+    COLLATE utf8mb4_unicode_ci;
+
+SET SQL_SAFE_UPDATES = 1;
+
+-- 4. Kiểm tra lại dữ liệu.
+SELECT
+  id,
+  tour_id,
+  policy_type,
+  content,
+  updated_at
+FROM tour_policies
+WHERE policy_type COLLATE utf8mb4_unicode_ci =
+      _utf8mb4'cancel_policy' COLLATE utf8mb4_unicode_ci
+ORDER BY tour_id
+LIMIT 20;
+
+SELECT
+  id,
+  question,
+  answer,
+  topic,
+  status,
+  updated_at
+FROM faqs
+WHERE
+  topic COLLATE utf8mb4_unicode_ci IN (
+    _utf8mb4'refund_policy' COLLATE utf8mb4_unicode_ci,
+    _utf8mb4'cancel_policy' COLLATE utf8mb4_unicode_ci
+  )
+  OR question COLLATE utf8mb4_unicode_ci LIKE
+     _utf8mb4'%hoàn tiền%' COLLATE utf8mb4_unicode_ci
+  OR question COLLATE utf8mb4_unicode_ci LIKE
+     _utf8mb4'%hủy tour%' COLLATE utf8mb4_unicode_ci
+ORDER BY id;
+
+
+UPDATE tour_pickup_points
+SET departure_id = NULL
+WHERE departure_id IS NOT NULL;

@@ -3130,8 +3130,29 @@ export class ChatbotService {
     return Array.from(new Set(found));
   }
 
+  private isRefundPolicyQuestion(message: string) {
+    const normalized = this.stripText(message);
+
+    const hasPolicySignal =
+      /\b(chinh sach|quy dinh|dieu kien|duoc hoan bao nhieu|hoan bao nhieu|muc hoan|ty le hoan|phi huy|bao lau duoc hoan|may ngay duoc hoan|truoc ngay khoi hanh)\b/.test(
+        normalized,
+      );
+
+    const hasExplicitActionSignal =
+      /\b(toi muon huy|muon huy|huy booking|huy don|huy ve|tao yeu cau hoan|gui yeu cau hoan|xin hoan tien|hoan cho toi|refund booking|request refund|xac nhan hoan)\b/.test(
+        normalized,
+      );
+
+    return hasPolicySignal && !hasExplicitActionSignal;
+  }
+
   private isExplicitRefundAction(message: string, memory: MemoryState) {
     const normalized = this.stripText(message);
+
+    // Câu hỏi chính sách chỉ để tra cứu, tuyệt đối không được nối vào
+    // refundDraft cũ rồi chuyển sang luồng yêu cầu mã booking/ngân hàng.
+    if (this.isRefundPolicyQuestion(message)) return false;
+
     const hasBookingCode = /\bbk[a-z0-9-]+\b/i.test(normalized);
     const hasRefundWords =
       /\b(hoan|hoan tien|xin hoan|yeu cau hoan|gui yeu cau|xac nhan hoan|xac nhan hoan tien|dong y hoan|tiep tuc hoan|huy booking|huy don|refund)\b/.test(
@@ -3142,7 +3163,7 @@ export class ChatbotService {
 
     return Boolean(
       memory.refundDraft?.started &&
-      /\b(hoan|hoan cho toi|hoan di|xac nhan|dong y|gui yeu cau|tiep tuc|ngan hang|stk|so tai khoan|chu tai khoan)\b/.test(
+      /\b(hoan cho toi|hoan di|xac nhan|dong y|gui yeu cau|tiep tuc hoan|ngan hang|stk|so tai khoan|chu tai khoan)\b/.test(
         normalized,
       ),
     );
@@ -6572,6 +6593,28 @@ YÊU CẦU TRẢ LỜI:
     const sectionIntent = this.detectTourSectionIntent(normalized, intent);
     if (!sectionIntent) return null;
 
+    // Câu hỏi chính sách chung như "chính sách hoàn tiền" không được lấy
+    // tour gần nhất trong memory rồi trả thành "Chính sách của <tên tour>".
+    const asksGeneralRefundPolicy =
+      sectionIntent === "policy" &&
+      /^(chinh sach hoan tien|chinh sach huy hoan tien|chinh sach huy tour|huy tour duoc hoan bao nhieu|hoan tien nhu the nao|quy dinh hoan tien)$/.test(
+        normalized,
+      );
+
+    if (asksGeneralRefundPolicy) {
+      return [
+        "Chính sách hủy tour và hoàn tiền của Travela:",
+        "",
+        "- Yêu cầu hủy chỉ được tiếp nhận từ thứ Hai đến thứ Sáu và không thuộc ngày nghỉ lễ.",
+        "- Hủy trong vòng 24 giờ kể từ thời điểm thanh toán thành công, đồng thời tour còn trên 24 giờ mới khởi hành: hoàn 70% giá trị booking sau voucher.",
+        "- Đã quá 24 giờ kể từ lúc thanh toán và còn ít nhất 7 ngày trước ngày khởi hành: hoàn 50%.",
+        "- Còn từ 3 ngày đến dưới 7 ngày trước ngày khởi hành: hoàn 30%.",
+        "- Còn dưới 3 ngày, trong vòng 24 giờ trước ngày khởi hành hoặc tour đã khởi hành: không hoàn tiền.",
+        "- Booking phải ở trạng thái đã thanh toán hoặc đã xác nhận và chưa có yêu cầu hủy đang xử lý.",
+        "- Số tiền hoàn do hệ thống tự tính từ giá trị booking sau voucher.",
+      ].join("\n");
+    }
+
     const tour = await this.findTourForDirectAnswer(ctx);
     if (!tour) return null;
 
@@ -6633,7 +6676,7 @@ YÊU CẦU TRẢ LỜI:
       }
       return [
         `Mình đã tìm thấy ${tour.name}, nhưng tour này chưa có chính sách riêng trong bảng tour_policies.`,
-        "Bạn có thể áp dụng chính sách chung: gửi yêu cầu hoàn tiền trong 48 giờ sau khi đặt, không hỗ trợ hoàn nếu còn dưới 3 ngày trước ngày khởi hành, và yêu cầu cần admin duyệt.",
+        "Bạn có thể áp dụng chính sách chung của Travela với các mức hoàn 70%, 50%, 30% tùy thời điểm thanh toán và số ngày còn lại trước khởi hành.",
       ].join("\n");
     }
 
@@ -6953,6 +6996,11 @@ YÊU CẦU TRẢ LỜI:
   ): ChatRefundDraft | null {
     const normalized = this.stripText(message);
 
+    // Không tạo hoặc nối tiếp refundDraft khi người dùng chỉ hỏi chính sách.
+    if (this.isRefundPolicyQuestion(message)) {
+      return current.refundDraft || null;
+    }
+
     const hasRefundSignal =
       /\b(hoan tien|hoan lai|refund|huy don|huy booking|huy tour|lay lai tien|tra tien)\b/.test(
         normalized,
@@ -7130,7 +7178,7 @@ YÊU CẦU TRẢ LỜI:
     if (ctx.intent === "personal_recommendation") {
       if (ctx.tours.length) {
         return ctx.userProfile.loggedIn
-          ? `Dựa trên lịch sử xem, tìm kiếm, yêu thích và đặt tour của bạn, mình đã chọn ${ctx.tours.length} tour phù hợp nhất. Các tour được xếp theo điểm gợi ý Hybrid của Travela; bạn có thể mở chi tiết hoặc yêu cầu mình so sánh.`
+          ? `Dựa trên lịch sử xem, tìm kiếm, yêu thích và đặt tour của bạn, mình đã chọn ${ctx.tours.length} tour phù hợp nhất. Bạn có thể mở chi tiết hoặc yêu cầu mình so sánh.`
           : `Bạn đang dùng Travela với tư cách khách vãng lai nên mình chưa thể cá nhân hóa theo lịch sử xem, yêu thích hoặc đặt tour. Trước mắt, mình gửi ${ctx.tours.length} tour nổi bật đang còn lịch khởi hành để bạn tham khảo. Hãy đăng nhập để nhận gợi ý riêng theo sở thích, hoặc nói thêm điểm đến, ngân sách và số ngày để mình lọc chính xác hơn.`;
       }
 

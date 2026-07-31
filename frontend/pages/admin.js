@@ -589,7 +589,8 @@ function MiniLineChart({
             {title}
           </h3>
           <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
-            Doanh thu chỉ tính từ các giao dịch đã thanh toán thành công.
+            Doanh thu thuần = giao dịch thanh toán thành công - khoản hoàn được
+            admin xác nhận trong tháng.
           </p>
         </div>
 
@@ -633,6 +634,15 @@ function MiniLineChart({
             }
             note={`Tháng trước: ${formatCurrency(details.previousMonthRevenue || 0)}`}
             tone={growthTone}
+          />
+
+          <RevenueMetricCard
+            label="Khoản hoàn trong tháng"
+            value={formatCurrency(details.refundAmount || 0)}
+            note={`Doanh thu gộp: ${formatCurrency(
+              details.grossRevenue || details.currentMonthRevenue || 0,
+            )}`}
+            tone="danger"
           />
 
           <RevenueMetricCard
@@ -943,6 +953,7 @@ function createDepartureItem(overrides = {}) {
 function createPickupPointItem(overrides = {}) {
   return {
     id: overrides.id || "",
+    catalogId: overrides.catalogId || "",
     departureId: overrides.departureId ? String(overrides.departureId) : "",
     province:
       overrides.province && overrides.province !== "Chưa cập nhật"
@@ -981,6 +992,7 @@ function buildNextDepartureItem(prevItems = [], durationDays = 2) {
 }
 function createAccommodationItem(overrides = {}) {
   return {
+    catalogId: overrides.catalogId || "",
     supplierId: overrides.supplierId ? String(overrides.supplierId) : "",
 
     isManualSupplier: overrides.isManualSupplier ?? false,
@@ -998,6 +1010,7 @@ function createAccommodationItem(overrides = {}) {
 }
 function createTransportItem(overrides = {}) {
   return {
+    catalogId: overrides.catalogId || "",
     supplierId: overrides.supplierId ? String(overrides.supplierId) : "",
 
     isManualSupplier: overrides.isManualSupplier ?? false,
@@ -1101,6 +1114,11 @@ export default function AdminPage({ initialTab = "overview" }) {
   const [contactsData, setContactsData] = useState(emptyPage);
   const [destinations, setDestinations] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  const [tourCatalogs, setTourCatalogs] = useState({
+    pickupPoints: [],
+    accommodations: [],
+    transports: [],
+  });
   const [destinationsData, setDestinationsData] = useState(emptyPage);
   const [allTours, setAllTours] = useState([]);
   const [bookingFilters, setBookingFilters] = useState(initialBookingFilter);
@@ -1157,6 +1175,7 @@ export default function AdminPage({ initialTab = "overview" }) {
       loadDestinationsPage(initialDestinationFilter),
       loadTours(),
       loadSuppliers(),
+      loadTourCatalogs(),
     ])
       .catch((error) => showToast(error.message, "error"))
       .finally(() => setBooting(false));
@@ -1170,8 +1189,47 @@ export default function AdminPage({ initialTab = "overview" }) {
   }, [tourForm.durationDays, tourModalOpen]);
 
   async function loadOverview() {
-    const data = await apiFetch("/admin/dashboard/overview");
-    setOverview(data);
+    const [data, revenueData] = await Promise.all([
+      apiFetch("/admin/dashboard/overview"),
+      apiFetch("/refunds/admin/revenue-summary?months=6").catch(() => null),
+    ]);
+
+    if (!revenueData) {
+      setOverview(data);
+      return;
+    }
+
+    const net = revenueData.summary || {};
+    const currentMonthNet = Number(net.netRevenue || 0);
+    const previousMonthNet = Number(net.previousMonthNetRevenue || 0);
+
+    setOverview({
+      ...(data || {}),
+      summary: {
+        ...(data?.summary || {}),
+        // Tổng doanh thu trên card dashboard dùng doanh thu thuần toàn hệ thống.
+        totalRevenue: Number(
+          net.totalNetRevenue ?? data?.summary?.totalRevenue ?? 0,
+        ),
+        grossRevenue: Number(net.totalGrossRevenue || 0),
+        totalRefundAmount: Number(net.totalRefundAmount || 0),
+      },
+      charts: {
+        ...(data?.charts || {}),
+        monthlyRevenue: Array.isArray(revenueData.monthlyRevenue)
+          ? revenueData.monthlyRevenue
+          : data?.charts?.monthlyRevenue || [],
+      },
+      revenueDetails: {
+        ...(data?.revenueDetails || {}),
+        currentMonthRevenue: currentMonthNet,
+        previousMonthRevenue: previousMonthNet,
+        grossRevenue: Number(net.grossRevenue || 0),
+        refundAmount: Number(net.refundAmount || 0),
+        netRevenue: currentMonthNet,
+        growthRate: Number(net.growthRate || 0),
+      },
+    });
   }
   async function loadBookings(filters = bookingFilters) {
     setBookingsData(await apiFetch(`/admin/bookings?${buildQuery(filters)}`));
@@ -1200,6 +1258,28 @@ export default function AdminPage({ initialTab = "overview" }) {
       setSuppliers([]);
     }
   }
+  async function loadTourCatalogs() {
+    try {
+      const result = await apiFetch("/admin/tours/catalogs/reusable");
+      setTourCatalogs({
+        pickupPoints: Array.isArray(result?.pickupPoints)
+          ? result.pickupPoints
+          : [],
+        accommodations: Array.isArray(result?.accommodations)
+          ? result.accommodations
+          : [],
+        transports: Array.isArray(result?.transports) ? result.transports : [],
+      });
+    } catch (error) {
+      console.error("Không tải được dữ liệu tái sử dụng:", error);
+      setTourCatalogs({
+        pickupPoints: [],
+        accommodations: [],
+        transports: [],
+      });
+    }
+  }
+
   async function loadTours() {
     const [destinationData, toursData] = await Promise.all([
       apiFetch("/destinations"),
@@ -1783,8 +1863,111 @@ export default function AdminPage({ initialTab = "overview" }) {
     }
   };
 
+  const applyPickupCatalog = (index, catalogId) => {
+    const selected = (tourCatalogs.pickupPoints || []).find(
+      (item) => String(item.id) === String(catalogId),
+    );
+
+    setTourPickupPoints((prev) =>
+      prev.map((row, idx) => {
+        if (idx !== index) return row;
+
+        if (!selected) {
+          return {
+            ...row,
+            catalogId: "",
+          };
+        }
+
+        return createPickupPointItem({
+          ...row,
+          id: "",
+          catalogId: String(selected.id),
+          province: selected.province || "",
+          name: selected.name || "",
+          address: selected.address || "",
+          pickupTime: formatPickupTime(selected.pickupTime) || "07:00",
+          note: selected.note || "",
+          status: "active",
+        });
+      }),
+    );
+  };
+
+  const applyAccommodationCatalog = (index, catalogId) => {
+    const selected = (tourCatalogs.accommodations || []).find(
+      (item) => String(item.id) === String(catalogId),
+    );
+
+    setTourAccommodations((prev) =>
+      prev.map((row, idx) => {
+        if (idx !== index) return row;
+
+        if (!selected) {
+          return {
+            ...row,
+            catalogId: "",
+          };
+        }
+
+        return createAccommodationItem({
+          ...row,
+          catalogId: String(selected.id),
+          supplierId: selected.supplierId || "",
+          isManualSupplier: !selected.supplierId,
+          name: selected.name || "",
+          accommodationType: selected.accommodationType || "hotel",
+          starRating: selected.starRating || 4,
+          address: selected.address || "",
+          description: selected.description || "",
+          pricePerNight: selected.pricePerNight || 0,
+          imageUrl: selected.imageUrl || "",
+          amenities: selected.amenities || "",
+          status: "active",
+        });
+      }),
+    );
+  };
+
+  const applyTransportCatalog = (index, catalogId) => {
+    const selected = (tourCatalogs.transports || []).find(
+      (item) => String(item.id) === String(catalogId),
+    );
+
+    setTourTransports((prev) =>
+      prev.map((row, idx) => {
+        if (idx !== index) return row;
+
+        if (!selected) {
+          return {
+            ...row,
+            catalogId: "",
+          };
+        }
+
+        return createTransportItem({
+          ...row,
+          catalogId: String(selected.id),
+          supplierId: selected.supplierId || "",
+          isManualSupplier: !selected.supplierId,
+          name: selected.name || "",
+          transportType: selected.transportType || "bus",
+          provider: selected.provider || "",
+          origin: selected.origin || "",
+          destinationLabel: selected.destinationLabel || "",
+          durationHours: selected.durationHours || 1.5,
+          price: selected.price || 0,
+          description: selected.description || "",
+          imageUrl: selected.imageUrl || "",
+          status: "active",
+        });
+      }),
+    );
+  };
+
   const openTourWizard = async (id) => {
     if (!id) {
+      await loadTourCatalogs();
       setTourDraftCreated(false);
       setTourForm(initialTourForm);
       setTourItinerary(buildDefaultItineraryByDuration(3));
@@ -1798,6 +1981,7 @@ export default function AdminPage({ initialTab = "overview" }) {
     }
     try {
       setTourDraftCreated(false);
+      await loadTourCatalogs();
       const detail = await apiFetch(`/admin/tours/${id}`);
       setTourForm({
         id: String(detail.id),
@@ -1857,7 +2041,8 @@ export default function AdminPage({ initialTab = "overview" }) {
         createPickupPointItem({
           ...point,
           id: String(point.id || ""),
-          departureId: point.departureId ? String(point.departureId) : "",
+          // Điểm đón áp dụng chung cho toàn bộ lịch khởi hành của tour.
+          departureId: "",
           pickupTime: point.pickupTime
             ? String(point.pickupTime).slice(11, 16) ||
               String(point.pickupTime).slice(0, 5)
@@ -2186,15 +2371,19 @@ export default function AdminPage({ initialTab = "overview" }) {
           method: "POST",
           body: JSON.stringify({
             items: tourPickupPoints
-              .filter((item) => item.name?.trim() && item.address?.trim())
+              .filter((item) => item.name?.trim())
               .map((item) => ({
                 id: item.id || undefined,
-                departureId: item.departureId
-                  ? Number(item.departureId)
-                  : undefined,
+                // Không gắn điểm đón vào một lịch riêng lẻ.
+                // Backend sẽ lưu departureId = null để áp dụng cho mọi lịch.
+                departureId: undefined,
                 province: item.province?.trim() || undefined,
                 name: item.name.trim(),
-                address: item.address.trim(),
+                address:
+                  item.address?.trim() ||
+                  item.name?.trim() ||
+                  item.province?.trim() ||
+                  "",
                 pickupTime: item.pickupTime || "07:00",
                 note: item.note || undefined,
                 status: item.status || "active",
@@ -2205,41 +2394,47 @@ export default function AdminPage({ initialTab = "overview" }) {
         apiFetch(`/admin/tours/${tourForm.id}/accommodations`, {
           method: "POST",
           body: JSON.stringify({
-            items: tourAccommodations.map((item) => ({
-              supplierId: item.supplierId ? Number(item.supplierId) : null,
-              name: item.name,
-              accommodationType: item.accommodationType,
-              starRating: item.starRating ? Number(item.starRating) : undefined,
-              address: item.address || undefined,
-              description: item.description || undefined,
-              pricePerNight: item.pricePerNight
-                ? Number(item.pricePerNight)
-                : undefined,
-              imageUrl: item.imageUrl || undefined,
-              amenities: item.amenities || undefined,
-              status: item.status || "active",
-            })),
+            items: tourAccommodations
+              .filter((item) => item.name?.trim())
+              .map((item) => ({
+                supplierId: item.supplierId ? Number(item.supplierId) : null,
+                name: item.name,
+                accommodationType: item.accommodationType,
+                starRating: item.starRating
+                  ? Number(item.starRating)
+                  : undefined,
+                address: item.address || undefined,
+                description: item.description || undefined,
+                pricePerNight: item.pricePerNight
+                  ? Number(item.pricePerNight)
+                  : undefined,
+                imageUrl: item.imageUrl || undefined,
+                amenities: item.amenities || undefined,
+                status: item.status || "active",
+              })),
           }),
         }),
 
         apiFetch(`/admin/tours/${tourForm.id}/transports`, {
           method: "POST",
           body: JSON.stringify({
-            items: tourTransports.map((item) => ({
-              supplierId: item.supplierId ? Number(item.supplierId) : null,
-              name: item.name,
-              transportType: item.transportType,
-              provider: item.provider || undefined,
-              origin: item.origin || undefined,
-              destinationLabel: item.destinationLabel || undefined,
-              durationHours: item.durationHours
-                ? Number(item.durationHours)
-                : undefined,
-              price: item.price ? Number(item.price) : undefined,
-              description: item.description || undefined,
-              imageUrl: item.imageUrl || undefined,
-              status: item.status || "active",
-            })),
+            items: tourTransports
+              .filter((item) => item.name?.trim())
+              .map((item) => ({
+                supplierId: item.supplierId ? Number(item.supplierId) : null,
+                name: item.name,
+                transportType: item.transportType,
+                provider: item.provider || undefined,
+                origin: item.origin || undefined,
+                destinationLabel: item.destinationLabel || undefined,
+                durationHours: item.durationHours
+                  ? Number(item.durationHours)
+                  : undefined,
+                price: item.price ? Number(item.price) : undefined,
+                description: item.description || undefined,
+                imageUrl: item.imageUrl || undefined,
+                status: item.status || "active",
+              })),
           }),
         }),
       ]);
@@ -2247,6 +2442,7 @@ export default function AdminPage({ initialTab = "overview" }) {
         "Đã lưu thành công lịch trình, lịch khởi hành, điểm đón, chỗ ở & xe.",
         "success",
       );
+      await loadTourCatalogs();
       resetTourWizard();
       await loadTours();
     } catch (error) {
@@ -2651,7 +2847,7 @@ export default function AdminPage({ initialTab = "overview" }) {
         
         .tour-admin-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 24px;
         }
         .tour-admin-card {
@@ -5848,8 +6044,8 @@ export default function AdminPage({ initialTab = "overview" }) {
                       fontSize: 13,
                     }}
                   >
-                    Thêm nhiều điểm đón để khách chọn khi đặt tour. Để trống
-                    lịch khởi hành nếu điểm đón áp dụng cho toàn bộ lịch.
+                    Thêm nhiều điểm đón để khách chọn khi đặt tour. Mỗi điểm đón
+                    được áp dụng chung cho toàn bộ lịch khởi hành của tour.
                   </p>
                 </div>
                 <button
@@ -5878,6 +6074,25 @@ export default function AdminPage({ initialTab = "overview" }) {
                     border: "1px solid #e2e8f0",
                   }}
                 >
+                  <div className="field span-2">
+                    <label>Chọn điểm đón đã lưu hoặc nhập mới</label>
+                    <select
+                      value={item.catalogId || ""}
+                      onChange={(e) =>
+                        applyPickupCatalog(index, e.target.value)
+                      }
+                    >
+                      <option value="">+ Nhập điểm đón mới thủ công</option>
+                      {(tourCatalogs.pickupPoints || []).map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                          {option.address ? ` · ${option.address}` : ""}
+                          {option.province ? ` · ${option.province}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="field">
                     <label>Tỉnh/Thành</label>
                     <input
@@ -5903,12 +6118,58 @@ export default function AdminPage({ initialTab = "overview" }) {
                         setTourPickupPoints((prev) =>
                           prev.map((row, idx) =>
                             idx === index
-                              ? { ...row, name: e.target.value }
+                              ? {
+                                  ...row,
+                                  catalogId: "",
+                                  name: e.target.value,
+                                }
                               : row,
                           ),
                         )
                       }
-                      placeholder="VD: Bến Xe Miền Đông"
+                      placeholder="VD: Bến xe Miền Đông"
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label>Địa chỉ chi tiết</label>
+                    <input
+                      value={item.address || ""}
+                      onChange={(e) =>
+                        setTourPickupPoints((prev) =>
+                          prev.map((row, idx) =>
+                            idx === index
+                              ? {
+                                  ...row,
+                                  catalogId: "",
+                                  address: e.target.value,
+                                }
+                              : row,
+                          ),
+                        )
+                      }
+                      placeholder="VD: 292 Đinh Bộ Lĩnh, Bình Thạnh"
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label>Giờ đón</label>
+                    <input
+                      type="time"
+                      value={item.pickupTime || "07:00"}
+                      onChange={(e) =>
+                        setTourPickupPoints((prev) =>
+                          prev.map((row, idx) =>
+                            idx === index
+                              ? {
+                                  ...row,
+                                  catalogId: "",
+                                  pickupTime: e.target.value,
+                                }
+                              : row,
+                          ),
+                        )
+                      }
                     />
                   </div>
 
@@ -5958,8 +6219,9 @@ export default function AdminPage({ initialTab = "overview" }) {
                     }}
                   >
                     <small style={{ color: "#64748b" }}>
-                      Điểm đón #{index + 1}. Khách sẽ chọn điểm này ở màn hình
-                      đặt tour trước khi thanh toán.
+                      Điểm đón #{index + 1} áp dụng cho tất cả lịch khởi hành.
+                      Khách sẽ chọn điểm này ở màn hình đặt tour trước khi thanh
+                      toán.
                     </small>
                     {tourPickupPoints.length > 1 && (
                       <button
@@ -6052,6 +6314,27 @@ export default function AdminPage({ initialTab = "overview" }) {
                         border: "1px solid #e2e8f0",
                       }}
                     >
+                      <div className="field">
+                        <label>Chỗ ở đã lưu trong hệ thống</label>
+                        <select
+                          value={item.catalogId || ""}
+                          onChange={(e) =>
+                            applyAccommodationCatalog(index, e.target.value)
+                          }
+                        >
+                          <option value="">+ Nhập chỗ ở mới thủ công</option>
+                          {(tourCatalogs.accommodations || []).map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.name}
+                              {option.address ? ` · ${option.address}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <small style={{ color: "#64748b", lineHeight: 1.5 }}>
+                          Dữ liệu nhập mới sẽ được lưu và dùng lại cho tour sau.
+                        </small>
+                      </div>
+
                       <TourSupplierSelector
                         suppliers={suppliers}
                         supplierType="hotel"
@@ -6345,6 +6628,30 @@ export default function AdminPage({ initialTab = "overview" }) {
                         border: "1px solid #e2e8f0",
                       }}
                     >
+                      <div className="field">
+                        <label>Phương tiện đã lưu trong hệ thống</label>
+                        <select
+                          value={item.catalogId || ""}
+                          onChange={(e) =>
+                            applyTransportCatalog(index, e.target.value)
+                          }
+                        >
+                          <option value="">
+                            + Nhập phương tiện mới thủ công
+                          </option>
+                          {(tourCatalogs.transports || []).map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.name}
+                              {option.provider ? ` · ${option.provider}` : ""}
+                              {option.origin ? ` · ${option.origin}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <small style={{ color: "#64748b", lineHeight: 1.5 }}>
+                          Dữ liệu nhập mới sẽ được lưu và dùng lại cho tour sau.
+                        </small>
+                      </div>
+
                       <TourSupplierSelector
                         suppliers={suppliers}
                         supplierType="transport"

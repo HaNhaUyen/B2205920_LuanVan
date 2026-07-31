@@ -27,6 +27,62 @@ function slugify(text = "") {
 export class ToursService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Điểm đón được quản lý ở cấp tour và dùng chung cho mọi lịch khởi hành.
+   * Gộp các bản ghi trùng nội dung để API không trả lặp trên giao diện đặt tour.
+   */
+  private dedupePickupPoints(items: any[] = []) {
+    const normalize = (value: unknown) =>
+      String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/gi, "d")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+
+    const timeKey = (value: unknown) => {
+      if (!value) return "";
+      const raw = String(value);
+      const iso = raw.match(/T(\d{2}):(\d{2})/);
+      if (iso) return `${iso[1]}:${iso[2]}`;
+      const direct = raw.match(/^(\d{1,2}):(\d{2})/);
+      if (direct) {
+        return `${String(direct[1]).padStart(2, "0")}:${direct[2]}`;
+      }
+      return raw;
+    };
+
+    const map = new Map<string, any>();
+
+    for (const item of Array.isArray(items) ? items : []) {
+      const key = [
+        normalize(item?.province),
+        normalize(item?.name),
+        normalize(item?.address),
+        timeKey(item?.pickupTime),
+      ].join("|");
+
+      if (!map.has(key)) {
+        map.set(key, {
+          ...item,
+          // Điểm đón chung cho toàn bộ lịch.
+          departureId: null,
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort((first, second) => {
+      const firstTime = timeKey(first?.pickupTime);
+      const secondTime = timeKey(second?.pickupTime);
+      return (
+        firstTime.localeCompare(secondTime) ||
+        normalize(first?.province).localeCompare(normalize(second?.province)) ||
+        normalize(first?.name).localeCompare(normalize(second?.name))
+      );
+    });
+  }
+
   private getRemainingSlots(departure: any) {
     if (!departure) return 0;
     return Math.max(
@@ -118,9 +174,26 @@ export class ToursService {
       destinationAveragePrice > 0 &&
       tourPrice <= destinationAveragePrice * 0.85;
 
+    const pickupPoints = this.dedupePickupPoints(
+      Array.isArray(tour.pickupPoints) ? tour.pickupPoints : [],
+    );
+
+    const normalizedDepartures = departures.map((departure: any) => ({
+      ...departure,
+      // Điểm đón là dữ liệu cấp tour, không nhân bản theo từng lịch.
+      pickupPoints,
+    }));
+
     return {
       ...tour,
-      nextDeparture,
+      pickupPoints,
+      departures: normalizedDepartures,
+      nextDeparture: nextDeparture
+        ? {
+            ...nextDeparture,
+            pickupPoints,
+          }
+        : null,
       remainingSlots,
       bookingCount,
       favoriteCount,
@@ -410,24 +483,137 @@ export class ToursService {
     return this.enrichTourStats(tour, { destinationAveragePrice });
   }
 
-  async findPickupPoints(tourId: number, departureId?: number) {
+  async findPickupPoints(tourId: number, _departureId?: number) {
     const tour = await this.prisma.tour.findUnique({
       where: { id: BigInt(tourId) },
       select: { id: true },
     });
     if (!tour) throw new NotFoundException("Tour not found");
-    return this.prisma.tourPickupPoint.findMany({
+
+    const items = await this.prisma.tourPickupPoint.findMany({
       where: {
         tourId: BigInt(tourId),
         status: "active",
-        ...(departureId
-          ? {
-              OR: [{ departureId: BigInt(departureId) }, { departureId: null }],
-            }
-          : {}),
+        // Điểm đón dùng chung cho tất cả lịch khởi hành.
+        departureId: null,
       },
-      orderBy: [{ departureId: "asc" }, { pickupTime: "asc" }, { name: "asc" }],
+      orderBy: [{ pickupTime: "asc" }, { province: "asc" }, { name: "asc" }],
     });
+
+    return this.dedupePickupPoints(items);
+  }
+
+  /**
+   * Trả về các dữ liệu đã từng được lưu trong CSDL để quản trị viên
+   * có thể tái sử dụng khi tạo/chỉnh sửa tour khác.
+   *
+   * Không cần tạo thêm bảng catalog:
+   * - Điểm đón lấy từ tour_pickup_points.
+   * - Lưu trú lấy từ tour_accommodations.
+   * - Phương tiện lấy từ tour_transports.
+   *
+   * Các dòng trùng nội dung được gộp lại trước khi trả về frontend.
+   */
+  async getReusableCatalogs() {
+    const [pickupRows, accommodationRows, transportRows] = await Promise.all([
+      this.prisma.tourPickupPoint.findMany({
+        where: { status: "active" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+      this.prisma.tourAccommodation.findMany({
+        where: { status: "active" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+      this.prisma.tourTransport.findMany({
+        where: { status: "active" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+    ]);
+
+    const normalizeKey = (...parts: unknown[]) =>
+      parts
+        .map((value) =>
+          String(value || "")
+            .trim()
+            .toLocaleLowerCase("vi"),
+        )
+        .join("|");
+
+    const uniqueBy = <T>(items: T[], keyOf: (item: T) => string) => {
+      const map = new Map<string, T>();
+
+      for (const item of items) {
+        const key = keyOf(item);
+        if (!key || map.has(key)) continue;
+        map.set(key, item);
+      }
+
+      return Array.from(map.values());
+    };
+
+    const pickupPoints = uniqueBy(
+      pickupRows.map((item) => ({
+        id: item.id.toString(),
+        province: item.province || "",
+        name: item.name || "",
+        address: item.address || "",
+        pickupTime: item.pickupTime,
+        note: item.note || "",
+        status: item.status,
+      })),
+      (item) => normalizeKey(item.name, item.address, item.province),
+    );
+
+    const accommodations = uniqueBy(
+      accommodationRows
+        .filter((item) => String(item.name || "").trim())
+        .map((item) => ({
+          id: item.id.toString(),
+          supplierId: item.supplierId?.toString() || "",
+          name: item.name || "",
+          accommodationType: item.accommodationType,
+          starRating: item.starRating,
+          address: item.address || "",
+          description: item.description || "",
+          pricePerNight: item.pricePerNight,
+          imageUrl: item.imageUrl || "",
+          amenities: item.amenities || "",
+          status: item.status,
+        })),
+      (item) => normalizeKey(item.name, item.address),
+    );
+
+    const transports = uniqueBy(
+      transportRows
+        .filter((item) => String(item.name || "").trim())
+        .map((item) => ({
+          id: item.id.toString(),
+          supplierId: item.supplierId?.toString() || "",
+          name: item.name || "",
+          transportType: item.transportType,
+          provider: item.provider || "",
+          origin: item.origin || "",
+          destinationLabel: item.destinationLabel || "",
+          durationHours: item.durationHours,
+          price: item.price,
+          description: item.description || "",
+          imageUrl: item.imageUrl || "",
+          status: item.status,
+        })),
+      (item) =>
+        normalizeKey(
+          item.name,
+          item.provider,
+          item.origin,
+          item.destinationLabel,
+        ),
+    );
+
+    return {
+      pickupPoints,
+      accommodations,
+      transports,
+    };
   }
 
   async createStep1(dto: CreateTourStep1Dto) {
@@ -1045,24 +1231,20 @@ export class ToursService {
     });
     if (!tour) throw new NotFoundException("Tour not found");
 
-    const validDepartureIds = new Set(
-      (tour.departures || []).map((item) => String(item.id)),
-    );
-
-    const normalizedItems = (dto.items || [])
-      .filter((item) => item.name?.trim() && item.address?.trim())
+    const normalizedItemsRaw = (dto.items || [])
+      .filter((item) => item.name?.trim())
       .map((item: any) => {
-        const departureId = item.departureId ? BigInt(item.departureId) : null;
-        if (departureId && !validDepartureIds.has(String(departureId))) {
-          throw new BadRequestException(
-            "Lịch khởi hành của điểm đón không thuộc tour này.",
-          );
-        }
+        // Điểm đón thuộc cấp tour và áp dụng cho toàn bộ lịch khởi hành.
+        // Không lưu departureId riêng cho từng lịch.
+        const departureId = null;
+
         return {
           id: item.id ? BigInt(item.id) : null,
           departureId,
           name: String(item.name || "").trim(),
-          address: String(item.address || "").trim(),
+          address: String(
+            item.address || item.name || item.province || "",
+          ).trim(),
           province: String(
             item.province || item.address || "Chưa cập nhật",
           ).trim(),
@@ -1071,6 +1253,8 @@ export class ToursService {
           status: item.status || "active",
         };
       });
+
+    const normalizedItems = this.dedupePickupPoints(normalizedItemsRaw);
 
     const existingPoints = await this.prisma.tourPickupPoint.findMany({
       where: { tourId: BigInt(tourId) },
@@ -1177,7 +1361,11 @@ export class ToursService {
       throw new NotFoundException("Tour not found");
     }
 
-    for (const item of dto.items || []) {
+    const validItems = (dto.items || []).filter((item) =>
+      String(item.name || "").trim(),
+    );
+
+    for (const item of validItems) {
       if (item.supplierId) {
         const supplier = await this.prisma.supplier.findUnique({
           where: {
@@ -1200,14 +1388,14 @@ export class ToursService {
         },
       });
 
-      for (const item of dto.items || []) {
+      for (const item of validItems) {
         await tx.tourAccommodation.create({
           data: {
             tourId: BigInt(tourId),
 
             supplierId: item.supplierId ? BigInt(item.supplierId) : null,
 
-            name: item.name,
+            name: String(item.name || "").trim(),
             accommodationType: item.accommodationType as any,
             starRating: item.starRating,
             address: item.address,
@@ -1223,7 +1411,7 @@ export class ToursService {
 
     return {
       message: "Accommodations saved",
-      totalItems: dto.items.length,
+      totalItems: validItems.length,
     };
   }
 
@@ -1238,7 +1426,11 @@ export class ToursService {
       throw new NotFoundException("Tour not found");
     }
 
-    for (const item of dto.items || []) {
+    const validItems = (dto.items || []).filter((item) =>
+      String(item.name || "").trim(),
+    );
+
+    for (const item of validItems) {
       if (item.supplierId) {
         const supplier = await this.prisma.supplier.findUnique({
           where: {
@@ -1261,14 +1453,14 @@ export class ToursService {
         },
       });
 
-      for (const item of dto.items || []) {
+      for (const item of validItems) {
         await tx.tourTransport.create({
           data: {
             tourId: BigInt(tourId),
 
             supplierId: item.supplierId ? BigInt(item.supplierId) : null,
 
-            name: item.name,
+            name: String(item.name || "").trim(),
             transportType: item.transportType as any,
             provider: item.provider,
             origin: item.origin,
@@ -1285,7 +1477,7 @@ export class ToursService {
 
     return {
       message: "Transports saved",
-      totalItems: dto.items.length,
+      totalItems: validItems.length,
     };
   }
 

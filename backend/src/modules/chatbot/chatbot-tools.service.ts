@@ -10,8 +10,16 @@ type AuthUser = {
   role?: "admin" | "user" | string;
 } | null;
 
-const REFUND_WINDOW_HOURS = 48;
-const MIN_DAYS_BEFORE_DEPARTURE = 3;
+const REFUND_POLICY_TEXT = [
+  "Chính sách hủy tour và hoàn tiền của Travela:",
+  "- Chỉ tiếp nhận yêu cầu từ thứ Hai đến thứ Sáu và không thuộc ngày nghỉ lễ.",
+  "- Hủy trong vòng 24 giờ kể từ lúc thanh toán: hoàn 70% giá trị booking.",
+  "- Sau 24 giờ kể từ lúc thanh toán và còn ít nhất 7 ngày trước khởi hành: hoàn 50%.",
+  "- Còn từ 3 ngày đến dưới 7 ngày trước khởi hành: hoàn 30%.",
+  "- Còn dưới 3 ngày, trong 24 giờ trước khởi hành hoặc sau khi tour khởi hành: không hoàn.",
+  "- Số tiền được tính từ giá trị booking sau voucher.",
+  "- Yêu cầu chỉ hoàn tất khi admin xác nhận đã chuyển khoản.",
+];
 
 @Injectable()
 export class ChatbotToolsService {
@@ -277,13 +285,9 @@ export class ChatbotToolsService {
 
     if (!bookingCode) {
       return [
-        "Chính sách hoàn tiền Travela:",
-        `- Khách có thể gửi yêu cầu hoàn tiền trong vòng ${REFUND_WINDOW_HOURS} giờ sau khi đặt tour.`,
-        `- Chỉ hỗ trợ hoàn tiền khi còn ít nhất ${MIN_DAYS_BEFORE_DEPARTURE} ngày trước ngày khởi hành.`,
-        "- Booking cần ở trạng thái đã thanh toán hoặc đã xác nhận.",
-        "- Admin kiểm tra và duyệt trước khi cập nhật trạng thái.",
-        "- Mức đề xuất: còn từ 7 ngày trở lên có thể đề xuất hoàn 80%; còn từ 3 đến dưới 7 ngày có thể đề xuất hoàn 50%; dưới 3 ngày không đủ điều kiện.",
-        "Bạn gửi mã booking dạng BK... để mình kiểm tra cụ thể cho đơn của bạn.",
+        ...REFUND_POLICY_TEXT,
+        "",
+        "Bạn chỉ cần gửi mã booking BK... khi muốn kiểm tra một đơn cụ thể hoặc thực hiện hủy vé.",
       ].join("\n");
     }
 

@@ -10,7 +10,7 @@ import { API_URL } from "@/lib/config";
 import { formatCurrency, formatDate, renderStars } from "@/lib/format";
 import { mapLabel } from "@/lib/labels";
 import { normalizeTour, mapImageUrl, renderDeparturePreview } from "@/lib/tour";
-import { getUser } from "@/lib/storage";
+import { getUser, updateStoredUser } from "@/lib/storage";
 import { useToast } from "@/components/ToastContext";
 import { trackBehavior } from "@/lib/behavior";
 import { Heart } from "lucide-react";
@@ -424,16 +424,51 @@ export default function TourDetailPage() {
     (tour?.departures || []).find(
       (item) => String(item.id) === String(selectedDepartureId),
     ) || tour?.departures?.[0];
-  const pickupOptions = selectedDeparture?.pickupPoints?.length
-    ? selectedDeparture.pickupPoints
-    : tour?.pickupPoints || [];
-  const formatPickupTime = (value) =>
-    value
-      ? new Date(value).toLocaleTimeString("vi-VN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "Liên hệ";
+  const pickupOptions = (() => {
+    const globalPoints = Array.isArray(tour?.pickupPoints)
+      ? tour.pickupPoints.filter((item) => !item.departureId)
+      : [];
+    const departurePoints = Array.isArray(selectedDeparture?.pickupPoints)
+      ? selectedDeparture.pickupPoints
+      : [];
+
+    const map = new Map();
+
+    [...globalPoints, ...departurePoints].forEach((item) => {
+      if (!item || String(item.status || "active") !== "active") return;
+
+      const key = String(
+        item.id ||
+          `${item.name || ""}|${item.address || ""}|${item.pickupTime || ""}`,
+      );
+
+      if (!map.has(key)) map.set(key, item);
+    });
+
+    return Array.from(map.values());
+  })();
+
+  const formatPickupTime = (value) => {
+    if (!value) return "Liên hệ";
+
+    const raw = String(value).trim();
+    const isoMatch = raw.match(/T(\d{2}):(\d{2})/);
+    if (isoMatch) return `${isoMatch[1]}:${isoMatch[2]}`;
+
+    const directMatch = raw.match(/^(\d{1,2}):(\d{2})/);
+    if (directMatch) {
+      return `${String(directMatch[1]).padStart(2, "0")}:${directMatch[2]}`;
+    }
+
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return `${String(parsed.getUTCHours()).padStart(2, "0")}:${String(
+        parsed.getUTCMinutes(),
+      ).padStart(2, "0")}`;
+    }
+
+    return "Liên hệ";
+  };
 
   const getDepartureRemainingSlots = (departure = {}) =>
     getDepartureRemainingSlotsValue(departure);
@@ -731,14 +766,38 @@ export default function TourDetailPage() {
     const payload = buildBookingPayload(formData);
     const expectedGuests = payload.adultCount + payload.childCount;
 
+    if (pickupOptions.length > 0 && !payload.pickupPointId) {
+      showToast("Vui lòng chọn điểm đón trước khi đặt tour.", "error");
+      return;
+    }
+
     if (payload.guests.length !== expectedGuests) {
       showToast("Số form hành khách chưa khớp với số vé đã chọn.", "error");
       return;
     }
 
     const missingGuest = payload.guests.find((guest) => !guest.fullName);
+
     if (missingGuest) {
       showToast("Vui lòng nhập họ tên cho tất cả hành khách.", "error");
+      return;
+    }
+
+    const accountOwnerGuest =
+      bookingGuests.find((guest) => guest.isAccountOwner) || bookingGuests[0];
+
+    const contactPhone = String(payload.contactPhone || "").trim();
+    const ownerIdentityNumber = String(
+      accountOwnerGuest?.idNumber || "",
+    ).trim();
+
+    if (!contactPhone) {
+      showToast("Vui lòng nhập số điện thoại liên hệ.", "error");
+      return;
+    }
+
+    if (!ownerIdentityNumber) {
+      showToast("Vui lòng nhập CCCD hoặc hộ chiếu cho Người lớn 1.", "error");
       return;
     }
 
@@ -746,6 +805,14 @@ export default function TourDetailPage() {
     const paymentMethod = "bank_transfer";
 
     try {
+      /*
+       * Trước khi tạo booking:
+       * - Nếu tài khoản chưa có số điện thoại, lấy số đang nhập trong form.
+       * - Nếu tài khoản chưa có CCCD, lấy CCCD của Người lớn 1.
+       * - Lưu hai thông tin này vào hồ sơ tài khoản.
+       */
+      await updateMissingBookingProfile(payload);
+
       const booking = await apiFetch("/bookings", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -769,21 +836,82 @@ export default function TourDetailPage() {
 
         setBookingResult(null);
         setPaymentState(getPaymentSession(checkout, booking));
+
         showToast(
-          `Đã tạo mã QR thanh toán cho booking ${booking.bookingCode || checkout.bookingCode || ""}`,
+          `Đã tạo mã QR thanh toán cho booking ${
+            booking.bookingCode || checkout.bookingCode || ""
+          }`,
           "success",
         );
+
         return;
       }
 
       setBookingResult(booking);
+
       showToast(`Giữ chỗ thành công với mã ${booking.bookingCode}`, "success");
     } catch (error) {
-      showToast(error.message, "error");
-      if (error.message?.toLowerCase().includes("unauthorized")) {
+      showToast(
+        error?.message || "Không thể tạo booking. Vui lòng thử lại.",
+        "error",
+      );
+
+      if (
+        String(error?.message || "")
+          .toLowerCase()
+          .includes("unauthorized")
+      ) {
         setTimeout(() => router.push("/login"), 500);
       }
     }
+  };
+
+  const updateMissingBookingProfile = async (payload) => {
+    const storedUser = getUser();
+
+    if (!storedUser) {
+      throw new Error("Bạn cần đăng nhập trước khi đặt tour.");
+    }
+
+    const accountOwnerGuest =
+      bookingGuests.find((guest) => guest.isAccountOwner) || bookingGuests[0];
+
+    const contactPhone = String(payload.contactPhone || "").trim();
+    const identityNumber = String(accountOwnerGuest?.idNumber || "").trim();
+
+    const currentPhone = String(storedUser.phone || "").trim();
+    const currentIdentityNumber = String(
+      storedUser.identityNumber ||
+        storedUser.idNumber ||
+        storedUser.identity_number ||
+        "",
+    ).trim();
+
+    const updatePayload = {};
+
+    // Hồ sơ chưa có số điện thoại thì lấy số điện thoại đang nhập tại form đặt tour.
+    if (!currentPhone && contactPhone) {
+      updatePayload.phone = contactPhone;
+    }
+
+    // Hồ sơ chưa có CCCD thì lấy giấy tờ của Người lớn 1.
+    if (!currentIdentityNumber && identityNumber) {
+      updatePayload.identityNumber = identityNumber;
+    }
+
+    // Hồ sơ đã đủ thông tin thì không cần gọi API cập nhật.
+    if (!Object.keys(updatePayload).length) {
+      return storedUser;
+    }
+
+    const updatedUser = await apiFetch("/auth/me", {
+      method: "PATCH",
+      body: JSON.stringify(updatePayload),
+    });
+
+    updateStoredUser(updatedUser);
+
+    return updatedUser;
   };
 
   const handlePaymentInit = async (event) => {

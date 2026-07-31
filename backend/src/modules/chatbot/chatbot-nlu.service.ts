@@ -551,6 +551,48 @@ ${input.message}
     fallbackEntities: NluEntities = {},
   ): NluResult {
     const normalized = stripText(message);
+
+    const asksRefundPolicy =
+      /\b(chinh sach hoan tien|chinh sach huy|quy dinh hoan tien|dieu kien hoan tien|hoan bao nhieu|muc hoan|phi huy|truoc ngay khoi hanh|may ngay duoc hoan)\b/.test(
+        normalized,
+      );
+
+    const asksRefundAction =
+      /\b(toi muon huy|muon huy|huy booking|huy don|huy ve|tao yeu cau hoan|gui yeu cau hoan|hoan cho toi|refund booking|request refund)\b/.test(
+        normalized,
+      );
+
+    if (asksRefundPolicy && !asksRefundAction) {
+      return {
+        intent: "tour_policy",
+        entities: {
+          ...fallbackEntities,
+          softNeeds: normalizeSoftNeeds(fallbackEntities.softNeeds),
+          avoidNeeds: Array.isArray(fallbackEntities.avoidNeeds)
+            ? fallbackEntities.avoidNeeds.map(String).filter(Boolean)
+            : [],
+        },
+        confidence: 0.99,
+        needsClarification: false,
+        clarificationQuestion: null,
+      };
+    }
+
+    if (asksRefundAction) {
+      return {
+        intent: "refund_create",
+        entities: {
+          ...fallbackEntities,
+          softNeeds: normalizeSoftNeeds(fallbackEntities.softNeeds),
+          avoidNeeds: Array.isArray(fallbackEntities.avoidNeeds)
+            ? fallbackEntities.avoidNeeds.map(String).filter(Boolean)
+            : [],
+        },
+        confidence: 0.99,
+        needsClarification: false,
+        clarificationQuestion: null,
+      };
+    }
     const softNeeds = new Set<string>(fallbackEntities.softNeeds || []);
 
     if (/\b(gia dinh|ca nha|ba me|bo me)\b/.test(normalized))

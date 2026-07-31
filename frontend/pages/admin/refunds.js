@@ -16,7 +16,7 @@ const emptyPage = {
 // Component Badge hiển thị trạng thái hoàn tiền
 function Badge({ value }) {
   const map = {
-    approved: { bg: "#dcfce7", color: "#166534", label: "Đã duyệt" },
+    approved: { bg: "#dcfce7", color: "#166534", label: "Đã hoàn tiền" },
     rejected: { bg: "#fef2f2", color: "#e11d48", label: "Từ chối" },
     pending: { bg: "#fef3c7", color: "#92400e", label: "Chờ xử lý" },
   };
@@ -172,7 +172,7 @@ export default function AdminRefundsPage() {
       setAdminNote("");
       await load(); // Tải lại danh sách sau khi duyệt
       showToast(
-        "Đã xử lý hoàn tiền và gửi email phản hồi (nếu hệ thống SMTP hoạt động).",
+        "Đã xác nhận hoàn tiền, hủy booking, hoàn lại số chỗ và ghi giảm doanh thu tháng hiện tại.",
         "success",
       );
     } catch (e) {
@@ -201,7 +201,7 @@ export default function AdminRefundsPage() {
   const filterTabs = [
     { id: "all", label: "Tất cả" },
     { id: "pending", label: "Chờ xử lý" },
-    { id: "approved", label: "Đã duyệt" },
+    { id: "approved", label: "Đã hoàn tiền" },
     { id: "rejected", label: "Bị từ chối" },
   ];
 
@@ -501,6 +501,7 @@ export default function AdminRefundsPage() {
                 <th>Lý do hủy</th>
                 <th>Tài khoản nhận hoàn</th>
                 <th>Số tiền hoàn</th>
+                <th>Chính sách</th>
                 <th>Trạng thái</th>
                 <th className="admin-note-header">Phản hồi Admin</th>
                 <th style={{ textAlign: "right" }}>Thao tác</th>
@@ -620,6 +621,14 @@ export default function AdminRefundsPage() {
                         )}
                       </strong>
                     </td>
+                    <td>
+                      <strong style={{ color: "#2563eb" }}>
+                        {Number(r.refundRate || 0)}%
+                      </strong>
+                      <div className="stat-text">
+                        {r.policyLabel || "Theo chính sách hệ thống"}
+                      </div>
+                    </td>
 
                     <td>
                       <Badge value={r.status} />
@@ -661,7 +670,7 @@ export default function AdminRefundsPage() {
                             onClick={() => {
                               setModal({ item: r, status: "approved" });
                               setAdminNote(
-                                "Yêu cầu hoàn tiền đã được duyệt. Travela sẽ chuyển khoản về tài khoản khách đã cung cấp theo chính sách.",
+                                "Travela đã chuyển khoản đúng số tiền theo chính sách và xác nhận hoàn tiền.",
                               );
                             }}
                           >
@@ -757,7 +766,7 @@ export default function AdminRefundsPage() {
         onClose={() => setModal(null)}
         title={
           modal?.status === "approved"
-            ? "Xác nhận duyệt hoàn tiền"
+            ? "Xác nhận đã hoàn tiền hoàn tiền"
             : "Từ chối yêu cầu hoàn tiền"
         }
       >
@@ -809,6 +818,22 @@ export default function AdminRefundsPage() {
                   modal?.item?.refundAmount ||
                     modal?.item?.booking?.finalAmount,
                 )}
+              </strong>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: "8px",
+                gap: "16px",
+              }}
+            >
+              <span className="stat-text" style={{ margin: 0 }}>
+                Chính sách áp dụng
+              </span>
+              <strong style={{ color: "#2563eb", textAlign: "right" }}>
+                {Number(modal?.item?.refundRate || 0)}% ·{" "}
+                {modal?.item?.policyLabel || "Theo chính sách hệ thống"}
               </strong>
             </div>
 
@@ -925,7 +950,7 @@ export default function AdminRefundsPage() {
               }}
             >
               {modal?.status === "approved"
-                ? "Xác nhận duyệt"
+                ? "Xác nhận đã hoàn tiền"
                 : "Xác nhận từ chối"}
             </button>
           </div>

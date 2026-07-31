@@ -166,6 +166,13 @@ export class ToursController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("admin")
+  @Get("admin/tours/catalogs/reusable")
+  getReusableCatalogs() {
+    return this.toursService.getReusableCatalogs();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @Get("admin/tours/:tourId")
   async adminDetail(@Param("tourId") tourId: string) {
     const tour = await this.toursService.findById(Number(tourId));

@@ -21,6 +21,15 @@ export class RefundsController {
   constructor(private readonly service: RefundsService) {}
 
   @UseGuards(JwtAuthGuard)
+  @Get("bookings/:bookingId/preview")
+  preview(
+    @CurrentUser() u: { userId: bigint },
+    @Param("bookingId") bookingId: string,
+  ) {
+    return this.service.preview(u.userId, bookingId);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post()
   create(@CurrentUser() u: { userId: bigint }, @Body() dto: CreateRefundDto) {
     return this.service.create(u.userId, dto);
@@ -30,6 +39,13 @@ export class RefundsController {
   @Get("me")
   mine(@CurrentUser() u: { userId: bigint }) {
     return this.service.mine(u.userId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/revenue-summary")
+  revenueSummary(@Query("months") months?: string) {
+    return this.service.revenueSummary(Number(months || 6));
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
