@@ -13563,3 +13563,92 @@ ORDER BY id;
 UPDATE tour_pickup_points
 SET departure_id = NULL
 WHERE departure_id IS NOT NULL;
+
+
+
+
+
+
+
+
+
+
+SET FOREIGN_KEY_CHECKS = 0;
+SET SQL_SAFE_UPDATES = 0;
+
+-- 1. Chuyển tất cả điểm đón về cấp tour.
+UPDATE tour_pickup_points
+SET departure_id = NULL
+WHERE departure_id IS NOT NULL;
+
+-- 2. Lập bảng ánh xạ: mỗi nhóm trùng giữ ID nhỏ nhất.
+DROP TEMPORARY TABLE IF EXISTS tmp_pickup_keeper;
+CREATE TEMPORARY TABLE tmp_pickup_keeper AS
+SELECT
+  tour_id,
+  LOWER(TRIM(province)) AS province_key,
+  LOWER(TRIM(name)) AS name_key,
+  LOWER(TRIM(address)) AS address_key,
+  COALESCE(TIME_FORMAT(pickup_time, '%H:%i:%s'), '') AS time_key,
+  MIN(id) AS keeper_id
+FROM tour_pickup_points
+GROUP BY
+  tour_id,
+  LOWER(TRIM(province)),
+  LOWER(TRIM(name)),
+  LOWER(TRIM(address)),
+  COALESCE(TIME_FORMAT(pickup_time, '%H:%i:%s'), '');
+
+DROP TEMPORARY TABLE IF EXISTS tmp_pickup_duplicate_map;
+CREATE TEMPORARY TABLE tmp_pickup_duplicate_map AS
+SELECT
+  p.id AS duplicate_id,
+  k.keeper_id
+FROM tour_pickup_points p
+JOIN tmp_pickup_keeper k
+  ON k.tour_id = p.tour_id
+ AND k.province_key = LOWER(TRIM(p.province))
+ AND k.name_key = LOWER(TRIM(p.name))
+ AND k.address_key = LOWER(TRIM(p.address))
+ AND k.time_key = COALESCE(TIME_FORMAT(p.pickup_time, '%H:%i:%s'), '')
+WHERE p.id <> k.keeper_id;
+
+-- 3. Booking cũ đang tham chiếu bản ghi trùng sẽ chuyển sang bản ghi được giữ.
+UPDATE bookings b
+JOIN tmp_pickup_duplicate_map m
+  ON m.duplicate_id = b.pickup_point_id
+SET b.pickup_point_id = m.keeper_id;
+
+-- 4. Xóa các bản ghi điểm đón trùng.
+DELETE p
+FROM tour_pickup_points p
+JOIN tmp_pickup_duplicate_map m
+  ON m.duplicate_id = p.id;
+
+SET FOREIGN_KEY_CHECKS = 1;
+SET SQL_SAFE_UPDATES = 1;
+
+-- 5. Kiểm tra: truy vấn này phải không còn dòng nào.
+SELECT
+  tour_id,
+  province,
+  name,
+  address,
+  pickup_time,
+  COUNT(*) AS duplicate_count
+FROM tour_pickup_points
+GROUP BY tour_id, province, name, address, pickup_time
+HAVING COUNT(*) > 1;
+
+-- Danh sách điểm đón sau khi gộp.
+SELECT
+  id,
+  tour_id,
+  departure_id,
+  province,
+  name,
+  address,
+  pickup_time,
+  status
+FROM tour_pickup_points
+ORDER BY tour_id, pickup_time, province, name;
