@@ -1,21 +1,43 @@
 KẾT QUẢ ĐÁNH GIÁ HỆ THỐNG GỢI Ý TRAVELA
 ==========================================================
 
+K=3
+--------------------
+- Trọng số Hybrid được chọn trên validation: CBF=0.1; CF=0.2; MF=0.6; Semantic=0.1
+- Validation: NDCG@3=0.1652; Recall@3=0.1800; Precision@3=0.0600
+- Test Precision@3: Collaborative=0.1067; Hybrid=0.1333; Hybrid-Collaborative=+0.0266
+- Test Recall@3: Collaborative=0.1600; Hybrid=0.2000; Hybrid-Collaborative=+0.0400
+- Test Hit Rate@3: Collaborative=0.3200; Hybrid=0.4000; Hybrid-Collaborative=+0.0800
+- Test NDCG@3: Collaborative=0.1520; Hybrid=0.1891; Hybrid-Collaborative=+0.0371
+- Coverage: Collaborative=0.3830; Hybrid=0.4043
+- Diversity: Collaborative=0.8627; Hybrid=0.8173
+
+K=5
+--------------------
+- Trọng số Hybrid được chọn trên validation: CBF=0.1; CF=0.5; MF=0.3; Semantic=0.1
+- Validation: NDCG@5=0.1807; Recall@5=0.2200; Precision@5=0.0440
+- Test Precision@5: Collaborative=0.1080; Hybrid=0.1120; Hybrid-Collaborative=+0.0040
+- Test Recall@5: Collaborative=0.2700; Hybrid=0.2800; Hybrid-Collaborative=+0.0100
+- Test Hit Rate@5: Collaborative=0.5000; Hybrid=0.5200; Hybrid-Collaborative=+0.0200
+- Test NDCG@5: Collaborative=0.2068; Hybrid=0.2173; Hybrid-Collaborative=+0.0105
+- Coverage: Collaborative=0.4894; Hybrid=0.5035
+- Diversity: Collaborative=0.8624; Hybrid=0.8516
+
 K=10
 --------------------
-- Trọng số Hybrid được chọn trên validation: CBF=0.2; CF=0.3; MF=0.1; Semantic=0.3
-- Validation: NDCG@10=0.2039; Recall@10=0.3400; Precision@10=0.0340
-- Test Precision@10: Collaborative=0.0920; Hybrid=0.0960; Hybrid-Collaborative=+0.0040
-- Test Recall@10: Collaborative=0.4600; Hybrid=0.4800; Hybrid-Collaborative=+0.0200
-- Test Hit Rate@10: Collaborative=0.6800; Hybrid=0.6600; Hybrid-Collaborative=-0.0200
-- Test NDCG@10: Collaborative=0.2895; Hybrid=0.3257; Hybrid-Collaborative=+0.0362
-- Coverage: Collaborative=0.6950; Hybrid=0.7518
-- Diversity: Collaborative=0.8658; Hybrid=0.8270
+- Trọng số Hybrid được chọn trên validation: CBF=0.3; CF=0.5; MF=0.0; Semantic=0.2
+- Validation: NDCG@10=0.2305; Recall@10=0.3800; Precision@10=0.0380
+- Test Precision@10: Collaborative=0.0900; Hybrid=0.1020; Hybrid-Collaborative=+0.0120
+- Test Recall@10: Collaborative=0.4500; Hybrid=0.5100; Hybrid-Collaborative=+0.0600
+- Test Hit Rate@10: Collaborative=0.6800; Hybrid=0.6800; Hybrid-Collaborative=+0.0000
+- Test NDCG@10: Collaborative=0.2777; Hybrid=0.3309; Hybrid-Collaborative=+0.0532
+- Coverage: Collaborative=0.7021; Hybrid=0.7376
+- Diversity: Collaborative=0.8665; Hybrid=0.8356
 
 CẤU HÌNH PRODUCTION
 --------------------
 - K dùng để chọn trọng số production: 10
-- Trọng số production: CBF=0.2; CF=0.3; MF=0.1; Semantic=0.3; Trending=0.1
+- Trọng số production: CBF=0.3; CF=0.5; MF=0.0; Semantic=0.2
 
 GIẢI THÍCH
 - Trọng số không được chọn ngẫu nhiên.

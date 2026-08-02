@@ -240,6 +240,260 @@ export function normalizeSearchText(value = "") {
     .trim();
 }
 
+const SEARCH_STOP_WORDS = new Set([
+  "tour",
+  "du lich",
+  "chuyen di",
+  "hanh trinh",
+  "chuong trinh",
+  "goi",
+  "goi tour",
+  "tim",
+  "kiem",
+  "tim kiem",
+  "cho",
+  "danh cho",
+  "phu hop",
+  "muon",
+  "can",
+  "toi",
+  "minh",
+  "co",
+  "di",
+]);
+
+// Mỗi khóa là một ý định; người dùng chỉ cần nhập một cách diễn đạt trong nhóm.
+const SEARCH_SYNONYM_GROUPS = {
+  "gia dinh": [
+    "gia dinh",
+    "family",
+    "tre em",
+    "con nho",
+    "bo me",
+    "cha me",
+    "nguoi than",
+  ],
+  "cap doi": [
+    "cap doi",
+    "couple",
+    "tinh nhan",
+    "hai nguoi",
+    "trang mat",
+    "lang man",
+  ],
+  "nghi duong": [
+    "nghi duong",
+    "resort",
+    "thu gian",
+    "cao cap",
+    "sang trong",
+    "chill",
+  ],
+  bien: ["bien", "tam bien", "dao", "hai dao", "ven bien", "bien dao"],
+  nui: ["nui", "cao nguyen", "leo nui", "san may", "trekking", "rung"],
+  "phieu luu": ["phieu luu", "mao hiem", "kham pha", "trekking", "trai nghiem"],
+  "van hoa": ["van hoa", "lich su", "di san", "bao tang", "pho co"],
+  "tam linh": ["tam linh", "hanh huong", "chua", "den", "mien"],
+  "am thuc": ["am thuc", "mon an", "dac san", "food", "an uong"],
+  "sinh thai": ["sinh thai", "mien tay", "song nuoc", "vuon", "thien nhien"],
+  teambuilding: [
+    "teambuilding",
+    "team building",
+    "tap the",
+    "cong ty",
+    "doan",
+    "nhom",
+  ],
+  "cuoi tuan": ["cuoi tuan", "ngan ngay", "2 ngay 1 dem", "3 ngay 2 dem"],
+};
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");
+}
+
+function removeSearchNoise(value) {
+  let result = ` ${normalizeSearchText(value)} `;
+
+  [...SEARCH_STOP_WORDS]
+    .sort((a, b) => b.length - a.length)
+    .forEach((word) => {
+      result = result.replace(
+        new RegExp(
+          `(^|\\\\s)${escapeRegExp(word).replace(/\\\\ /g, "\\\\s+")}(?=\\\\s|$)`,
+          "g",
+        ),
+        " ",
+      );
+    });
+
+  return result.replace(/\\s+/g, " ").trim();
+}
+
+function getTourSearchText(tour = {}) {
+  const destinations = Array.isArray(tour.destinations)
+    ? tour.destinations
+        .map((item) =>
+          typeof item === "string"
+            ? item
+            : [item?.name, item?.province, item?.title, item?.description]
+                .filter(Boolean)
+                .join(" "),
+        )
+        .join(" ")
+    : "";
+
+  const pickupPoints = [
+    ...(Array.isArray(tour.pickupPoints) ? tour.pickupPoints : []),
+    ...(Array.isArray(tour.departures)
+      ? tour.departures.flatMap((departure) => departure?.pickupPoints || [])
+      : []),
+  ]
+    .map((item) =>
+      typeof item === "string"
+        ? item
+        : [item?.name, item?.province, item?.address].filter(Boolean).join(" "),
+    )
+    .join(" ");
+
+  const itinerary = Array.isArray(tour.itinerary)
+    ? tour.itinerary
+        .map((item) =>
+          typeof item === "string"
+            ? item
+            : [item?.title, item?.description, item?.content, item?.destination]
+                .filter(Boolean)
+                .join(" "),
+        )
+        .join(" ")
+    : "";
+
+  return normalizeSearchText(
+    [
+      tour.code,
+      tour.name,
+      tour.title,
+      tour.slug,
+      tour.shortDescription,
+      tour.fullDescription,
+      tour.description,
+      tour.summary,
+      tour.tourTheme,
+      tour.theme,
+      tour.tourType,
+      tour.type,
+      tour.category,
+      tour.destination?.name,
+      tour.destination?.province,
+      tour.destination?.description,
+      tour.departureProvince,
+      tour.transportation,
+      tour.accommodation,
+      tour.hotelName,
+      tour.durationDays ? `${tour.durationDays} ngay` : "",
+      tour.durationNights ? `${tour.durationNights} dem` : "",
+      destinations,
+      pickupPoints,
+      itinerary,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+function levenshteinDistance(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = previous[0];
+    previous[0] = i;
+
+    for (let j = 1; j <= b.length; j += 1) {
+      const old = previous[j];
+      previous[j] = Math.min(
+        previous[j] + 1,
+        previous[j - 1] + 1,
+        diagonal + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      diagonal = old;
+    }
+  }
+
+  return previous[b.length];
+}
+
+function textContainsTerm(searchText, term) {
+  if (!term) return true;
+  if (searchText.includes(term)) return true;
+
+  // Cho phép sai một ký tự với từ đủ dài, ví dụ "dalat" / "dalta".
+  if (!term.includes(" ") && term.length >= 5) {
+    return searchText
+      .split(" ")
+      .some(
+        (word) =>
+          Math.abs(word.length - term.length) <= 1 &&
+          levenshteinDistance(word, term) <= 1,
+      );
+  }
+
+  return false;
+}
+
+function buildKeywordGroups(rawKeyword) {
+  const cleaned = removeSearchNoise(rawKeyword);
+  if (!cleaned) return [];
+
+  const groups = [];
+  let remaining = ` ${cleaned} `;
+
+  Object.values(SEARCH_SYNONYM_GROUPS).forEach((synonyms) => {
+    const normalizedSynonyms = synonyms.map(normalizeSearchText);
+    const matched = normalizedSynonyms.some((synonym) =>
+      remaining.includes(` ${synonym} `),
+    );
+
+    if (matched) {
+      groups.push([...new Set(normalizedSynonyms)]);
+      normalizedSynonyms
+        .sort((a, b) => b.length - a.length)
+        .forEach((synonym) => {
+          remaining = remaining.replace(
+            new RegExp(
+              `(^|\\\\s)${escapeRegExp(synonym).replace(/\\\\ /g, "\\\\s+")}(?=\\\\s|$)`,
+              "g",
+            ),
+            " ",
+          );
+        });
+    }
+  });
+
+  remaining
+    .replace(/\\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((token) => token.length >= 2 && !SEARCH_STOP_WORDS.has(token))
+    .forEach((token) => groups.push([token]));
+
+  return groups;
+}
+
+function matchesFlexibleKeyword(tour, rawKeyword) {
+  const groups = buildKeywordGroups(rawKeyword);
+  if (!groups.length) return true;
+
+  const searchText = getTourSearchText(tour);
+
+  // AND giữa các ý định, OR giữa các từ đồng nghĩa trong cùng một ý định.
+  return groups.every((group) =>
+    group.some((term) => textContainsTerm(searchText, term)),
+  );
+}
+
 function isDynamicBestSeller(tour) {
   return Boolean(
     tour.dynamicIsBestSeller ||
@@ -439,7 +693,7 @@ function sortByNormalRule(a, b, sort) {
 }
 
 export function filterTours(tours = [], query = {}) {
-  const keyword = normalizeSearchText(query.search || "");
+  const rawKeyword = String(query.search || "").trim();
   const destination = query.destination || "";
   const imageScores = parseImageDestinationScores(query);
   const normalizedImageDestinations = imageScores.map(
@@ -467,20 +721,7 @@ export function filterTours(tours = [], query = {}) {
     }))
     .filter(({ tour, imageMatch }) => {
       const matchesKeyword =
-        !keyword ||
-        normalizeSearchText(
-          [
-            tour.code,
-            tour.name,
-            tour.slug,
-            tour.shortDescription,
-            tour.fullDescription,
-            tour.destination?.name,
-            tour.destination?.province,
-          ]
-            .filter(Boolean)
-            .join(" "),
-        ).includes(keyword);
+        !rawKeyword || matchesFlexibleKeyword(tour, rawKeyword);
 
       const tourDestinationName = tour.destination?.name || "";
       const matchesImageDestination = normalizedImageDestinations.length

@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { GoogleGenAI } from "@google/genai";
 
 export type ChatbotIntent =
   | "tour_search"
@@ -126,18 +125,7 @@ function normalizePaymentMethod(value: any): "bank_transfer" | null {
 
 @Injectable()
 export class ChatbotNluService {
-  private readonly gemini: GoogleGenAI | null;
-  private readonly model: string;
-
-  constructor(private readonly configService: ConfigService) {
-    const enableGemini = this.isEnvEnabled("CHATBOT_ENABLE_GEMINI", false);
-    const apiKey = this.configService.get<string>("GEMINI_API_KEY") || "";
-    this.model =
-      this.configService.get<string>("GEMINI_NLU_MODEL") ||
-      this.configService.get<string>("GEMINI_MODEL") ||
-      "gemini-2.0-flash";
-    this.gemini = enableGemini && apiKey ? new GoogleGenAI({ apiKey }) : null;
-  }
+  constructor(private readonly configService: ConfigService) {}
 
   async analyze(input: {
     message: string;
@@ -178,9 +166,6 @@ export class ChatbotNluService {
       );
       if (fallbackResult) return fallbackResult;
     }
-
-    const geminiResult = await this.callGeminiNlu(prompt, fallback);
-    if (geminiResult) return geminiResult;
 
     return fallback;
   }
@@ -345,38 +330,6 @@ export class ChatbotNluService {
         `[Chatbot NLU exception] provider=${cfg.name}`,
         error?.message || error,
       );
-      return null;
-    }
-  }
-
-  private async callGeminiNlu(
-    prompt: string,
-    fallback: NluResult,
-  ): Promise<NluResult | null> {
-    if (!this.gemini) return null;
-
-    try {
-      console.log("[Chatbot NLU] Calling Gemini model:", this.model);
-      const response = await this.gemini.models.generateContent({
-        model: this.model,
-        contents: prompt,
-        config: {
-          temperature: 0.1,
-          topP: 0.8,
-          maxOutputTokens: 700,
-          responseMimeType: "application/json",
-        },
-      });
-
-      const parsed = this.safeJsonParse(response.text || "");
-      if (!parsed) return null;
-
-      return this.acceptLlmResult(
-        this.normalizeResult(parsed, fallback),
-        fallback,
-      );
-    } catch (error: any) {
-      console.error("[Chatbot NLU Gemini error]", error?.message || error);
       return null;
     }
   }

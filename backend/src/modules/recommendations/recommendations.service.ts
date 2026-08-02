@@ -16,9 +16,9 @@ import {
 function normalizedHybridWeights() {
   const raw = {
     content: Number(process.env.RECO_HYBRID_CONTENT_WEIGHT ?? 0.2),
-    collaborative: Number(process.env.RECO_HYBRID_COLLABORATIVE_WEIGHT ?? 0.4),
-    matrixFactorization: Number(process.env.RECO_HYBRID_MF_WEIGHT ?? 0.2),
-    deepLearning: Number(process.env.RECO_HYBRID_SEMANTIC_WEIGHT ?? 0.2),
+    collaborative: Number(process.env.RECO_HYBRID_COLLABORATIVE_WEIGHT ?? 0.3),
+    matrixFactorization: Number(process.env.RECO_HYBRID_MF_WEIGHT ?? 0.1),
+    deepLearning: Number(process.env.RECO_HYBRID_SEMANTIC_WEIGHT ?? 0.4),
   };
 
   const positive = Object.fromEntries(
@@ -35,10 +35,12 @@ function normalizedHybridWeights() {
     collaborative: positive.collaborative / divisor,
     matrixFactorization: positive.matrixFactorization / divisor,
     deepLearning: positive.deepLearning / divisor,
-    business: Number(process.env.RECO_HYBRID_BUSINESS_WEIGHT ?? 0.15),
+    business: Number(process.env.RECO_HYBRID_BUSINESS_WEIGHT ?? 0.08),
     exactIntentBonus: Number(
-      process.env.RECO_HYBRID_EXACT_INTENT_WEIGHT ?? 0.08,
+      process.env.RECO_HYBRID_EXACT_INTENT_WEIGHT ?? 0.05,
     ),
+    agreementBonus: Number(process.env.RECO_AGREEMENT_BONUS_WEIGHT ?? 0.08),
+    communityBonus: Number(process.env.RECO_COMMUNITY_BONUS_WEIGHT ?? 0.07),
   };
 }
 
@@ -174,14 +176,14 @@ export class RecommendationsService {
           HYBRID_WEIGHTS.deepLearning * deepLearningScore,
       );
 
-      // Business và exact intent chỉ là bước rerank nhỏ, không được lấn át
-      // mô hình cá nhân hóa lõi.
+      // Các tín hiệu hiệu chỉnh được cấu hình bằng biến môi trường và giữ ở mức nhỏ.
+      // Mục tiêu là hỗ trợ thứ hạng, không lấn át bốn nhánh cá nhân hóa lõi.
       const finalScore = clampScore(
         personalizedCore +
-          0.05 * businessScore +
-          0.03 * exactIntent.score +
-          0.2 * agreementBonus +
-          0.2 * communityBonus -
+          HYBRID_WEIGHTS.business * businessScore +
+          HYBRID_WEIGHTS.exactIntentBonus * exactIntent.score +
+          HYBRID_WEIGHTS.agreementBonus * agreementBonus +
+          HYBRID_WEIGHTS.communityBonus * communityBonus -
           destinationPenalty -
           alreadyInteractedPenalty,
       );
@@ -352,14 +354,18 @@ export class RecommendationsService {
         ) / ratings.length
       : 0;
 
+    // Điểm nghiệp vụ đồng thời chứa tín hiệu xu hướng ở mức nhỏ.
+    // Trending không phải một nhánh Hybrid độc lập để tránh cộng trùng
+    // độ phổ biến với Collaborative Filtering và CommunityBonus.
     const bookingScore =
       normalizeNumber(tour.bookings?.length || 0, maxBookingCount) * 30;
     const favoriteScore =
       normalizeNumber(tour.favorites?.length || 0, maxFavoriteCount) * 20;
-    const ratingScore = normalizeNumber(avgRating, 5) * 20;
+    const ratingScore = normalizeNumber(avgRating, 5) * 25;
     const trendingScore =
-      normalizeNumber(tour.bookings?.length || 0, maxBookingCount) * 10;
-    const bestDealScore = 0;
+      (Boolean(tour.isTrending) ? 10 : 0) +
+      normalizeNumber(tour.bookings?.length || 0, maxBookingCount) * 5;
+    const bestDealScore = Boolean(tour.isBestDeal) ? 5 : 0;
     const availableDeparture = (tour.departures || []).find(
       (departure: any) => {
         const available =

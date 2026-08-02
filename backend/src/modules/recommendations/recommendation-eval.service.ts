@@ -39,7 +39,6 @@ type ComponentMaps = {
   Collaborative: Record<string, number>;
   MatrixFactorization: Record<string, number>;
   SemanticEmbedding: Record<string, number>;
-  Trending: Record<string, number>;
 };
 
 type HybridWeights = {
@@ -47,7 +46,6 @@ type HybridWeights = {
   collaborative: number;
   matrixFactorization: number;
   semanticEmbedding: number;
-  trending: number;
 };
 
 type ValidationCase = {
@@ -272,60 +270,6 @@ export class RecommendationEvalService {
     return normalizeScoreMap(raw);
   }
 
-  /**
-   * Tính điểm Trending chỉ từ các hành vi xảy ra trước cutoff.
-   * Cách này tránh dùng dữ liệu tương lai khi đánh giá.
-   */
-  private buildTrendingScores(
-    allRows: BehaviorRow[],
-    cutoff: Date,
-    activeTourIds: string[],
-  ) {
-    const activeSet = new Set(activeTourIds);
-    const raw: Record<string, number> = {};
-
-    const actionWeights: Record<string, number> = {
-      view: 1,
-      view_detail: 2,
-      search: 1,
-      ask_ai: 2,
-      image_search: 2,
-      compare: 2,
-      favorite: 4,
-      booking_draft: 3,
-      booking: 10,
-      review: 6,
-    };
-
-    for (const row of allRows) {
-      if (!row.tourId) continue;
-      if (row.createdAt.getTime() >= cutoff.getTime()) continue;
-
-      const tourId = String(row.tourId);
-      if (!activeSet.has(tourId)) continue;
-
-      const sourceWeight = recommendationSourceWeight(
-        getRecommendationDataSource(row.meta),
-      );
-      if (sourceWeight <= 0) continue;
-
-      const actionWeight = actionWeights[String(row.action || "")] || 0;
-      if (actionWeight <= 0) continue;
-
-      const ageDays = Math.max(
-        0,
-        (cutoff.getTime() - row.createdAt.getTime()) / 86400000,
-      );
-
-      const timeWeight = Math.max(0.1, 1 / (1 + 0.08 * ageDays));
-
-      raw[tourId] =
-        (raw[tourId] || 0) + actionWeight * timeWeight * sourceWeight;
-    }
-
-    return normalizeScoreMap(raw);
-  }
-
   private uniqueLatestTourRows(rows: BehaviorRow[]) {
     const seen = new Set<string>();
     const unique: BehaviorRow[] = [];
@@ -385,8 +329,7 @@ export class RecommendationEvalService {
           weights.matrixFactorization *
             Number(maps.MatrixFactorization[tourId] || 0) +
           weights.semanticEmbedding *
-            Number(maps.SemanticEmbedding[tourId] || 0) +
-          weights.trending * Number(maps.Trending[tourId] || 0),
+            Number(maps.SemanticEmbedding[tourId] || 0),
       );
     }
     return result;
@@ -399,38 +342,21 @@ export class RecommendationEvalService {
     for (let cbf = 0; cbf <= units; cbf += 1) {
       for (let cf = 0; cf <= units - cbf; cf += 1) {
         for (let mf = 0; mf <= units - cbf - cf; mf += 1) {
-          for (
-            let semantic = 0;
-            semantic <= units - cbf - cf - mf;
-            semantic += 1
-          ) {
-            const trending = units - cbf - cf - mf - semantic;
-
-            const weights: HybridWeights = {
-              contentBased: cbf / units,
-              collaborative: cf / units,
-              matrixFactorization: mf / units,
-              semanticEmbedding: semantic / units,
-              trending: trending / units,
-            };
-
-            const hasBehaviorSignal =
-              weights.collaborative + weights.matrixFactorization > 0;
-
-            const hasSupportingSignal =
-              weights.contentBased +
-                weights.semanticEmbedding +
-                weights.trending >
-              0;
-
-            if (hasBehaviorSignal && hasSupportingSignal) {
-              candidates.push(weights);
-            }
-          }
+          const semantic = units - cbf - cf - mf;
+          const weights: HybridWeights = {
+            contentBased: cbf / units,
+            collaborative: cf / units,
+            matrixFactorization: mf / units,
+            semanticEmbedding: semantic / units,
+          };
+          const hasBehaviorSignal =
+            weights.collaborative + weights.matrixFactorization > 0;
+          const hasContentSignal =
+            weights.contentBased + weights.semanticEmbedding > 0;
+          if (hasBehaviorSignal && hasContentSignal) candidates.push(weights);
         }
       }
     }
-
     return candidates;
   }
 
@@ -478,8 +404,7 @@ export class RecommendationEvalService {
         contentBased: 0.2,
         collaborative: 0.3,
         matrixFactorization: 0.2,
-        semanticEmbedding: 0.2,
-        trending: 0.1,
+        semanticEmbedding: 0.3,
       },
       criterion:
         "Chọn trọng số có NDCG@K trung bình cao nhất trên tập validation; nếu bằng nhau ưu tiên Recall@K rồi Precision@K.",
@@ -563,11 +488,6 @@ export class RecommendationEvalService {
       SemanticEmbedding: await this.deepRecommendation.scoreToursForUser(
         trainRows as any[],
         activeTours,
-      ),
-      Trending: this.buildTrendingScores(
-        allRows,
-        cutoff,
-        activeTours.map((tour) => String(tour.id)),
       ),
     };
   }
@@ -788,7 +708,6 @@ export class RecommendationEvalService {
       Collaborative: this.newAccumulator(),
       MatrixFactorization: this.newAccumulator(),
       SemanticEmbedding: this.newAccumulator(),
-      Trending: this.newAccumulator(),
       Hybrid: this.newAccumulator(),
     };
 
@@ -903,7 +822,6 @@ export class RecommendationEvalService {
           weightSelection.selected.collaborative,
         RECO_HYBRID_MF_WEIGHT: weightSelection.selected.matrixFactorization,
         RECO_HYBRID_SEMANTIC_WEIGHT: weightSelection.selected.semanticEmbedding,
-        RECO_HYBRID_TRENDING_WEIGHT: weightSelection.selected.trending,
       },
     };
   }

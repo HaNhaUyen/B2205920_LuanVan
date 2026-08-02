@@ -15,7 +15,6 @@ MODEL_ORDER = [
     "Collaborative",
     "MatrixFactorization",
     "SemanticEmbedding",
-    "Trending",
     "Hybrid",
 ]
 
@@ -24,7 +23,6 @@ MODEL_LABELS = {
     "Collaborative": "Collaborative",
     "MatrixFactorization": "Matrix Factorization",
     "SemanticEmbedding": "Semantic Embedding",
-    "Trending": "Trending",
     "Hybrid": "Hybrid",
 }
 
@@ -167,7 +165,6 @@ def get_selected_weights(run: dict[str, Any]) -> dict[str, float]:
             "CF": float(selected.get("collaborative", 0) or 0),
             "MF": float(selected.get("matrixFactorization", 0) or 0),
             "Semantic": float(selected.get("semanticEmbedding", 0) or 0),
-            "Trending": float(selected.get("trending", 0) or 0),
         }
 
     env = run.get("recommendedProductionEnv", {}) or {}
@@ -176,7 +173,6 @@ def get_selected_weights(run: dict[str, Any]) -> dict[str, float]:
         "CF": float(env.get("RECO_HYBRID_COLLABORATIVE_WEIGHT", 0) or 0),
         "MF": float(env.get("RECO_HYBRID_MF_WEIGHT", 0) or 0),
         "Semantic": float(env.get("RECO_HYBRID_SEMANTIC_WEIGHT", 0) or 0),
-        "Trending": float(env.get("RECO_HYBRID_TRENDING_WEIGHT", 0) or 0),
     }
 
 
@@ -187,8 +183,7 @@ def hybrid_weight_text(run: dict[str, Any]) -> str:
         f"CBF={weights['CBF']:.1f} · "
         f"CF={weights['CF']:.1f} · "
         f"MF={weights['MF']:.1f} · "
-        f"Semantic={weights['Semantic']:.1f} · "
-        f"Trending={weights['Trending']:.1f}"
+        f"Semantic={weights['Semantic']:.1f}"
     )
 
 
@@ -361,8 +356,7 @@ def plot_ranking_metrics_for_each_k(
                     f"CBF={selected_weights['CBF']:.1f}; "
                     f"CF={selected_weights['CF']:.1f}\n"
                     f"MF={selected_weights['MF']:.1f}; "
-                    f"Sem={selected_weights['Semantic']:.1f}; "
-                    f"Trend={selected_weights['Trending']:.1f}"
+                    f"Sem={selected_weights['Semantic']:.1f}"
                 )
             else:
                 model_labels.append(MODEL_LABELS[model_name])
@@ -521,7 +515,6 @@ def plot_validation_weights(
         ("RECO_HYBRID_COLLABORATIVE_WEIGHT", "Collaborative"),
         ("RECO_HYBRID_MF_WEIGHT", "Matrix Factorization"),
         ("RECO_HYBRID_SEMANTIC_WEIGHT", "Semantic Embedding"),
-        ("RECO_HYBRID_TRENDING_WEIGHT", "Trending"),
     ]
 
     x = np.arange(len(runs))
@@ -585,8 +578,7 @@ def plot_top_hybrid_weight_candidates(
                 f"CBF={float(weights.get('contentBased', 0)):.1f}; "
                 f"CF={float(weights.get('collaborative', 0)):.1f}; "
                 f"MF={float(weights.get('matrixFactorization', 0)):.1f}; "
-                f"Sem={float(weights.get('semanticEmbedding', 0)):.1f}; "
-                f"Trend={float(weights.get('trending', 0)):.1f}"
+                f"Sem={float(weights.get('semanticEmbedding', 0)):.1f}"
             )
             ndcg_values.append(float(row.get("validationNdcgAtK", 0) or 0))
             recall_values.append(float(row.get("validationRecallAtK", 0) or 0))
@@ -714,8 +706,7 @@ def write_summary(payload: dict[str, Any], output_dir: Path) -> None:
             f"CBF={float(production_env.get('RECO_HYBRID_CONTENT_WEIGHT', 0)):.1f}; "
             f"CF={float(production_env.get('RECO_HYBRID_COLLABORATIVE_WEIGHT', 0)):.1f}; "
             f"MF={float(production_env.get('RECO_HYBRID_MF_WEIGHT', 0)):.1f}; "
-            f"Semantic={float(production_env.get('RECO_HYBRID_SEMANTIC_WEIGHT', 0)):.1f}; "
-            f"Trending={float(production_env.get('RECO_HYBRID_TRENDING_WEIGHT', 0)):.1f}"
+            f"Semantic={float(production_env.get('RECO_HYBRID_SEMANTIC_WEIGHT', 0)):.1f}"
         )
 
     lines.extend([

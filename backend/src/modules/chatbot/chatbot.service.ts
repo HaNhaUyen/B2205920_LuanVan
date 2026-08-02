@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { GoogleGenAI } from "@google/genai";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ChatMessageDto } from "./dto/chat-message.dto";
 import { GuideChatbotService } from "./guide-chatbot.service";
@@ -251,9 +250,6 @@ const DESTINATION_ALIASES: Record<string, string[]> = {
 
 @Injectable()
 export class ChatbotService {
-  private readonly gemini: GoogleGenAI | null;
-  private readonly geminiModel: string;
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
@@ -266,14 +262,7 @@ export class ChatbotService {
     private readonly guideChatbotService: GuideChatbotService,
     private readonly locationResolver: LocationResolverService,
     private readonly recommendationsService: RecommendationsService,
-  ) {
-    const enableGemini = this.isEnvEnabled("CHATBOT_ENABLE_GEMINI", false);
-    const apiKey = this.configService.get<string>("GEMINI_API_KEY") || "";
-    this.geminiModel =
-      this.configService.get<string>("GEMINI_MODEL") || "gemini-2.0-flash";
-
-    this.gemini = enableGemini && apiKey ? new GoogleGenAI({ apiKey }) : null;
-  }
+  ) {}
 
   async message(dto: ChatMessageDto, user: AuthUser) {
     if (String(user?.role || "").toLowerCase() === "guide") {
@@ -383,7 +372,7 @@ export class ChatbotService {
     }
 
     // Guard quan trọng cho luồng đặt tour:
-    // Nếu rule-based đã nhận đây là bước tiếp theo của booking thì KHÔNG để Gemini NLU
+    // Nếu rule-based đã nhận đây là bước tiếp theo của booking thì KHÔNG để LLM NLU
     // bẻ sang voucher_check/pickup_point/general_consulting. Nếu không, câu như
     // “chọn điểm đón mã 40, không dùng voucher, thanh toán momo” sẽ chỉ bị trả lời tư vấn,
     // memory bookingDraft không được lưu, và câu sau “1 người lớn” sẽ hỏi lặp lại điểm đón.
@@ -395,7 +384,7 @@ export class ChatbotService {
       (nlu as any).intent = intent;
     }
 
-    // Guard: Gemini NLU đôi lúc nhận nhầm câu tìm tour mới thành follow_up
+    // Guard: LLM NLU đôi lúc nhận nhầm câu tìm tour mới thành follow_up
     // vì trong câu có cụm như "3 ngày 2 đêm" hoặc "trẻ nhỏ".
     // Nếu rule-based đã thấy đây là tìm tour mới thì ưu tiên tour_search.
     if (
@@ -455,7 +444,7 @@ export class ChatbotService {
     }
 
     // Guard: câu so sánh/"nên chọn A hay B" phải ưu tiên tour_compare.
-    // Đặc biệt khi đang có bookingDraft/lastDepartureOptions, Gemini có thể kéo nhầm
+    // Đặc biệt khi đang có bookingDraft/lastDepartureOptions, LLM có thể kéo nhầm
     // câu "So sánh tour số 1 và số 2" vào booking_create rồi bot quay lại hỏi chọn lịch.
     if (fallbackIntent === "tour_compare") {
       intent = "tour_compare";
@@ -689,7 +678,7 @@ export class ChatbotService {
       (await this.tryDirectBusinessAnswer(promptContext, intent));
 
     // Với booking_create, câu trả lời của state-machine phải được ưu tiên tuyệt đối.
-    // Nếu để directBusinessAnswer/Gemini chen vào, bot sẽ nói kiểu “để mình kiểm tra...”
+    // Nếu để directBusinessAnswer/LLM chen vào, bot sẽ nói kiểu “để mình kiểm tra...”
     // hoặc quay lại liệt kê điểm đón dù user đã chọn đủ thông tin.
     if (bookingFlow?.answer) {
       answer = bookingFlow.answer;
@@ -726,7 +715,7 @@ export class ChatbotService {
     ) {
       answer = this.generateNaturalAnswer(promptContext);
     } else {
-      answer = await this.generateGeminiAnswer(promptContext);
+      answer = await this.generateLlmAnswer(promptContext);
     }
     const suggestedReplies = this.buildSuggestedReplies(promptContext);
 
@@ -5488,13 +5477,13 @@ export class ChatbotService {
     );
   }
 
-  private async generateGeminiAnswer(ctx: PromptContext): Promise<string> {
+  private async generateLlmAnswer(ctx: PromptContext): Promise<string> {
     const { systemInstruction, prompt } = this.buildLlmPrompt(ctx);
 
     // Rule/local đã xử lý trước đó. Đến đây mới gọi LLM theo thứ tự:
     // 1) Groq/OpenAI-compatible chính
     // 2) OpenRouter fallback
-    // 3) Gemini optional nếu CHATBOT_ENABLE_GEMINI=true
+    // 3) Phản hồi nội bộ nếu cả hai provider không khả dụng
     const primaryProvider = this.getProviderName("CHATBOT_PROVIDER", "groq");
     const fallbackProvider = this.getProviderName(
       "CHATBOT_FALLBACK_PROVIDER",
@@ -5516,9 +5505,6 @@ export class ChatbotService {
       );
       if (fallbackAnswer) return fallbackAnswer;
     }
-
-    const geminiAnswer = await this.callGemini(systemInstruction, prompt);
-    if (geminiAnswer) return geminiAnswer;
 
     return String(this.generateNaturalAnswer(ctx));
   }
@@ -5549,7 +5535,7 @@ Các nhóm nhu cầu du lịch thường gặp:
 Quy tắc bắt buộc:
 - Luôn trả lời bằng tiếng Việt, tự nhiên, thân thiện, rõ ràng.
 - Chỉ dùng dữ liệu có trong CONTEXT. Không tự bịa tour, giá, lịch khởi hành, voucher, booking, điểm đón hoặc chính sách.
-- Không nói mình là Google, Gemini, Groq hoặc Llama. Hãy nói mình là Travela AI.
+- Không nêu tên nhà cung cấp hoặc tên mô hình. Hãy nói mình là Travela AI.
 - Chỉ liệt kê 2-3 tour phù hợp khi người dùng đang hỏi tìm tour mới.
 - Nếu người dùng hỏi "tour này", "lịch trình này", "khách sạn", "tiện nghi", "phương tiện", "có nhẹ nhàng không", "có phù hợp gia đình/trẻ nhỏ không", thì đây là câu hỏi chi tiết về tour đã gợi ý trước đó. Khi đó KHÔNG được liệt kê lại danh sách tour.
 - Nếu câu hỏi là lịch trình hoặc mức độ nhẹ nhàng, ưu tiên thông tin từ ragHits có phần "Lịch trình chi tiết".
@@ -5626,49 +5612,6 @@ YÊU CẦU TRẢ LỜI:
 `;
 
     return { systemInstruction, prompt };
-  }
-
-  private async callGemini(
-    systemInstruction: string,
-    prompt: string,
-  ): Promise<string | null> {
-    if (!this.gemini) return null;
-
-    // Không để gemini-1.5-flash trong fallback vì project của bạn đang báo 404.
-    const modelsToTry = [
-      this.geminiModel || "gemini-2.0-flash",
-      "gemini-2.0-flash",
-    ].filter((model, index, arr) => model && arr.indexOf(model) === index);
-
-    for (const model of modelsToTry) {
-      try {
-        console.log("[Travela AI] Calling Gemini model:", model);
-
-        const response = await this.gemini.models.generateContent({
-          model,
-          contents: prompt,
-          config: {
-            systemInstruction,
-            temperature: 0.55,
-            topP: 0.9,
-            maxOutputTokens: 900,
-          },
-        });
-
-        const text = response.text?.trim();
-        if (text) return text;
-      } catch (error: any) {
-        const status = error?.status || error?.code || "unknown";
-        const message = error?.message || String(error);
-        console.error(`[Gemini chatbot error] model=${model}`, status, message);
-
-        // 429: hết quota/rate limit, 503: quá tải, 404: sai/không còn model.
-        // Các lỗi này đều cho qua Groq hoặc local fallback.
-        continue;
-      }
-    }
-
-    return null;
   }
 
   private getProviderName(key: string, fallback = "groq") {
@@ -6548,7 +6491,7 @@ YÊU CẦU TRẢ LỜI:
     }
 
     // 3. Voucher có mức giảm cụ thể nhưng không tồn tại thì phải nói không có, không list chung chung.
-    // Không phụ thuộc 100% vào intent vì Gemini NLU đôi lúc phân loại câu này thành tư vấn chung.
+    // Không phụ thuộc 100% vào intent vì LLM NLU đôi lúc phân loại câu này thành tư vấn chung.
     if (
       /\b(voucher|ma giam gia|giam gia|khuyen mai|uu dai|coupon)\b/.test(
         normalized,
