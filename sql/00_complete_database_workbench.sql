@@ -13652,3 +13652,8 @@ SELECT
   status
 FROM tour_pickup_points
 ORDER BY tour_id, pickup_time, province, name;
+
+
+UPDATE journey_logs
+SET created_at = DATE_SUB(created_at, INTERVAL 7 HOUR),
+    updated_at = DATE_SUB(updated_at, INTERVAL 7 HOUR);

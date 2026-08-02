@@ -518,7 +518,7 @@ function MiniLineChart({
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
 
-  const coords = safeItems.map((item, index) => {
+  const rawCoords = safeItems.map((item, index) => {
     const value = Number(item?.[valueKey] || 0);
     const x =
       safeItems.length <= 1
@@ -533,6 +533,25 @@ function MiniLineChart({
       value,
       label: item.month,
       isCurrentMonth: Boolean(item.isCurrentMonth),
+    };
+  });
+
+  const coords = rawCoords.map((point, index) => {
+    const prevX = index > 0 ? rawCoords[index - 1].x : padding.left;
+    const nextX =
+      index < rawCoords.length - 1
+        ? rawCoords[index + 1].x
+        : padding.left + innerWidth;
+    const hoverStart = index === 0 ? padding.left : (prevX + point.x) / 2;
+    const hoverEnd =
+      index === rawCoords.length - 1
+        ? padding.left + innerWidth
+        : (point.x + nextX) / 2;
+
+    return {
+      ...point,
+      hoverStart,
+      hoverWidth: Math.max(32, hoverEnd - hoverStart),
     };
   });
 
@@ -588,10 +607,6 @@ function MiniLineChart({
           >
             {title}
           </h3>
-          <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
-            Doanh thu thuần = giao dịch thanh toán thành công - khoản hoàn được
-            admin xác nhận trong tháng.
-          </p>
         </div>
 
         <span
@@ -758,8 +773,20 @@ function MiniLineChart({
                 key={`${point.label}-${index}`}
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
+                onClick={() => setHoveredIndex(index)}
                 style={{ cursor: "pointer" }}
               >
+                <rect
+                  x={point.hoverStart}
+                  y={padding.top}
+                  width={point.hoverWidth}
+                  height={innerHeight + padding.bottom - 6}
+                  fill="transparent"
+                  onMouseEnter={() => setHoveredIndex(index)}
+                  onMouseMove={() => setHoveredIndex(index)}
+                  onTouchStart={() => setHoveredIndex(index)}
+                />
+
                 <line
                   x1={point.x}
                   y1={point.y}
@@ -773,13 +800,22 @@ function MiniLineChart({
                 <circle
                   cx={point.x}
                   cy={point.y}
-                  r={active ? 7 : isLatest ? 6 : 5}
-                  fill={isLatest ? "#2563eb" : "#ffffff"}
+                  r={active ? 8 : isLatest ? 6 : 5}
+                  fill={isLatest || active ? "#2563eb" : "#ffffff"}
                   stroke="#2563eb"
                   strokeWidth="3"
                 />
 
-                <circle cx={point.x} cy={point.y} r="16" fill="transparent" />
+                {active ? (
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r="16"
+                    fill="rgba(37, 99, 235, 0.12)"
+                  />
+                ) : null}
+
+                <circle cx={point.x} cy={point.y} r="22" fill="transparent" />
 
                 <text
                   x={point.x}
@@ -796,25 +832,38 @@ function MiniLineChart({
                   <g>
                     <rect
                       x={Math.min(
-                        Math.max(point.x - 77, padding.left),
-                        width - padding.right - 154,
+                        Math.max(point.x - 84, padding.left),
+                        width - padding.right - 168,
                       )}
-                      y={Math.max(point.y - 58, 4)}
-                      width="154"
-                      height="42"
-                      rx="10"
+                      y={Math.max(point.y - 64, 4)}
+                      width="168"
+                      height="48"
+                      rx="12"
                       fill="#0f172a"
                     />
                     <text
                       x={Math.min(
-                        Math.max(point.x, padding.left + 77),
-                        width - padding.right - 77,
+                        Math.max(point.x, padding.left + 84),
+                        width - padding.right - 84,
                       )}
-                      y={Math.max(point.y - 33, 29)}
+                      y={Math.max(point.y - 43, 25)}
+                      textAnchor="middle"
+                      fill="#93c5fd"
+                      fontSize="10"
+                      fontWeight="700"
+                    >
+                      {point.label}
+                    </text>
+                    <text
+                      x={Math.min(
+                        Math.max(point.x, padding.left + 84),
+                        width - padding.right - 84,
+                      )}
+                      y={Math.max(point.y - 26, 42)}
                       textAnchor="middle"
                       fill="#ffffff"
                       fontSize="11"
-                      fontWeight="700"
+                      fontWeight="800"
                     >
                       {formatCurrency(point.value)}
                     </text>
@@ -1074,6 +1123,243 @@ function normalizeSearchText(value) {
     .replace(/đ/gi, "d")
     .toLowerCase()
     .trim();
+}
+
+function normalizeInsightText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/gi, "d")
+    .toLowerCase();
+}
+
+function insightSearchText(item) {
+  if (!item || typeof item !== "object") return normalizeInsightText(item);
+  try {
+    return normalizeInsightText(JSON.stringify(item));
+  } catch {
+    return normalizeInsightText(
+      [
+        item.code,
+        item.type,
+        item.title,
+        item.label,
+        item.message,
+        item.description,
+        item.action,
+        item.actionLabel,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+}
+
+function extractInsightCount(item) {
+  const direct = [
+    item?.count,
+    item?.total,
+    item?.value,
+    item?.amount,
+    item?.quantity,
+  ].find((value) => Number.isFinite(Number(value)));
+
+  if (direct !== undefined) return Number(direct);
+
+  const source = [item?.title, item?.label, item?.message, item?.description]
+    .filter(Boolean)
+    .join(" ");
+  const match = String(source).match(/\b(\d[\d.,]*)\b/);
+  if (!match) return null;
+
+  const parsed = Number(match[1].replace(/[.,](?=\d{3}\b)/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function applyInsightCopy(item, copy) {
+  const next = { ...item };
+
+  const titleKeys = ["title", "heading", "label", "name"];
+  const descriptionKeys = [
+    "description",
+    "message",
+    "detail",
+    "subtitle",
+    "summary",
+  ];
+  const actionKeys = [
+    "action",
+    "actionLabel",
+    "recommendation",
+    "solution",
+    "nextStep",
+    "cta",
+  ];
+
+  titleKeys.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(next, key)) next[key] = copy.title;
+  });
+  descriptionKeys.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(next, key)) {
+      next[key] = copy.description;
+    }
+  });
+  actionKeys.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(next, key))
+      next[key] = copy.action;
+  });
+
+  // Bảo đảm vẫn hoạt động nếu backend chỉ trả một phần các trường.
+  if (
+    !titleKeys.some((key) => Object.prototype.hasOwnProperty.call(next, key))
+  ) {
+    next.title = copy.title;
+  }
+  if (
+    !descriptionKeys.some((key) =>
+      Object.prototype.hasOwnProperty.call(next, key),
+    )
+  ) {
+    next.description = copy.description;
+  }
+  if (
+    !actionKeys.some((key) => Object.prototype.hasOwnProperty.call(next, key))
+  ) {
+    next.action = copy.action;
+  }
+
+  // Một số API đặt nội dung nút trong object action.
+  if (item?.action && typeof item.action === "object") {
+    next.action = {
+      ...item.action,
+      label: copy.action,
+      text: copy.action,
+      title: copy.action,
+    };
+  }
+
+  return next;
+}
+
+function transformAdminInsight(item) {
+  if (!item || typeof item !== "object") return item;
+
+  const search = insightSearchText(item);
+  const count = extractInsightCount(item);
+  const countLabel = count !== null ? formatNumber(count) : "Các";
+
+  const isExpiredHold =
+    search.includes("qua han giu cho") ||
+    search.includes("booking qua han") ||
+    search.includes("expired hold") ||
+    search.includes("expired_booking") ||
+    search.includes("expired booking");
+
+  // Booking quá hạn giữ chỗ được hệ thống tự hết hạn và giải phóng chỗ,
+  // không phải công việc cần Admin xử lý trực tiếp.
+  if (isExpiredHold) return null;
+
+  const isWaitingConfirmation =
+    search.includes("cho xac nhan") ||
+    search.includes("waiting_confirmation") ||
+    search.includes("doi soat thanh toan") ||
+    search.includes("payment review");
+
+  if (isWaitingConfirmation) {
+    return applyInsightCopy(item, {
+      title: `${countLabel} giao dịch đang chờ đối soát`,
+      description:
+        "Các booking đã chọn phương thức chuyển khoản nhưng giao dịch chưa được xác nhận thành công. Cần đối chiếu số tiền, nội dung chuyển khoản và mã giao dịch trước khi cập nhật trạng thái booking.",
+      action: "Đối soát giao dịch và xác nhận các khoản thu hợp lệ.",
+    });
+  }
+
+  const isRefund =
+    search.includes("hoan tien") ||
+    search.includes("refund") ||
+    search.includes("yeu cau hoan");
+
+  if (isRefund) {
+    return applyInsightCopy(item, {
+      title: `${countLabel} yêu cầu hoàn tiền chưa xử lý`,
+      description:
+        "Các yêu cầu hoàn tiền chưa được phê duyệt hoặc từ chối có thể làm chậm quá trình hỗ trợ khách hàng và ảnh hưởng đến số liệu doanh thu thuần.",
+      action:
+        "Kiểm tra điều kiện hủy, số tiền hoàn và phê duyệt theo chính sách.",
+    });
+  }
+
+  const isNoGuide =
+    search.includes("chua co huong dan vien") ||
+    search.includes("chua co hdv") ||
+    search.includes("no guide") ||
+    search.includes("unassigned guide");
+
+  if (isNoGuide) {
+    return applyInsightCopy(item, {
+      title: `${countLabel} lịch khởi hành chưa có hướng dẫn viên`,
+      description:
+        "Một số lịch khởi hành đã có khách đặt nhưng chưa được phân công hướng dẫn viên. Cần ưu tiên các đoàn sắp khởi hành và có số lượng khách lớn.",
+      action:
+        "Phân công hướng dẫn viên theo lịch khởi hành và kiểm tra khả năng đáp ứng.",
+    });
+  }
+
+  const isRevenueDrop =
+    (search.includes("doanh thu") &&
+      (search.includes("giam") || search.includes("thap hon"))) ||
+    search.includes("revenue drop") ||
+    search.includes("negative revenue growth");
+
+  if (isRevenueDrop) {
+    const originalTitle = item.title || item.heading || item.label;
+    return applyInsightCopy(item, {
+      title: originalTitle || "Doanh thu tháng này đang giảm",
+      description:
+        "Doanh thu thuần tháng này thấp hơn tháng trước. Mức giảm có thể đến từ số booking thành công giảm, giá trị trung bình mỗi booking thấp, tỷ lệ thanh toán chưa hoàn tất tăng hoặc số tiền hoàn cao hơn.",
+      action:
+        "Phân tích nguyên nhân theo lượng booking, tỷ lệ chuyển đổi, giá trị đơn trung bình và doanh thu từng tour.",
+    });
+  }
+
+  return item;
+}
+
+function buildAdminSmartInsights(rawInsights) {
+  if (!rawInsights) return rawInsights;
+
+  if (Array.isArray(rawInsights)) {
+    return rawInsights.map(transformAdminInsight).filter(Boolean);
+  }
+
+  if (typeof rawInsights !== "object") return rawInsights;
+
+  const arrayKeys = ["items", "alerts", "insights", "warnings", "data"];
+  const matchedKey = arrayKeys.find((key) => Array.isArray(rawInsights[key]));
+
+  if (matchedKey) {
+    return {
+      ...rawInsights,
+      [matchedKey]: rawInsights[matchedKey]
+        .map(transformAdminInsight)
+        .filter(Boolean),
+    };
+  }
+
+  // Trường hợp backend trả object gồm nhiều nhóm cảnh báo.
+  const transformedEntries = Object.entries(rawInsights)
+    .map(([key, value]) => {
+      if (Array.isArray(value)) {
+        return [key, value.map(transformAdminInsight).filter(Boolean)];
+      }
+      if (value && typeof value === "object") {
+        return [key, transformAdminInsight(value)];
+      }
+      return [key, value];
+    })
+    .filter(([, value]) => value !== null);
+
+  return Object.fromEntries(transformedEntries);
 }
 
 function AdminSortControls({ value, onChange, options }) {
@@ -1547,6 +1833,11 @@ export default function AdminPage({ initialTab = "overview" }) {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 6);
   }, [overview]);
+
+  const adminSmartInsights = useMemo(
+    () => buildAdminSmartInsights(overview?.smartInsights),
+    [overview?.smartInsights],
+  );
 
   const openBookingDetail = async (id) => {
     try {
@@ -2921,9 +3212,9 @@ export default function AdminPage({ initialTab = "overview" }) {
             <AdminReportButton type="users" label="Xuất báo cáo Người dùng" />
           </div>
 
-          {overview?.smartInsights && (
+          {adminSmartInsights && (
             <div style={{ marginBottom: 24 }}>
-              <AdminInsightPanel insights={overview.smartInsights} />
+              <AdminInsightPanel insights={adminSmartInsights} />
             </div>
           )}
 

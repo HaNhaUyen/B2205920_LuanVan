@@ -1,158 +1,435 @@
 function toneStyle(severity) {
   const key = String(severity || "info").toLowerCase();
+
   if (key === "danger") {
     return {
-      bg: "#fff1f2",
+      softBg: "#fff7f8",
+      badgeBg: "#ffe4e8",
+      actionBg: "#fff0f3",
       border: "#fecdd3",
+      accent: "#e11d48",
       color: "#be123c",
       tag: "Cần xử lý",
+      icon: "!",
     };
   }
+
   if (key === "warning") {
     return {
-      bg: "#fffbeb",
+      softBg: "#fffdf7",
+      badgeBg: "#fef3c7",
+      actionBg: "#fff8e6",
       border: "#fde68a",
+      accent: "#f59e0b",
       color: "#b45309",
       tag: "Cảnh báo",
+      icon: "!",
     };
   }
+
   if (key === "success") {
     return {
-      bg: "#ecfdf5",
+      softBg: "#f7fffb",
+      badgeBg: "#d1fae5",
+      actionBg: "#ecfdf5",
       border: "#a7f3d0",
+      accent: "#10b981",
       color: "#047857",
       tag: "Ổn định",
+      icon: "✓",
     };
   }
-  return { bg: "#eff6ff", border: "#bfdbfe", color: "#1d4ed8", tag: "Gợi ý" };
+
+  return {
+    softBg: "#f8fbff",
+    badgeBg: "#dbeafe",
+    actionBg: "#eff6ff",
+    border: "#bfdbfe",
+    accent: "#3b82f6",
+    color: "#1d4ed8",
+    tag: "Gợi ý",
+    icon: "i",
+  };
 }
 
 export default function AdminInsightPanel({ insights }) {
-  const alerts = insights?.alerts || [];
-  const suggestions = insights?.suggestions || [];
+  const alerts = Array.isArray(insights?.alerts) ? insights.alerts : [];
+  const suggestions = Array.isArray(insights?.suggestions)
+    ? insights.suggestions
+    : [];
+
+  const displayedAlerts = alerts.slice(0, 4);
 
   return (
     <section className="admin-card admin-insight-panel">
       <style jsx>{`
         .admin-insight-panel {
-          display: grid;
-          gap: 18px;
-        }
-        .admin-alert-grid {
-          display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 14px;
-          align-items: stretch;
-        }
-        .admin-alert-card {
-          min-height: 168px;
-          padding: 16px 18px;
-          border-radius: 16px;
           display: flex;
           flex-direction: column;
-          justify-content: flex-start;
-          gap: 8px;
+          gap: 22px;
+          padding: 24px;
+          overflow: hidden;
+          background:
+            radial-gradient(
+              circle at top right,
+              rgba(59, 130, 246, 0.06),
+              transparent 30%
+            ),
+            #ffffff;
         }
-        .admin-alert-tag {
-          font-weight: 800;
-          font-size: 12px;
+
+        .admin-insight-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 18px;
+          flex-wrap: wrap;
         }
-        .admin-alert-title {
+
+        .admin-insight-title-wrap {
+          display: flex;
+          align-items: flex-start;
+          gap: 13px;
+        }
+
+        .admin-insight-title-icon {
+          width: 42px;
+          height: 42px;
+          flex: 0 0 42px;
+          border-radius: 14px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, #2563eb, #7c3aed);
+          color: #ffffff;
+          font-size: 17px;
+          font-weight: 900;
+          box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+        }
+
+        .admin-insight-heading {
           margin: 0;
           color: #0f172a;
-          font-size: 15px;
-          line-height: 1.42;
-        }
-        .admin-alert-message {
-          margin: 0;
-          color: #475569;
-          font-size: 13px;
-          line-height: 1.55;
-        }
-        .admin-alert-action {
-          margin-top: auto;
-          display: inline-flex;
-          align-items: flex-start;
-          gap: 6px;
-          font-size: 13px;
+          font-size: 20px;
+          line-height: 1.3;
           font-weight: 800;
-          line-height: 1.45;
+          letter-spacing: -0.02em;
         }
-        .admin-action-dot {
-          width: 18px;
-          height: 18px;
+
+        .admin-insight-subtitle {
+          margin: 5px 0 0;
+          color: #64748b;
+          font-size: 13px;
+          line-height: 1.6;
+        }
+
+        .admin-insight-count {
+          min-height: 36px;
+          padding: 0 13px;
           border-radius: 999px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
+          background: #eff6ff;
+          border: 1px solid #dbeafe;
+          color: #1d4ed8;
+          font-size: 12px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+
+        .admin-alert-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 16px;
+          align-items: stretch;
+        }
+
+        .admin-alert-card {
+          position: relative;
+          min-width: 0;
+          min-height: 245px;
+          padding: 18px;
+          border-radius: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          overflow: hidden;
+          box-shadow: 0 9px 24px rgba(15, 23, 42, 0.045);
+          transition:
+            transform 0.25s ease,
+            box-shadow 0.25s ease,
+            border-color 0.25s ease;
+        }
+
+        .admin-alert-card::before {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 4px;
+          background: var(--alert-accent);
+        }
+
+        .admin-alert-card:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 16px 34px rgba(15, 23, 42, 0.09);
+        }
+
+        .admin-alert-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .admin-alert-tag {
+          min-height: 27px;
+          padding: 0 10px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 800;
           font-size: 11px;
-          flex: 0 0 18px;
+          letter-spacing: 0.025em;
+        }
+
+        .admin-alert-icon {
+          width: 32px;
+          height: 32px;
+          flex: 0 0 32px;
+          border-radius: 11px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 14px;
+          font-weight: 900;
+        }
+
+        .admin-alert-title {
+          margin: 0;
+          color: #0f172a;
+          font-size: 17px;
+          font-weight: 800;
+          line-height: 1.42;
+          letter-spacing: -0.012em;
+          overflow-wrap: anywhere;
+        }
+
+        .admin-alert-message {
+          margin: 0;
+          color: #475569;
+          font-size: 13px;
+          line-height: 1.68;
+          flex: 1;
+        }
+
+        .admin-alert-action {
+          margin-top: auto;
+          padding: 12px 13px;
+          border-radius: 13px;
+          display: flex;
+          align-items: flex-start;
+          gap: 9px;
+          font-size: 13px;
+          font-weight: 750;
+          line-height: 1.52;
+        }
+
+        .admin-action-dot {
+          width: 20px;
+          height: 20px;
+          flex: 0 0 20px;
           margin-top: 1px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 900;
         }
-        @media (max-width: 1500px) {
-          .admin-alert-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
+
+        .admin-empty-alert {
+          grid-column: 1 / -1;
+          min-height: 115px;
+          padding: 20px;
+          border: 1px solid #a7f3d0;
+          border-radius: 18px;
+          background: #f0fdf4;
+          display: flex;
+          align-items: center;
+          gap: 14px;
         }
-        @media (max-width: 900px) {
+
+        .admin-empty-icon {
+          width: 42px;
+          height: 42px;
+          flex: 0 0 42px;
+          border-radius: 14px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: #d1fae5;
+          color: #047857;
+          font-size: 18px;
+          font-weight: 900;
+        }
+
+        .admin-empty-alert strong {
+          display: block;
+          margin-bottom: 4px;
+          color: #047857;
+          font-size: 15px;
+        }
+
+        .admin-suggestion-box {
+          padding: 16px 18px;
+          border-radius: 16px;
+          background: linear-gradient(135deg, #f8fafc, #f0f7ff);
+          border: 1px solid #dbe4f0;
+        }
+
+        .admin-suggestion-heading {
+          margin: 0 0 11px;
+          color: #0f172a;
+          font-size: 14px;
+          font-weight: 800;
+        }
+
+        .admin-suggestion-list {
+          margin: 0;
+          padding: 0;
+          list-style: none;
+          display: grid;
+          gap: 9px;
+        }
+
+        .admin-suggestion-item {
+          display: flex;
+          align-items: flex-start;
+          gap: 9px;
+          color: #475569;
+          font-size: 13px;
+          line-height: 1.55;
+        }
+
+        .admin-suggestion-bullet {
+          width: 7px;
+          height: 7px;
+          margin-top: 7px;
+          flex: 0 0 7px;
+          border-radius: 999px;
+          background: #3b82f6;
+        }
+
+        @media (max-width: 1450px) {
           .admin-alert-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
+
+          .admin-alert-card {
+            min-height: 220px;
+          }
         }
-        @media (max-width: 620px) {
+
+        @media (max-width: 780px) {
+          .admin-insight-panel {
+            padding: 18px;
+          }
+
           .admin-alert-grid {
             grid-template-columns: 1fr;
+          }
+
+          .admin-alert-card {
+            min-height: auto;
           }
         }
       `}</style>
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <h3 style={{ margin: 0, color: "#0f172a" }}>
-            Trung tâm cảnh báo thông minh
-          </h3>
+      <header className="admin-insight-header">
+        <div className="admin-insight-title-wrap">
+          <span className="admin-insight-title-icon">AI</span>
+
+          <div>
+            <h3 className="admin-insight-heading">
+              Trung tâm cảnh báo thông minh
+            </h3>
+
+            <p className="admin-insight-subtitle">
+              Tổng hợp các vấn đề cần Admin ưu tiên theo dõi và xử lý.
+            </p>
+          </div>
         </div>
-      </div>
+
+        <span className="admin-insight-count">
+          {displayedAlerts.length} cảnh báo đang hiển thị
+        </span>
+      </header>
 
       <div className="admin-alert-grid">
-        {alerts.length ? (
-          alerts.slice(0, 5).map((item, index) => {
+        {displayedAlerts.length ? (
+          displayedAlerts.map((item, index) => {
             const tone = toneStyle(item.severity);
+
             return (
               <article
-                key={`${item.type}-${index}`}
+                key={`${item.type || "alert"}-${index}`}
                 className="admin-alert-card"
                 style={{
+                  "--alert-accent": tone.accent,
                   border: `1px solid ${tone.border}`,
-                  background: tone.bg,
+                  background: tone.softBg,
                 }}
               >
-                <span className="admin-alert-tag" style={{ color: tone.color }}>
-                  {tone.tag}
-                </span>
-                <h4 className="admin-alert-title">{item.title}</h4>
-                <p className="admin-alert-message">{item.message}</p>
+                <div className="admin-alert-head">
+                  <span
+                    className="admin-alert-tag"
+                    style={{
+                      color: tone.color,
+                      background: tone.badgeBg,
+                    }}
+                  >
+                    {tone.tag}
+                  </span>
+
+                  <span
+                    className="admin-alert-icon"
+                    style={{
+                      color: tone.color,
+                      background: tone.badgeBg,
+                    }}
+                  >
+                    {tone.icon}
+                  </span>
+                </div>
+
+                <h4 className="admin-alert-title">
+                  {item.title || "Cảnh báo vận hành"}
+                </h4>
+
+                <p className="admin-alert-message">
+                  {item.message || "Chưa có nội dung mô tả chi tiết."}
+                </p>
+
                 {item.action ? (
                   <div
                     className="admin-alert-action"
-                    style={{ color: tone.color }}
+                    style={{
+                      color: tone.color,
+                      background: tone.actionBg,
+                    }}
                   >
                     <span
                       className="admin-action-dot"
-                      style={{
-                        background: `${tone.color}18`,
-                        color: tone.color,
-                      }}
+                      style={{ background: tone.accent }}
                     >
                       ›
                     </span>
+
                     <span>{item.action}</span>
                   </div>
                 ) : null}
@@ -160,33 +437,19 @@ export default function AdminInsightPanel({ insights }) {
             );
           })
         ) : (
-          <article
-            className="admin-alert-card"
-            style={{
-              border: "1px solid #a7f3d0",
-              background: "#ecfdf5",
-            }}
-          >
-            <strong style={{ color: "#047857" }}>Hệ thống đang ổn định</strong>
-            <p className="admin-alert-message">
-              Chưa phát hiện cảnh báo vận hành nghiêm trọng.
-            </p>
+          <article className="admin-empty-alert">
+            <span className="admin-empty-icon">✓</span>
+
+            <div>
+              <strong>Hệ thống đang vận hành ổn định</strong>
+
+              <p className="admin-alert-message">
+                Chưa phát hiện cảnh báo nghiêm trọng cần Admin xử lý.
+              </p>
+            </div>
           </article>
         )}
       </div>
-
-      {suggestions.length ? (
-        <div
-          style={{
-            padding: 14,
-            borderRadius: 14,
-            background: "#f8fafc",
-            border: "1px solid #e2e8f0",
-          }}
-        >
-          
-        </div>
-      ) : null}
     </section>
   );
 }
