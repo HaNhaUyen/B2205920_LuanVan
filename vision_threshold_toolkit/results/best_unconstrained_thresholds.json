@@ -1,0 +1,19 @@
+{
+  "raw": 0.4,
+  "confidence": 0.64,
+  "top_gap": 0.005,
+  "internal_total": 112,
+  "ood_total": 64,
+  "correct_accept": 56,
+  "wrong_internal_accept": 30,
+  "rejected_internal": 26,
+  "ood_false_accept": 1,
+  "ood_true_reject": 63,
+  "accepted_precision": 0.6436781609195402,
+  "internal_recall": 0.5,
+  "f1": 0.5628140703517588,
+  "f0_5": 0.6086956521739131,
+  "ood_rejection": 0.984375,
+  "external_call_rate": 0.5056818181818181,
+  "objective": 0.6808763586956522
+}

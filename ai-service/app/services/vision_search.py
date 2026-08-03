@@ -1,4 +1,3 @@
-# ai-service/app/services/vision_search.py
 from __future__ import annotations
 
 import csv
@@ -1013,7 +1012,11 @@ class VisionSearchEngine:
             if hit_count == 0 and final_score < 0.25:
                 continue
 
-            confidence = max(0.0, min(1.0, (final_score - 0.17) / 0.36))
+            score_part = max(0.0, min(1.0, (final_score - 0.45) / 0.45))
+            gap_reference = 0.12
+            # top_gap chưa có tại đây, nên confidence chỉ chuẩn hóa theo final_score.
+            # MIN_TOP_GAP tiếp tục được kiểm tra riêng trong search_pil_image().
+            confidence = score_part
 
             ranked.append(
                 {

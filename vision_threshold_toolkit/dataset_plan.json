@@ -1,0 +1,39 @@
+{
+  "images_per_class": 8,
+  "internal": [
+    {"slug":"phu-quoc","name":"Phú Quốc","queries":["Phu Quoc island Vietnam beach travel","Phu Quoc Vietnam landmark"]},
+    {"slug":"nha-trang","name":"Nha Trang","queries":["Nha Trang Vietnam beach travel","Nha Trang city landmark"]},
+    {"slug":"con-dao","name":"Côn Đảo","queries":["Con Dao Vietnam island travel","Con Dao beach Vietnam"]},
+    {"slug":"vung-tau","name":"Vũng Tàu","queries":["Vung Tau Vietnam travel landmark","Vung Tau beach Vietnam"]},
+    {"slug":"mui-ne","name":"Mũi Né","queries":["Mui Ne sand dunes Vietnam","Mui Ne beach Vietnam"]},
+    {"slug":"quy-nhon","name":"Quy Nhơn","queries":["Quy Nhon Vietnam travel","Quy Nhon beach Vietnam"]},
+    {"slug":"ha-long","name":"Hạ Long","queries":["Ha Long Bay Vietnam limestone","Ha Long Bay travel"]},
+    {"slug":"da-lat","name":"Đà Lạt","queries":["Da Lat Vietnam travel landmark","Da Lat pine forest Vietnam"]},
+    {"slug":"sa-pa","name":"Sa Pa","queries":["Sa Pa Vietnam rice terraces","Sa Pa mountain Vietnam"]},
+    {"slug":"ha-giang","name":"Hà Giang","queries":["Ha Giang Vietnam mountain pass","Ha Giang travel landscape"]},
+    {"slug":"moc-chau","name":"Mộc Châu","queries":["Moc Chau Vietnam tea hills","Moc Chau plateau travel"]},
+    {"slug":"buon-ma-thuot","name":"Buôn Ma Thuột","queries":["Buon Ma Thuot Vietnam waterfall","Buon Ma Thuot travel"]},
+    {"slug":"ninh-binh","name":"Ninh Bình","queries":["Ninh Binh Trang An Vietnam","Ninh Binh limestone boat"]},
+    {"slug":"hoi-an","name":"Hội An","queries":["Hoi An ancient town Vietnam","Hoi An lantern street"]},
+    {"slug":"hue","name":"Huế","queries":["Hue imperial city Vietnam","Hue Vietnam heritage"]},
+    {"slug":"da-nang","name":"Đà Nẵng","queries":["Da Nang Vietnam Dragon Bridge","Da Nang beach city"]},
+    {"slug":"can-tho","name":"Cần Thơ","queries":["Can Tho floating market Vietnam","Can Tho river travel"]},
+    {"slug":"ca-mau","name":"Cà Mau","queries":["Ca Mau cape Vietnam travel","Ca Mau mangrove Vietnam"]},
+    {"slug":"an-giang","name":"An Giang","queries":["An Giang Vietnam travel landscape","Tra Su forest An Giang"]},
+    {"slug":"tay-ninh","name":"Tây Ninh","queries":["Ba Den mountain Tay Ninh","Tay Ninh Cao Dai temple"]}
+  ],
+  "external": [
+    {"slug":"mount-fuji","name":"Núi Phú Sĩ","queries":["Mount Fuji Japan travel","Mount Fuji snow mountain"]},
+    {"slug":"big-ben","name":"Big Ben","queries":["Big Ben London landmark","Elizabeth Tower London"]},
+    {"slug":"eiffel-tower","name":"Tháp Eiffel","queries":["Eiffel Tower Paris landmark","Eiffel Tower travel"]},
+    {"slug":"sydney-opera-house","name":"Nhà hát Opera Sydney","queries":["Sydney Opera House landmark","Sydney Opera House harbour"]},
+    {"slug":"statue-of-liberty","name":"Tượng Nữ thần Tự do","queries":["Statue of Liberty New York","Statue of Liberty landmark"]}
+  ],
+  "non_travel": [
+    {"slug":"document","name":"Tài liệu","expected_image_type":"document","queries":["scanned document page","printed document paper"]},
+    {"slug":"screenshot","name":"Ảnh chụp màn hình","expected_image_type":"screenshot","queries":["computer screenshot interface","mobile app screenshot"]},
+    {"slug":"food","name":"Đồ ăn","expected_image_type":"food","queries":["food dish close up","meal plate photo"]},
+    {"slug":"animal","name":"Động vật","expected_image_type":"animal","queries":["animal portrait photo","dog cat close up"]},
+    {"slug":"object","name":"Đồ vật","expected_image_type":"object","queries":["household object isolated","electronic product photo"]}
+  ]
+}
