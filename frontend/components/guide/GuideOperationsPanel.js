@@ -306,6 +306,18 @@ function hasPassedTripEndDate(value) {
   return endDate.getTime() < startOfToday().getTime();
 }
 
+function hasTripStarted(value) {
+  if (!value) return false;
+  const startDate = new Date(value);
+  if (Number.isNaN(startDate.getTime())) return false;
+  startDate.setHours(0, 0, 0, 0);
+  return startDate.getTime() <= startOfToday().getTime();
+}
+
+function isTripActiveToday(startValue, endValue) {
+  return hasTripStarted(startValue) && !hasPassedTripEndDate(endValue);
+}
+
 function isTripPast(trip) {
   const departure = getTripDeparture(trip);
 
@@ -406,7 +418,7 @@ export default function GuideOperationsPanel({ guide }) {
     availabilityType: "personal",
     startAt: "",
     endAt: "",
-    allDay: false,
+    allDay: true,
     reason: "",
   });
   const [selectedPassenger, setSelectedPassenger] = useState(null);
@@ -619,15 +631,8 @@ export default function GuideOperationsPanel({ guide }) {
       return;
     }
 
-    const startAt = new Date(availabilityForm.startAt);
-    const endAt = new Date(availabilityForm.endAt);
-
-    if (
-      Number.isNaN(startAt.getTime()) ||
-      Number.isNaN(endAt.getTime()) ||
-      endAt <= startAt
-    ) {
-      showToast("Thời gian kết thúc phải sau thời gian bắt đầu.", "error");
+    if (availabilityForm.endAt < availabilityForm.startAt) {
+      showToast("Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.", "error");
       return;
     }
 
@@ -637,9 +642,9 @@ export default function GuideOperationsPanel({ guide }) {
         method: "POST",
         body: JSON.stringify({
           availabilityType: availabilityForm.availabilityType,
-          startAt: startAt.toISOString(),
-          endAt: endAt.toISOString(),
-          allDay: Boolean(availabilityForm.allDay),
+          startAt: availabilityForm.startAt,
+          endAt: availabilityForm.endAt,
+          allDay: true,
           reason: availabilityForm.reason.trim(),
         }),
       });
@@ -650,6 +655,9 @@ export default function GuideOperationsPanel({ guide }) {
       );
       setAvailabilityForm((current) => ({
         ...current,
+        startAt: "",
+        endAt: "",
+        allDay: true,
         reason: "",
       }));
       await loadAvailabilities();
@@ -879,14 +887,20 @@ export default function GuideOperationsPanel({ guide }) {
   };
 
   const updateCheckin = async (guestId, status) => {
+    const currentStartDate =
+      data?.dashboard?.departure?.departureDate ||
+      selectedTrip?.departure?.departureDate ||
+      selectedTrip?.departureDate;
     const currentEndDate =
       data?.dashboard?.departure?.endDate ||
       selectedTrip?.departure?.endDate ||
       selectedTrip?.endDate;
 
-    if (hasPassedTripEndDate(currentEndDate)) {
+    if (!isTripActiveToday(currentStartDate, currentEndDate)) {
       showToast(
-        "Chuyến đi đã qua ngày kết thúc. Kết quả điểm danh chỉ được xem.",
+        hasPassedTripEndDate(currentEndDate)
+          ? "Chuyến đi đã qua ngày kết thúc. Kết quả điểm danh chỉ được xem."
+          : "Chưa đến ngày khởi hành. Điểm danh chỉ mở trong thời gian tour diễn ra.",
         "warning",
       );
       return;
@@ -938,20 +952,29 @@ export default function GuideOperationsPanel({ guide }) {
       "preparing",
   );
 
+  const tripStartDate =
+    departure.departureDate ||
+    selectedTrip?.departure?.departureDate ||
+    selectedTrip?.departureDate ||
+    null;
+
   const tripEndDate =
     departure.endDate ||
     selectedTrip?.departure?.endDate ||
     selectedTrip?.endDate ||
     null;
 
+  const hasTripStartedTodayOrEarlier = hasTripStarted(tripStartDate);
   const hasTripEnded = hasPassedTripEndDate(tripEndDate);
+  const isTripActiveNow = isTripActiveToday(tripStartDate, tripEndDate);
+  const isBeforeTrip = !hasTripStartedTodayOrEarlier && !hasTripEnded;
   const hasSavedReport = Boolean(data?.report);
   const isCancelledTrip = operationStatus === "cancelled";
   const isAwaitingReport = hasTripEnded && !hasSavedReport && !isCancelledTrip;
   const isCompletedTrip =
     operationStatus === "completed" || (hasTripEnded && hasSavedReport);
   const isReadOnlyTrip =
-    isCancelledTrip || hasTripEnded || operationStatus === "completed";
+    isCancelledTrip || !isTripActiveNow || operationStatus === "completed";
   const displayOperationStatus = isCancelledTrip
     ? "cancelled"
     : isAwaitingReport
@@ -1212,7 +1235,20 @@ export default function GuideOperationsPanel({ guide }) {
                 </div>
               ) : null}
 
-              {isReadOnlyTrip && !isAwaitingReport ? (
+              {isBeforeTrip && !isCancelledTrip ? (
+                <div className="ops-readonly-alert">
+                  <LockKeyhole size={18} />
+                  <div>
+                    <strong>Chưa đến ngày khởi hành</strong>
+                    <span>
+                      Điểm danh, nhật ký, sự cố và thông báo đoàn chỉ được thao
+                      tác từ ngày khởi hành đến hết ngày kết thúc tour.
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              {isReadOnlyTrip && !isAwaitingReport && !isBeforeTrip ? (
                 <div className="ops-readonly-alert">
                   <LockKeyhole size={18} />
 
@@ -1273,8 +1309,9 @@ export default function GuideOperationsPanel({ guide }) {
                       <div className="ops-form-grid">
                         <Field label="Bắt đầu">
                           <input
-                            type="datetime-local"
+                            type="date"
                             required
+                            max={availabilityForm.endAt || undefined}
                             value={availabilityForm.startAt}
                             onChange={(event) =>
                               setAvailabilityForm((current) => ({
@@ -1287,8 +1324,9 @@ export default function GuideOperationsPanel({ guide }) {
 
                         <Field label="Kết thúc">
                           <input
-                            type="datetime-local"
+                            type="date"
                             required
+                            min={availabilityForm.startAt || undefined}
                             value={availabilityForm.endAt}
                             onChange={(event) =>
                               setAvailabilityForm((current) => ({
@@ -1299,20 +1337,6 @@ export default function GuideOperationsPanel({ guide }) {
                           />
                         </Field>
                       </div>
-
-                      <label className="ops-availability-all-day">
-                        <input
-                          type="checkbox"
-                          checked={availabilityForm.allDay}
-                          onChange={(event) =>
-                            setAvailabilityForm((current) => ({
-                              ...current,
-                              allDay: event.target.checked,
-                            }))
-                          }
-                        />
-                        <span>Cả ngày</span>
-                      </label>
 
                       <Field label="Lý do">
                         <textarea
@@ -1336,10 +1360,6 @@ export default function GuideOperationsPanel({ guide }) {
                         <PlusCircle size={17} />
                         {availabilitySaving ? "Đang gửi..." : "Gửi lịch bận"}
                       </button>
-
-                      <div className="ops-availability-form-note">
-                        Admin sẽ nhận thông báo ngay sau khi yêu cầu được gửi.
-                      </div>
                     </form>
                   </div>
 
@@ -1498,13 +1518,11 @@ export default function GuideOperationsPanel({ guide }) {
                                   <div className="ops-availability-meta">
                                     <span>
                                       <CalendarDays size={15} />
-                                      {formatDateTime(
+                                      {formatDate(
                                         item.startAt || item.start_at,
                                       )}
                                       {" → "}
-                                      {formatDateTime(
-                                        item.endAt || item.end_at,
-                                      )}
+                                      {formatDate(item.endAt || item.end_at)}
                                     </span>
                                     <span>
                                       <Clock size={15} />
@@ -2423,7 +2441,7 @@ export default function GuideOperationsPanel({ guide }) {
                       />
                     </Field>
                   </div>
-                  <Field label="Đề xuất cải thiện (Dành cho Điều hành Tour)">
+                  <Field label="Đề xuất cải thiện">
                     <textarea
                       placeholder="Ý kiến cá nhân để tổ chức tốt hơn ở lần sau..."
                       value={reportForm.recommendations}

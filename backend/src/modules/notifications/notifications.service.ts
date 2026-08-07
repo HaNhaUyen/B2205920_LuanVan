@@ -141,23 +141,23 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
   private buildUserVisibleWhere(
     userId: bigint,
     role: "admin" | "user" | "guide",
+    userCreatedAt: Date,
   ) {
     return {
       isPublished: true,
+
       OR: [
-        /*
-         * Thông báo gửi riêng cho đúng tài khoản.
-         */
         {
           targetUserId: userId,
         },
 
-        /*
-         * Thông báo gửi chung theo vai trò.
-         */
         {
           targetUserId: null,
           targetRole: this.buildTargetRoleWhere(role),
+
+          createdAt: {
+            gte: userCreatedAt,
+          },
         },
       ],
     };
@@ -169,36 +169,125 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     limit?: number,
   ) {
     const take = limit ? Math.min(Math.max(Number(limit), 1), 50) : undefined;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException("Không tìm thấy tài khoản.");
+    }
+
     const items: any[] = await this.prisma.notification.findMany({
-      where: this.buildUserVisibleWhere(userId, role),
+      where: {
+        isPublished: true,
+        OR: [
+          // Thông báo gửi riêng cho đúng user
+          {
+            targetUserId: userId,
+          },
+
+          // Thông báo chung chỉ tính từ lúc user tồn tại
+          {
+            targetUserId: null,
+            targetRole: this.buildTargetRoleWhere(role),
+            createdAt: {
+              gte: user.createdAt,
+            },
+          },
+        ],
+      },
+
       include: {
         reads: {
           where: { userId },
-          select: { id: true, readAt: true },
+          select: {
+            id: true,
+            readAt: true,
+          },
           take: 1,
         },
-        createdByUser: { select: { id: true, fullName: true, email: true } },
+
+        createdByUser: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
+
         targetUser: {
-          select: { id: true, fullName: true, email: true, role: true },
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            role: true,
+          },
         },
       },
+
       orderBy: [{ createdAt: "desc" }],
+
       ...(take ? { take } : {}),
     });
-    return items.map((item) => ({
-      ...item,
-      isRead: item.reads.length > 0,
-      readAt: item.reads[0]?.readAt || null,
-    }));
+
+    return items.map((item) => {
+      const metadata =
+        item.metadata && typeof item.metadata === "object" ? item.metadata : {};
+
+      return {
+        ...item,
+        metadata,
+        actionUrl: metadata.actionUrl || null,
+        actionLabel: metadata.actionLabel || null,
+        isRead: item.reads.length > 0,
+        readAt: item.reads[0]?.readAt || null,
+      };
+    });
   }
 
   async unreadCount(userId: bigint, role: "admin" | "user" | "guide") {
-    const total = await this.prisma.notification.count({
-      where: {
-        ...this.buildUserVisibleWhere(userId, role),
-        reads: { none: { userId } },
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        createdAt: true,
       },
     });
+
+    if (!user) {
+      throw new NotFoundException("Không tìm thấy tài khoản.");
+    }
+
+    const total = await this.prisma.notification.count({
+      where: {
+        isPublished: true,
+
+        OR: [
+          {
+            targetUserId: userId,
+          },
+
+          {
+            targetUserId: null,
+            targetRole: this.buildTargetRoleWhere(role),
+            createdAt: {
+              gte: user.createdAt,
+            },
+          },
+        ],
+
+        reads: {
+          none: {
+            userId,
+          },
+        },
+      },
+    });
+
     return { total };
   }
 
@@ -207,21 +296,47 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     userId: bigint,
     role: "admin" | "user" | "guide",
   ) {
-    const notification = await this.prisma.notification.findFirst({
-      where: { id: BigInt(id), ...this.buildUserVisibleWhere(userId, role) },
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        createdAt: true,
+      },
     });
+
+    if (!user) {
+      throw new NotFoundException("Không tìm thấy tài khoản.");
+    }
+
+    const notification = await this.prisma.notification.findFirst({
+      where: {
+        id: BigInt(id),
+        ...this.buildUserVisibleWhere(userId, role, user.createdAt),
+      },
+    });
+
     if (!notification) {
       throw new NotFoundException(
         "Thông báo không tồn tại hoặc bạn không có quyền xem.",
       );
     }
+
     await this.prisma.notificationRead.upsert({
       where: {
-        notificationId_userId: { notificationId: notification.id, userId },
+        notificationId_userId: {
+          notificationId: notification.id,
+          userId,
+        },
       },
-      update: { readAt: new Date() },
-      create: { notificationId: notification.id, userId, readAt: new Date() },
+      update: {
+        readAt: new Date(),
+      },
+      create: {
+        notificationId: notification.id,
+        userId,
+        readAt: new Date(),
+      },
     });
+
     return { success: true };
   }
 
@@ -315,8 +430,9 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
         targetRole: (dto.targetRole || "user") as any,
         targetUserId: dto.targetUserId ? BigInt(dto.targetUserId) : null,
         isPublished: dto.isPublished ?? true,
+        metadata: dto.metadata || undefined,
         createdBy,
-      },
+      } as any,
       include: {
         createdByUser: { select: { id: true, fullName: true, email: true } },
         targetUser: {
@@ -342,7 +458,11 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
         targetRole: (dto.targetRole || existing.targetRole) as any,
         targetUserId: dto.targetUserId ? BigInt(dto.targetUserId) : null,
         isPublished: dto.isPublished ?? existing.isPublished,
-      },
+        metadata:
+          dto.metadata === undefined
+            ? (existing as any).metadata
+            : dto.metadata,
+      } as any,
       include: {
         createdByUser: { select: { id: true, fullName: true, email: true } },
         targetUser: {

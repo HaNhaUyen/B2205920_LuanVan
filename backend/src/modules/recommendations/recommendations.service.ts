@@ -45,6 +45,14 @@ function normalizedHybridWeights() {
 }
 
 const HYBRID_WEIGHTS = normalizedHybridWeights();
+const VALID_SELLER_BOOKING_STATUSES = [
+  "waiting_confirmation",
+  "confirmed",
+  "completed",
+] as const;
+const PAID_PAYMENT_STATUSES = ["paid"] as const;
+const BEST_SELLER_THRESHOLD = 5;
+const FAVORITE_THRESHOLD = 5;
 
 @Injectable()
 export class RecommendationsService {
@@ -112,6 +120,20 @@ export class RecommendationsService {
         .map((behavior) => String(behavior.tourId)),
     );
 
+    // Chỉ loại các tour có tín hiệu cam kết mạnh. Những tour người dùng mới xem,
+    // tìm kiếm, yêu thích hoặc được chatbot tư vấn vẫn phải được giữ lại để hồ sơ
+    // sở thích gần đây có thể tác động trực tiếp đến kết quả gợi ý.
+    const stronglyInteractedTourIds = new Set(
+      (behaviors as any[])
+        .filter((behavior) => behavior.tourId)
+        .filter((behavior) =>
+          ["booking", "review"].includes(
+            String(behavior.action || "").toLowerCase(),
+          ),
+        )
+        .map((behavior) => String(behavior.tourId)),
+    );
+
     const maxBookingCount = Math.max(
       ...activeTours.map((tour: any) => Number(tour.bookings?.length || 0)),
       1,
@@ -121,16 +143,17 @@ export class RecommendationsService {
       1,
     );
 
-    const unseenTours = (activeTours as any[]).filter(
-      (tour) => !interactedTourIds.has(String(tour.id)),
+    const candidateTours = (activeTours as any[]).filter(
+      (tour) => !stronglyInteractedTourIds.has(String(tour.id)),
     );
-    // Ưu tiên tuyệt đối tour chưa tương tác. Chỉ fallback về toàn bộ tour khi
-    // người dùng đã tương tác với tất cả tour đang hoạt động.
-    const candidateTours = unseenTours.length
-      ? unseenTours
+
+    // Nếu người dùng đã đặt/đánh giá toàn bộ tour đang hoạt động thì vẫn fallback
+    // về toàn bộ danh sách để API không trả rỗng.
+    const safeCandidateTours = candidateTours.length
+      ? candidateTours
       : (activeTours as any[]);
 
-    const scored = candidateTours.map((tour) => {
+    const scored = safeCandidateTours.map((tour) => {
       const content = this.contentBased.calcContentScore(tour, signals);
       const exactIntent = this.contentBased.calcExactIntentBonus(tour, signals);
       const destinationPenalty =
@@ -147,9 +170,14 @@ export class RecommendationsService {
         maxBookingCount,
         maxFavoriteCount,
       );
-      const alreadyInteractedPenalty =
-        unseenTours.length === 0 && interactedTourIds.has(String(tour.id))
-          ? 12
+      // Chỉ giảm nhẹ tour đã xem/tìm/yêu thích thay vì loại hoàn toàn.
+      // Tour đã booking/review chỉ xuất hiện trong trường hợp fallback không còn ứng viên.
+      const alreadyInteractedPenalty = stronglyInteractedTourIds.has(
+        String(tour.id),
+      )
+        ? 12
+        : interactedTourIds.has(String(tour.id))
+          ? 2
           : 0;
 
       const agreementBonus =
@@ -215,10 +243,55 @@ export class RecommendationsService {
       } satisfies HybridScoredTour;
     });
 
-    const selected = this.applyDiversity(
-      scored.sort((a, b) => b.score - a.score),
-      take,
-    );
+    const sortedScored = scored.sort((a, b) => b.score - a.score);
+    const selected = this.applyDiversity(sortedScored, take);
+    const topDestinationSignals = Object.entries(signals.destinationScore || {})
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 10)
+      .map(([destinationId, score]) => {
+        const destination = (destinations as any[]).find(
+          (item) => String(item.id) === String(destinationId),
+        );
+        return {
+          destinationId: String(destinationId),
+          name: destination?.name || null,
+          province: destination?.province || null,
+          score: Number(Number(score).toFixed(2)),
+        };
+      });
+    const toDebugScore = (item: HybridScoredTour) => ({
+      tourId: String(item.tour.id),
+      tourName: item.tour.name,
+      destinationId: String(item.tour.destinationId || ""),
+      destinationName: item.tour.destination?.name || null,
+      finalScore: Number(item.score.toFixed(2)),
+      contentScore: Number(item.contentScore.toFixed(2)),
+      collaborativeScore: Number(item.collaborativeScore.toFixed(2)),
+      matrixFactorizationScore: Number(
+        item.matrixFactorizationScore.toFixed(2),
+      ),
+      deepLearningScore: Number(item.deepLearningScore.toFixed(2)),
+      businessScore: Number(item.businessScore.toFixed(2)),
+      exactIntentBonus: Number(item.exactIntentBonus.toFixed(2)),
+      destinationPenalty: Number(item.destinationPenalty.toFixed(2)),
+      alreadyInteractedPenalty: Number(
+        item.alreadyInteractedPenalty.toFixed(2),
+      ),
+      reasons: item.reasons,
+    });
+
+    if (debug) {
+      console.log("[recommendations.debug]", {
+        userId: String(userId),
+        behaviorCount: behaviors.length,
+        activeTourCount: activeTours.length,
+        candidateTourCount: safeCandidateTours.length,
+        excludedByBookingOrReviewCount: stronglyInteractedTourIds.size,
+        topDestinationSignals,
+        top20BeforeDiversity: sortedScored.slice(0, 20).map(toDebugScore),
+        selectedAfterDiversity: selected.map(toDebugScore),
+      });
+    }
 
     return {
       strategy: "hybrid_cf_cbf_matrix_factorization_deep_learning_business",
@@ -230,9 +303,10 @@ export class RecommendationsService {
         remainingSlots: this.getRemainingSlots(item.tour.departures?.[0]),
         bookingCount: item.tour.bookings?.length || 0,
         favoriteCount: item.tour.favorites?.length || 0,
-        dynamicIsBestSeller: (item.tour.bookings?.length || 0) >= 5,
-        dynamicIsFavorite: (item.tour.favorites?.length || 0) >= 5,
-        dynamicIsBestDeal: false,
+        dynamicIsBestSeller:
+          (item.tour.bookings?.length || 0) >= BEST_SELLER_THRESHOLD,
+        dynamicIsFavorite:
+          (item.tour.favorites?.length || 0) >= FAVORITE_THRESHOLD,
         recommendationBreakdown: debug
           ? {
               content: Number(item.contentScore.toFixed(2)),
@@ -247,23 +321,17 @@ export class RecommendationsService {
           : undefined,
       })),
       debug: debug
-        ? selected.map((item) => ({
-            tourId: String(item.tour.id),
-            finalScore: Number(item.score.toFixed(2)),
-            contentScore: Number(item.contentScore.toFixed(2)),
-            collaborativeScore: Number(item.collaborativeScore.toFixed(2)),
-            matrixFactorizationScore: Number(
-              item.matrixFactorizationScore.toFixed(2),
-            ),
-            deepLearningScore: Number(item.deepLearningScore.toFixed(2)),
-            businessScore: Number(item.businessScore.toFixed(2)),
-            exactIntentBonus: Number(item.exactIntentBonus.toFixed(2)),
-            destinationPenalty: Number(item.destinationPenalty.toFixed(2)),
-            alreadyInteractedPenalty: Number(
-              item.alreadyInteractedPenalty.toFixed(2),
-            ),
-            reasons: item.reasons,
-          }))
+        ? {
+            userId: String(userId),
+            behaviorCount: behaviors.length,
+            activeTourCount: activeTours.length,
+            candidateTourCount: safeCandidateTours.length,
+            excludedByBookingOrReviewCount: stronglyInteractedTourIds.size,
+            excludedByBookingOrReviewTourIds: [...stronglyInteractedTourIds],
+            topDestinationSignals,
+            top20BeforeDiversity: sortedScored.slice(0, 20).map(toDebugScore),
+            selectedAfterDiversity: selected.map(toDebugScore),
+          }
         : undefined,
     };
   }
@@ -305,11 +373,13 @@ export class RecommendationsService {
           where: {
             bookingStatus: {
               in: [
-                "pending_payment",
-                "waiting_confirmation",
-                "confirmed",
-                "completed",
+                ...VALID_SELLER_BOOKING_STATUSES,
               ] as any,
+            },
+            payments: {
+              some: {
+                paymentStatus: { in: [...PAID_PAYMENT_STATUSES] as any },
+              },
             },
           },
           select: { id: true },
@@ -365,7 +435,6 @@ export class RecommendationsService {
     const trendingScore =
       (Boolean(tour.isTrending) ? 10 : 0) +
       normalizeNumber(tour.bookings?.length || 0, maxBookingCount) * 5;
-    const bestDealScore = Boolean(tour.isBestDeal) ? 5 : 0;
     const availableDeparture = (tour.departures || []).find(
       (departure: any) => {
         const available =
@@ -382,7 +451,6 @@ export class RecommendationsService {
         favoriteScore +
         ratingScore +
         trendingScore +
-        bestDealScore +
         availabilityScore,
     );
   }
@@ -425,13 +493,15 @@ export class RecommendationsService {
       return true;
     };
 
-    // Vòng 1: ưu tiên phủ nhiều điểm đến nhất, mỗi điểm đến tối đa 1 tour.
+    // Vòng 1 chỉ dùng khoảng một nửa số vị trí để phủ nhiều điểm đến.
+    // Không để bước đa dạng hóa lấn át hoàn toàn thứ hạng cá nhân hóa.
+    const diversitySlots = Math.max(1, Math.ceil(take / 2));
     for (const item of items) {
       trySelect(item, 1, Math.min(2, maxPerTheme));
-      if (selected.length >= take) return selected;
+      if (selected.length >= diversitySlots) break;
     }
 
-    // Vòng 2: cho phép tối đa 2 tour/điểm đến (có thể chỉnh bằng biến môi trường).
+    // Vòng 2: giữ thứ tự điểm và cho phép tối đa RECO_MAX_PER_DESTINATION.
     for (const item of items) {
       trySelect(item, maxPerDestination, maxPerTheme);
       if (selected.length >= take) return selected;
@@ -500,11 +570,13 @@ export class RecommendationsService {
           where: {
             bookingStatus: {
               in: [
-                "pending_payment",
-                "waiting_confirmation",
-                "confirmed",
-                "completed",
+                ...VALID_SELLER_BOOKING_STATUSES,
               ] as any,
+            },
+            payments: {
+              some: {
+                paymentStatus: { in: [...PAID_PAYMENT_STATUSES] as any },
+              },
             },
           },
           select: { id: true },

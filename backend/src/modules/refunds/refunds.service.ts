@@ -1,9 +1,14 @@
 // @ts-nocheck
-import { BadRequestException, Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { EmailService } from "../../common/services/email.service";
 import { CreateRefundDto } from "./dto/create-refund.dto";
 import { ReviewRefundDto } from "./dto/review-refund.dto";
+import { DepartureCapacityService } from "../../common/services/departure-capacity.service";
 
 const BUSINESS_TIME_ZONE = "Asia/Ho_Chi_Minh";
 const HOURS_24 = 24;
@@ -59,6 +64,7 @@ export class RefundsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly departureCapacity: DepartureCapacityService,
   ) {}
 
   private formatCurrency(value: unknown) {
@@ -184,9 +190,20 @@ export class RefundsService {
       );
     }
 
+    /*
+     * Booking pending_payment/draft vẫn là booking có thật,
+     * nhưng chưa phát sinh khoản tiền cần hoàn.
+     * Trả đúng nguyên nhân thay vì một thông báo chung chung.
+     */
+    if (["draft", "pending_payment"].includes(bookingStatus)) {
+      throw new BadRequestException(
+        "Booking này chưa thanh toán nên không phát sinh khoản tiền để hoàn. Nếu không tiếp tục, bạn có thể hủy booking chưa thanh toán.",
+      );
+    }
+
     if (!["confirmed", "waiting_confirmation"].includes(bookingStatus)) {
       throw new BadRequestException(
-        "Chỉ có thể hủy vé đối với booking đã thanh toán hoặc đã được xác nhận.",
+        "Chỉ có thể gửi yêu cầu hoàn tiền đối với booking đã thanh toán hoặc đã được xác nhận.",
       );
     }
 
@@ -626,13 +643,12 @@ export class RefundsService {
     return policy;
   }
 
-  private validateRefundReceiver(dto: CreateRefundDto) {
-    const refundBankName = normalizeText(dto.refundBankName);
-    const refundAccountNo = normalizeAccountNo(dto.refundAccountNo);
+  private validateRefundReceiver(user: any) {
+    const refundBankName = normalizeText(user?.refundBankName);
+    const refundAccountNo = normalizeAccountNo(user?.refundAccountNo);
     const refundAccountName = normalizeText(
-      dto.refundAccountName,
+      user?.refundAccountName,
     ).toUpperCase();
-    const refundQrUrl = normalizeText(dto.refundQrUrl);
 
     if (!refundBankName) {
       throw new BadRequestException("Vui lòng nhập ngân hàng nhận hoàn tiền.");
@@ -644,7 +660,7 @@ export class RefundsService {
       );
     }
 
-    if (!/^[0-9A-Za-z_.-]{4,50}$/.test(refundAccountNo)) {
+    if (!/^[0-9A-Za-z_.-]{6,50}$/.test(refundAccountNo)) {
       throw new BadRequestException(
         "Số tài khoản không hợp lệ. Vui lòng chỉ nhập số/chữ, không nhập khoảng trắng.",
       );
@@ -660,7 +676,6 @@ export class RefundsService {
       refundBankName,
       refundAccountNo,
       refundAccountName,
-      refundQrUrl: refundQrUrl || null,
     };
   }
 
@@ -673,6 +688,7 @@ export class RefundsService {
         tour: true,
         departure: true,
         payments: { orderBy: { createdAt: "desc" } },
+        user: true,
       },
     });
 
@@ -685,6 +701,7 @@ export class RefundsService {
     const existed = await this.prisma.refundRequest.findFirst({
       where: {
         bookingId,
+        activeKey: `booking:${bookingId.toString()}`,
         status: { in: ["pending", "approved"] as any },
       },
     });
@@ -695,7 +712,17 @@ export class RefundsService {
       );
     }
 
-    const receiver = this.validateRefundReceiver(dto);
+    const receiver = this.validateRefundReceiver({
+      refundBankName:
+        normalizeText((dto as any).refundBankName) ||
+        normalizeText(booking.user?.refundBankName),
+      refundAccountNo:
+        normalizeAccountNo((dto as any).refundAccountNo) ||
+        normalizeAccountNo(booking.user?.refundAccountNo),
+      refundAccountName:
+        normalizeText((dto as any).refundAccountName) ||
+        normalizeText(booking.user?.refundAccountName),
+    });
 
     /*
      * Không nhận refundAmount từ frontend.
@@ -710,7 +737,6 @@ export class RefundsService {
         refundBankName: receiver.refundBankName,
         refundAccountNo: receiver.refundAccountNo,
         refundAccountName: receiver.refundAccountName,
-        refundQrUrl: receiver.refundQrUrl,
         status: "pending",
       },
       include: {
@@ -757,7 +783,7 @@ export class RefundsService {
             `Tỷ lệ hoàn ${policy.refundRate}%, số tiền ${this.formatCurrency(
               policy.refundAmount,
             )}. Nhận về ${receiver.refundBankName} - ` +
-            `${receiver.refundAccountNo} - ${receiver.refundAccountName}.`,
+            `****${receiver.refundAccountNo.slice(-4)} - ${receiver.refundAccountName}.`,
         },
       })
       .catch(() => null);
@@ -818,29 +844,89 @@ export class RefundsService {
         { booking: { contactName: { contains: search } } },
         { booking: { contactEmail: { contains: search } } },
         { booking: { tour: { name: { contains: search } } } },
+        { user: { is: { fullName: { contains: search } } } },
+        { user: { is: { email: { contains: search } } } },
       ];
     }
 
-    const orderBy: any =
-      sortBy === "status"
-        ? { status: sortOrder }
-        : sortBy === "amount"
-          ? { refundAmount: sortOrder }
-          : { createdAt: sortOrder };
+    const include: any = {
+      booking: { include: { tour: true, departure: true, payments: true } },
+      user: true,
+    };
 
-    const [total, items] = await Promise.all([
-      this.prisma.refundRequest.count({ where }),
-      this.prisma.refundRequest.findMany({
+    const total = await this.prisma.refundRequest.count({ where });
+
+    let items: any[] = [];
+
+    /*
+     * Tên khách hiển thị trên UI là:
+     *   user.fullName || booking.contactName
+     *
+     * Đây là giá trị lấy từ hai quan hệ khác nhau nên không thể dùng một
+     * orderBy Prisma đơn giản mà vẫn đúng với chính dữ liệu đang hiển thị.
+     * Vì vậy riêng sort "customer" phải lấy toàn bộ tập đã lọc, sắp xếp theo
+     * đúng tên hiển thị rồi mới phân trang. Nhờ đó A→Z / Z→A đúng trên toàn
+     * bộ kết quả, không chỉ đúng trong từng trang.
+     */
+    if (sortBy === "customer") {
+      const allMatched = await this.prisma.refundRequest.findMany({
         where,
-        include: {
-          booking: { include: { tour: true, departure: true, payments: true } },
-          user: true,
-        },
+        include,
+      });
+
+      const direction = sortOrder === "asc" ? 1 : -1;
+      const collator = new Intl.Collator("vi", {
+        sensitivity: "base",
+        usage: "sort",
+        numeric: true,
+      });
+
+      allMatched.sort((a: any, b: any) => {
+        const nameA = normalizeText(
+          a.user?.fullName || a.booking?.contactName || "",
+        );
+        const nameB = normalizeText(
+          b.user?.fullName || b.booking?.contactName || "",
+        );
+
+        const byName = collator.compare(nameA, nameB);
+        if (byName !== 0) return byName * direction;
+
+        // Nếu trùng tên thì ưu tiên email để thứ tự ổn định, dễ kiểm tra.
+        const emailA = normalizeText(
+          a.user?.email || a.booking?.contactEmail || "",
+        );
+        const emailB = normalizeText(
+          b.user?.email || b.booking?.contactEmail || "",
+        );
+        const byEmail = collator.compare(emailA, emailB);
+        if (byEmail !== 0) return byEmail * direction;
+
+        // Cuối cùng cố định bằng id, tránh thứ tự nhảy giữa các lần tải.
+        const idA = BigInt(a.id || 0);
+        const idB = BigInt(b.id || 0);
+        if (idA === idB) return 0;
+        return (idA < idB ? -1 : 1) * direction;
+      });
+
+      const start = (page - 1) * pageSize;
+      items = allMatched.slice(start, start + pageSize);
+    } else {
+      const orderBy: any =
+        sortBy === "status"
+          ? [{ status: sortOrder }, { id: "desc" }]
+          : sortBy === "amount"
+            ? [{ refundAmount: sortOrder }, { id: "desc" }]
+            : [{ createdAt: sortOrder }, { id: "desc" }];
+
+      items = await this.prisma.refundRequest.findMany({
+        where,
+        include,
         orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
-      }),
-    ]);
+      });
+    }
 
     const metadata = await this.loadPolicyMetadata(
       items.map((item) => item.id),
@@ -869,6 +955,18 @@ export class RefundsService {
             tour: true,
             departure: true,
             payments: { orderBy: { createdAt: "desc" } },
+            logs: {
+              where: {
+                actionType: {
+                  in: [
+                    "operator_cancel_booking",
+                    "operator_cancel_departure",
+                  ] as any,
+                },
+              },
+              orderBy: { createdAt: "desc" },
+              take: 5,
+            },
           },
         },
         user: true,
@@ -906,6 +1004,7 @@ export class RefundsService {
         where: { id },
         data: {
           status,
+          activeKey: status === "rejected" ? null : req.activeKey,
           adminNote: adminNote || null,
           reviewedBy: adminId,
           reviewedAt: new Date(),
@@ -913,6 +1012,44 @@ export class RefundsService {
       });
 
       if (status === "approved") {
+        const refundedAt = new Date();
+        const refundAmount = Number(req.refundAmount || 0);
+
+        if (refundAmount <= 0) {
+          throw new BadRequestException("Số tiền hoàn không hợp lệ.");
+        }
+
+        await tx.$executeRawUnsafe(
+          `
+            UPDATE refund_requests
+            SET refunded_at = ?
+            WHERE id = ?
+          `,
+          refundedAt,
+          id.toString(),
+        );
+
+        await tx.$executeRawUnsafe(
+          `
+            INSERT INTO revenue_adjustments (
+              booking_id,
+              refund_request_id,
+              adjustment_type,
+              amount,
+              occurred_at,
+              note
+            )
+            VALUES (?, ?, 'refund', ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              refund_request_id = refund_request_id
+          `,
+          req.bookingId.toString(),
+          id.toString(),
+          refundAmount,
+          refundedAt,
+          adminNote || "Admin xác nhận đã hoàn tiền cho khách.",
+        );
+
         const guest =
           Number(req.booking.adultCount || 0) +
           Number(req.booking.childCount || 0);
@@ -923,27 +1060,64 @@ export class RefundsService {
           data: { bookingStatus: "cancelled" },
         });
 
-        const slotField = ["confirmed", "completed"].includes(oldStatus)
-          ? "bookedSlots"
-          : "heldSlots";
+        /*
+         * Giải phóng slot đúng một lần.
+         *
+         * - Refund do khách chủ động yêu cầu: booking vẫn confirmed /
+         *   waiting_confirmation => trả slot tại bước duyệt refund.
+         * - Admin hủy cả departure: adminCancelDeparture đã trả slot ngay khi
+         *   hủy => tuyệt đối không trả lần hai.
+         * - Admin hủy riêng booking từ code mới: log có [SLOTS_RELEASED] =>
+         *   slot đã trả khi hủy.
+         * - Dữ liệu cũ được tạo TRƯỚC bản sửa: operator_cancel_booking chưa
+         *   trả slot và chưa có marker. Khi duyệt lần đầu, dùng oldStatus trong
+         *   log để trả đúng held_slots / booked_slots.
+         */
+        const cancellationLogs = Array.isArray(req.booking?.logs)
+          ? req.booking.logs
+          : [];
+        const departureCancelLog = cancellationLogs.find(
+          (log: any) => String(log?.actionType) === "operator_cancel_departure",
+        );
+        const bookingCancelLog = cancellationLogs.find(
+          (log: any) => String(log?.actionType) === "operator_cancel_booking",
+        );
+        const slotsAlreadyReleased =
+          Boolean(departureCancelLog) ||
+          String(bookingCancelLog?.note || "").includes("[SLOTS_RELEASED]");
 
-        const departure = await tx.tourDeparture.findUnique({
-          where: { id: req.booking.departureId },
-        });
+        let slotReleaseSourceStatus = oldStatus;
 
-        if (departure) {
-          const currentSlots = Number(
-            slotField === "bookedSlots"
-              ? departure.bookedSlots
-              : departure.heldSlots,
-          );
+        if (
+          oldStatus === "cancelled_by_operator" &&
+          bookingCancelLog &&
+          !slotsAlreadyReleased
+        ) {
+          slotReleaseSourceStatus = String(bookingCancelLog.oldStatus || "");
+        }
 
-          await tx.tourDeparture.update({
-            where: { id: req.booking.departureId },
-            data: {
-              [slotField]: Math.max(0, currentSlots - guest),
-            },
-          });
+        let slotsReleasedNow = false;
+
+        if (guest > 0 && !slotsAlreadyReleased) {
+          if (["confirmed", "completed"].includes(slotReleaseSourceStatus)) {
+            await this.departureCapacity.releaseBookedSlots(
+              tx,
+              req.booking.departureId,
+              guest,
+            );
+            slotsReleasedNow = true;
+          } else if (
+            ["pending_payment", "waiting_confirmation"].includes(
+              slotReleaseSourceStatus,
+            )
+          ) {
+            await this.departureCapacity.releaseHeldSlots(
+              tx,
+              req.booking.departureId,
+              guest,
+            );
+            slotsReleasedNow = true;
+          }
         }
 
         await tx.payment.updateMany({
@@ -963,7 +1137,11 @@ export class RefundsService {
             changedByUserId: adminId,
             source: "admin",
             reason: adminNote || null,
-            note: `Duyệt hoàn tiền ${this.formatCurrency(req.refundAmount || req.booking.finalAmount)} về ${req.refundBankName} - ${req.refundAccountNo} - ${req.refundAccountName}. Trả lại ${guest} slot.`,
+            note:
+              `Duyệt hoàn tiền ${this.formatCurrency(req.refundAmount || req.booking.finalAmount)} về ${req.refundBankName} - ****${String(req.refundAccountNo || "").slice(-4)} - ${req.refundAccountName}. ` +
+              (slotsReleasedNow
+                ? `Trả lại ${guest} slot tại bước duyệt hoàn tiền.`
+                : `Slot đã được giải phóng trước đó khi booking bị hủy.`),
           },
         });
       } else {
@@ -983,48 +1161,6 @@ export class RefundsService {
 
       return item;
     });
-
-    if (status === "approved") {
-      const refundedAt = new Date();
-
-      await this.prisma.$executeRawUnsafe(
-        `
-          UPDATE refund_requests
-          SET refunded_at = ?
-          WHERE id = ?
-        `,
-        refundedAt,
-        id.toString(),
-      );
-
-      /*
-       * Bảng revenue_adjustments ghi nhận khoản hoàn theo đúng tháng admin
-       * xác nhận đã chuyển tiền. Dashboard lấy doanh thu thuần:
-       * gross revenue - refund adjustments.
-       */
-      await this.prisma.$executeRawUnsafe(
-        `
-          INSERT INTO revenue_adjustments (
-            booking_id,
-            refund_request_id,
-            adjustment_type,
-            amount,
-            occurred_at,
-            note
-          )
-          VALUES (?, ?, 'refund', ?, ?, ?)
-          ON DUPLICATE KEY UPDATE
-            amount = VALUES(amount),
-            occurred_at = VALUES(occurred_at),
-            note = VALUES(note)
-        `,
-        req.bookingId.toString(),
-        id.toString(),
-        Number(req.refundAmount || 0),
-        refundedAt,
-        adminNote || "Admin xác nhận đã hoàn tiền cho khách.",
-      );
-    }
 
     await this.sendRefundReviewEmail(req, status, adminNote).catch(
       async (error) => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import AdminInsightPanel from "@/components/admin/AdminInsightPanel";
 import AdminReportButton from "@/components/admin/AdminReportButton";
@@ -26,15 +26,43 @@ import {
 import TourSupplierSelector from "@/components/admin/TourSupplierSelector";
 
 const adminTabs = [
-  { key: "overview", label: "Dashboard", href: "/admin" },
+  { key: "overview", label: "Tổng quan", href: "/admin" },
   { key: "bookings", label: "Booking", href: "/admin/bookings" },
-  { key: "tours", label: "Tours", href: "/admin/tours" },
+  { key: "tours", label: "Tour", href: "/admin/tours" },
   { key: "destinations", label: "Điểm đến", href: "/admin/destinations" },
   { key: "reviews", label: "Đánh giá", href: "/admin/reviews" },
   { key: "contacts", label: "Liên hệ", href: "/admin/contacts" },
   { key: "users", label: "Người dùng", href: "/admin/users" },
   { key: "profile", label: "Hồ sơ", href: "/admin/profile" },
 ];
+
+function useChartReveal(delay = 0) {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), delay);
+    return () => clearTimeout(timer);
+  }, [delay]);
+  return visible;
+}
+
+function mapTourThemeLabel(value) {
+  const key = String(value || "").toLowerCase();
+  const labels = {
+    family: "Gia đình",
+    beach: "Biển",
+    luxury: "Nghỉ dưỡng cao cấp",
+    culture: "Văn hóa",
+    adventure: "Phiêu lưu",
+    discovery: "Khám phá",
+    nature: "Thiên nhiên",
+    honeymoon: "Trăng mật",
+    culinary: "Ẩm thực",
+    spiritual: "Tâm linh",
+    festival: "Lễ hội",
+    eco: "Sinh thái",
+  };
+  return labels[key] || (value ? String(value) : "Khác");
+}
 
 const emptyPage = {
   items: [],
@@ -46,12 +74,11 @@ const initialBookingFilter = {
   pageSize: 10,
   search: "",
   status: "",
-  paymentStatus: "",
+  tourId: "",
+  departureId: "",
+  departureDate: "",
   destinationId: "",
-  departureFrom: "",
-  departureTo: "",
   guideStatus: "",
-  urgency: "",
   sortBy: "createdAt",
   sortOrder: "desc",
 };
@@ -174,6 +201,7 @@ function MiniBarChart({
   formatter = (value) => value,
   valueFormatter = (value) => formatNumber(value),
 }) {
+  const revealed = useChartReveal(50);
   const max = Math.max(
     1,
     ...items.map((item) => Number(item?.[valueKey] || 0)),
@@ -195,7 +223,13 @@ function MiniBarChart({
           return (
             <div
               key={`${item?.[labelKey]}-${index}`}
-              style={{ display: "grid", gap: 6 }}
+              style={{
+                display: "grid",
+                gap: 6,
+                opacity: revealed ? 1 : 0,
+                transform: revealed ? "translateY(0)" : "translateY(8px)",
+                transition: `all 0.4s ease ${index * 0.07}s`,
+              }}
             >
               <div
                 style={{
@@ -213,7 +247,7 @@ function MiniBarChart({
               </div>
               <div
                 style={{
-                  height: 8,
+                  height: 11,
                   borderRadius: 999,
                   background: "#f1f5f9",
                   overflow: "hidden",
@@ -221,11 +255,15 @@ function MiniBarChart({
               >
                 <div
                   style={{
-                    width,
+                    width: revealed ? width : "0%",
                     height: "100%",
                     borderRadius: 999,
-                    background: index % 2 === 0 ? "#3b82f6" : "#6366f1",
-                    transition: "width 0.5s ease-out",
+                    background:
+                      index % 2 === 0
+                        ? "linear-gradient(90deg, #2563eb, #60a5fa)"
+                        : "linear-gradient(90deg, #6366f1, #a78bfa)",
+                    boxShadow: "0 4px 12px rgba(59,130,246,0.24)",
+                    transition: `width 0.9s cubic-bezier(0.2,0.8,0.2,1) ${index * 0.08}s`,
                   }}
                 />
               </div>
@@ -245,6 +283,7 @@ function MiniDonutChart({
   valueKey = "value",
   formatter = (value) => value,
 }) {
+  const revealed = useChartReveal(70);
   const total = items.reduce(
     (sum, item) => sum + Number(item?.[valueKey] || 0),
     0,
@@ -276,7 +315,8 @@ function MiniDonutChart({
         fill="transparent"
         stroke={colors[index % colors.length]}
         strokeWidth="5"
-        strokeDasharray={dash}
+        strokeDasharray={revealed ? dash : "0 100"}
+        style={{ transition: `stroke-dasharray 0.9s ease ${index * 0.1}s` }}
         strokeDashoffset="25"
         transform={`rotate(${rotate} 18 18)`}
       />
@@ -307,7 +347,16 @@ function MiniDonutChart({
           alignItems: "center",
         }}
       >
-        <div style={{ position: "relative", width: 150, height: 150 }}>
+        <div
+          style={{
+            position: "relative",
+            width: 150,
+            height: 150,
+            opacity: revealed ? 1 : 0,
+            transform: revealed ? "scale(1)" : "scale(0.92)",
+            transition: "all 0.55s ease",
+          }}
+        >
           <svg viewBox="0 0 36 36" style={{ width: "100%", height: "100%" }}>
             <circle
               r="15.915"
@@ -501,6 +550,7 @@ function MiniLineChart({
   showSummary = false,
 }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
+  const revealed = useChartReveal(90);
 
   const safeItems = Array.isArray(items) ? items : [];
   const values = safeItems.map((item) => Number(item?.[valueKey] || 0));
@@ -750,7 +800,14 @@ function MiniLineChart({
 
           {coords.length ? (
             <>
-              <polygon points={areaPoints} fill="url(#revenueAreaGradient)" />
+              <polygon
+                points={areaPoints}
+                fill="url(#revenueAreaGradient)"
+                style={{
+                  opacity: revealed ? 1 : 0,
+                  transition: "opacity 0.85s ease",
+                }}
+              />
 
               <polyline
                 points={linePoints}
@@ -759,6 +816,10 @@ function MiniLineChart({
                 strokeWidth="3"
                 strokeLinejoin="round"
                 strokeLinecap="round"
+                style={{
+                  opacity: revealed ? 1 : 0,
+                  transition: "opacity 0.8s ease 0.1s",
+                }}
               />
             </>
           ) : null}
@@ -908,7 +969,15 @@ function toneForBooking(status) {
   if (["confirmed", "completed"].includes(status)) return "success";
   if (["pending_payment", "waiting_confirmation"].includes(status))
     return "warning";
-  if (["cancelled", "expired"].includes(status)) return "danger";
+  if (
+    [
+      "cancelled",
+      "cancelled_by_customer",
+      "cancelled_by_operator",
+      "expired",
+    ].includes(status)
+  )
+    return "danger";
   return "default";
 }
 function toneForPayment(status) {
@@ -924,9 +993,61 @@ function toneForPriority(level) {
 }
 function canUpdateBookingPickup(booking) {
   if (!booking) return false;
-  if (["completed", "cancelled", "expired"].includes(booking.bookingStatus)) {
+  if (
+    [
+      "completed",
+      "cancelled",
+      "cancelled_by_customer",
+      "cancelled_by_operator",
+      "expired",
+    ].includes(booking.bookingStatus)
+  ) {
     return false;
   }
+  const raw = booking.departure?.departureDate || booking.departureDate;
+  if (!raw) return false;
+  const departureAt = new Date(raw);
+  if (Number.isNaN(departureAt.getTime())) return false;
+  return departureAt.getTime() > Date.now();
+}
+
+function hasOpenRefund(booking, statuses = ["pending", "approved"]) {
+  const refunds = Array.isArray(booking?.refundRequests)
+    ? booking.refundRequests
+    : [];
+  return refunds.some((refund) =>
+    statuses.includes(String(refund?.status || "").toLowerCase()),
+  );
+}
+
+function getOpenRefundStatus(booking) {
+  const refunds = Array.isArray(booking?.refundRequests)
+    ? booking.refundRequests
+    : [];
+  const approved = refunds.find(
+    (refund) => String(refund?.status || "").toLowerCase() === "approved",
+  );
+  if (approved) return "approved";
+  const pending = refunds.find(
+    (refund) => String(refund?.status || "").toLowerCase() === "pending",
+  );
+  return pending ? "pending" : "";
+}
+
+function canCancelBookingByAdmin(booking) {
+  if (!booking) return false;
+  if (
+    [
+      "completed",
+      "cancelled",
+      "cancelled_by_customer",
+      "cancelled_by_operator",
+      "expired",
+    ].includes(String(booking.bookingStatus || "").toLowerCase())
+  ) {
+    return false;
+  }
+  if (hasOpenRefund(booking)) return false;
   const raw = booking.departure?.departureDate || booking.departureDate;
   if (!raw) return false;
   const departureAt = new Date(raw);
@@ -1024,6 +1145,94 @@ function addDaysToDateInput(value, days) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function formatDateInputVi(value) {
+  if (!value) return "";
+  const raw = String(value).slice(0, 10);
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function parseDateInputVi(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const vi = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (vi) {
+    const day = String(vi[1]).padStart(2, "0");
+    const month = String(vi[2]).padStart(2, "0");
+    const year = vi[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return iso ? raw : "";
+}
+
+function VietnameseDatePicker({ value, onChange, min, title }) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+      }}
+    >
+      <div
+        aria-hidden="true"
+        style={{
+          minHeight: 42,
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          padding: "10px 14px",
+          border: "1px solid #cbd5e1",
+          borderRadius: 8,
+          background: "#ffffff",
+          color: value ? "#0f172a" : "#94a3b8",
+          fontSize: 14,
+          boxSizing: "border-box",
+          pointerEvents: "none",
+        }}
+      >
+        <span>{value ? formatDateInputVi(value) : "dd/mm/yyyy"}</span>
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#475569"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="3" y="5" width="18" height="16" rx="2" />
+          <path d="M16 3v4M8 3v4M3 10h18" />
+        </svg>
+      </div>
+
+      <input
+        type="date"
+        lang="vi-VN"
+        value={value || ""}
+        min={min || undefined}
+        title={title || "Chọn ngày"}
+        onChange={(event) => onChange(event.target.value)}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          opacity: 0,
+          cursor: "pointer",
+        }}
+      />
+    </div>
+  );
+}
+
 function buildNextDepartureItem(prevItems = [], durationDays = 2) {
   const last = prevItems[prevItems.length - 1] || {};
   const nextStart = last.departureDate
@@ -1039,8 +1248,19 @@ function buildNextDepartureItem(prevItems = [], durationDays = 2) {
     status: last.status || "open",
   });
 }
+function getCurrentMonthStartDateInput() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function isDepartureVisibleForCurrentMonth(value) {
+  if (!value) return false;
+  return String(value).slice(0, 10) >= getCurrentMonthStartDateInput();
+}
+
 function createAccommodationItem(overrides = {}) {
   return {
+    id: overrides.id ? String(overrides.id) : "",
     catalogId: overrides.catalogId || "",
     supplierId: overrides.supplierId ? String(overrides.supplierId) : "",
 
@@ -1059,6 +1279,7 @@ function createAccommodationItem(overrides = {}) {
 }
 function createTransportItem(overrides = {}) {
   return {
+    id: overrides.id ? String(overrides.id) : "",
     catalogId: overrides.catalogId || "",
     supplierId: overrides.supplierId ? String(overrides.supplierId) : "",
 
@@ -1407,6 +1628,11 @@ export default function AdminPage({ initialTab = "overview" }) {
   });
   const [destinationsData, setDestinationsData] = useState(emptyPage);
   const [allTours, setAllTours] = useState([]);
+  const [bookingTourOptions, setBookingTourOptions] = useState([]);
+  const [bookingDepartureOptions, setBookingDepartureOptions] = useState([]);
+  const [departureSummary, setDepartureSummary] = useState(null);
+  const [departureSummaryLoading, setDepartureSummaryLoading] = useState(false);
+  const [departureSummaryError, setDepartureSummaryError] = useState("");
   const [bookingFilters, setBookingFilters] = useState(initialBookingFilter);
   const [reviewFilters, setReviewFilters] = useState(initialReviewFilter);
   const [contactFilters, setContactFilters] = useState(initialContactFilter);
@@ -1420,6 +1646,23 @@ export default function AdminPage({ initialTab = "overview" }) {
   );
   const [bookingDetailOpen, setBookingDetailOpen] = useState(false);
   const [bookingDetail, setBookingDetail] = useState(null);
+  const [cancelDepartureOpen, setCancelDepartureOpen] = useState(false);
+  const [cancelDepartureSubmitting, setCancelDepartureSubmitting] =
+    useState(false);
+  const [cancelDepartureForm, setCancelDepartureForm] = useState({
+    reasonType: "weather",
+    reason: "",
+    customerMessage: "",
+    confirmed: false,
+  });
+  const [cancelBookingOpen, setCancelBookingOpen] = useState(false);
+  const [cancelBookingTarget, setCancelBookingTarget] = useState(null);
+  const [cancelBookingSubmitting, setCancelBookingSubmitting] = useState(false);
+  const [cancelBookingForm, setCancelBookingForm] = useState({
+    reasonType: "operational",
+    reason: "",
+    customerMessage: "",
+  });
   const [bookingPickupForm, setBookingPickupForm] = useState({
     pickupPointId: "",
   });
@@ -1460,6 +1703,7 @@ export default function AdminPage({ initialTab = "overview" }) {
       loadContacts(initialContactFilter),
       loadDestinationsPage(initialDestinationFilter),
       loadTours(),
+      loadBookingTourOptions(),
       loadSuppliers(),
       loadTourCatalogs(),
     ])
@@ -1519,6 +1763,43 @@ export default function AdminPage({ initialTab = "overview" }) {
   }
   async function loadBookings(filters = bookingFilters) {
     setBookingsData(await apiFetch(`/admin/bookings?${buildQuery(filters)}`));
+  }
+  async function loadDepartureSummary(
+    departureId = bookingFilters.departureId,
+  ) {
+    if (!departureId) {
+      setDepartureSummary(null);
+      setDepartureSummaryError("");
+      return null;
+    }
+
+    setDepartureSummaryLoading(true);
+    setDepartureSummaryError("");
+    try {
+      const result = await apiFetch(`/admin/departures/${departureId}/summary`);
+      setDepartureSummary(result || null);
+      return result;
+    } catch (error) {
+      setDepartureSummary(null);
+      setDepartureSummaryError(
+        error.message || "Không tải được thông tin tổng hợp lịch khởi hành.",
+      );
+      return null;
+    } finally {
+      setDepartureSummaryLoading(false);
+    }
+  }
+  async function loadBookingTourOptions() {
+    const result = await apiFetch("/admin/tours/options");
+    setBookingTourOptions(Array.isArray(result) ? result : []);
+  }
+  async function loadBookingDepartureOptions(tourId) {
+    if (!tourId) {
+      setBookingDepartureOptions([]);
+      return;
+    }
+    const result = await apiFetch(`/admin/tours/${tourId}/departures/options`);
+    setBookingDepartureOptions(Array.isArray(result) ? result : []);
   }
   async function loadReviews(filters = reviewFilters) {
     const result = await apiFetch(`/admin/reviews?${buildQuery(filters)}`);
@@ -1584,15 +1865,28 @@ export default function AdminPage({ initialTab = "overview" }) {
     bookingFilters.page,
     bookingFilters.search,
     bookingFilters.status,
-    bookingFilters.paymentStatus,
+    bookingFilters.tourId,
+    bookingFilters.departureId,
+    bookingFilters.departureDate,
     bookingFilters.destinationId,
-    bookingFilters.departureFrom,
-    bookingFilters.departureTo,
     bookingFilters.guideStatus,
-    bookingFilters.urgency,
     bookingFilters.sortBy,
     bookingFilters.sortOrder,
   ]);
+  useEffect(() => {
+    if (booting) return;
+    if (!bookingFilters.departureId) {
+      setDepartureSummary(null);
+      setDepartureSummaryError("");
+      return;
+    }
+    loadDepartureSummary(bookingFilters.departureId);
+  }, [booting, bookingFilters.departureId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    loadBookingDepartureOptions(bookingFilters.tourId).catch((error) =>
+      showToast(error.message, "error"),
+    );
+  }, [bookingFilters.tourId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!booting)
       loadReviews(reviewFilters).catch((e) => showToast(e.message, "error"));
@@ -1839,6 +2133,18 @@ export default function AdminPage({ initialTab = "overview" }) {
     [overview?.smartInsights],
   );
 
+  const selectedDepartureSummary = departureSummary || null;
+
+  const cancelReasonLabels = {
+    weather: "Thời tiết xấu",
+    natural_disaster: "Thiên tai",
+    transport: "Sự cố phương tiện",
+    supplier: "Sự cố nhà cung cấp",
+    operational: "Sự cố vận hành",
+    insufficient_guests: "Không đủ số lượng khách",
+    other: "Lý do khác",
+  };
+
   const openBookingDetail = async (id) => {
     try {
       const detail = await apiFetch(`/admin/bookings/${id}`);
@@ -1849,6 +2155,130 @@ export default function AdminPage({ initialTab = "overview" }) {
       setBookingDetailOpen(true);
     } catch (error) {
       showToast(error.message, "error");
+    }
+  };
+
+  const openCancelDepartureModal = () => {
+    if (!selectedDepartureSummary?.id) return;
+    const reasonType = "weather";
+    const reasonLabel = cancelReasonLabels[reasonType].toLowerCase();
+    const tourName = selectedDepartureSummary.tourName || "tour Travela";
+    const departureDate = formatDate(selectedDepartureSummary.departureDate);
+    setCancelDepartureForm({
+      reasonType,
+      reason: "",
+      customerMessage:
+        `Travela rất tiếc phải thông báo lịch khởi hành tour '${tourName}' ngày ${departureDate} đã bị hủy do ${reasonLabel}. ` +
+        "Booking của quý khách sẽ được hủy và được áp dụng hoàn 100% số tiền thực thanh toán nếu đã thanh toán. " +
+        "Hệ thống sẽ tự bổ sung hướng dẫn tài khoản nhận hoàn phù hợp với hồ sơ của từng khách.",
+      confirmed: false,
+    });
+    setCancelDepartureOpen(true);
+  };
+
+  const submitCancelDeparture = async (event) => {
+    event.preventDefault();
+    if (!selectedDepartureSummary?.id) return;
+    if (!cancelDepartureForm.confirmed) {
+      showToast("Vui lòng xác nhận đã hiểu phạm vi ảnh hưởng.", "error");
+      return;
+    }
+    setCancelDepartureSubmitting(true);
+    try {
+      const result = await apiFetch(
+        `/admin/departures/${selectedDepartureSummary.id}/cancel`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            reasonType: cancelDepartureForm.reasonType,
+            reason: cancelDepartureForm.reason,
+            customerMessage: cancelDepartureForm.customerMessage,
+          }),
+        },
+      );
+      setCancelDepartureOpen(false);
+      await Promise.all([
+        loadBookings(bookingFilters),
+        loadDepartureSummary(selectedDepartureSummary.id),
+        loadBookingDepartureOptions(bookingFilters.tourId),
+        loadOverview(),
+      ]);
+      const summary = result?.summary || {};
+      showToast(
+        `Đã hủy ${summary.cancelledBookings || 0} booking, tạo ${
+          summary.refundRequestsCreated || 0
+        } yêu cầu hoàn tiền. Email: ${summary.emailsSent || 0} gửi, ${
+          summary.emailsFailed || 0
+        } lỗi.`,
+        "success",
+      );
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setCancelDepartureSubmitting(false);
+    }
+  };
+
+  const openCancelBookingModal = (booking) => {
+    const reasonType = "operational";
+    const reasonLabel = cancelReasonLabels[reasonType].toLowerCase();
+    setCancelBookingTarget(booking);
+    setCancelBookingForm({
+      reasonType,
+      reason: "",
+      customerMessage:
+        `Travela rất tiếc phải thông báo booking ${booking.bookingCode} của quý khách đã bị hủy do ${reasonLabel}. ` +
+        "Nếu booking đã thanh toán, Travela sẽ tạo hồ sơ hoàn 100% và hệ thống sẽ tự bổ sung hướng dẫn tài khoản nhận hoàn phù hợp với hồ sơ của quý khách.",
+    });
+    setCancelBookingOpen(true);
+  };
+
+  const submitCancelBooking = async (event) => {
+    event.preventDefault();
+    if (!cancelBookingTarget?.id) return;
+    if (
+      !cancelBookingForm.reason.trim() ||
+      !cancelBookingForm.customerMessage.trim()
+    ) {
+      showToast(
+        "Vui lòng nhập đầy đủ lý do và nội dung thông báo khách.",
+        "error",
+      );
+      return;
+    }
+    setCancelBookingSubmitting(true);
+    try {
+      const result = await apiFetch(
+        `/admin/bookings/${cancelBookingTarget.id}/cancel`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            reasonType: cancelBookingForm.reasonType,
+            reason: cancelBookingForm.reason,
+            customerMessage: cancelBookingForm.customerMessage,
+            refundRate: 100,
+          }),
+        },
+      );
+      setCancelBookingOpen(false);
+      setCancelBookingTarget(null);
+      await Promise.all([
+        loadBookings(bookingFilters),
+        bookingFilters.departureId
+          ? loadDepartureSummary(bookingFilters.departureId)
+          : Promise.resolve(),
+        loadOverview(),
+      ]);
+      showToast(
+        result?.refundRequestCreated
+          ? "Đã hủy booking và tạo yêu cầu hoàn tiền 100%."
+          : "Đã hủy booking. Booking chưa thanh toán nên không tạo hoàn tiền.",
+        "success",
+      );
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setCancelBookingSubmitting(false);
     }
   };
   const confirmPayment = async (paymentId) => {
@@ -2167,6 +2597,7 @@ export default function AdminPage({ initialTab = "overview" }) {
           return {
             ...row,
             catalogId: "",
+            isManualSupplier: true,
           };
         }
 
@@ -2198,6 +2629,7 @@ export default function AdminPage({ initialTab = "overview" }) {
           return {
             ...row,
             catalogId: "",
+            isManualSupplier: true,
           };
         }
 
@@ -2302,14 +2734,20 @@ export default function AdminPage({ initialTab = "overview" }) {
           detail.itinerary || [],
         ),
       );
+      const currentMonthDepartures = (detail.departures || [])
+        .map((item) => ({
+          ...item,
+          id: String(item.id || ""),
+          departureDate: String(item.departureDate || "").slice(0, 10),
+          endDate: String(item.endDate || "").slice(0, 10),
+        }))
+        .filter((item) =>
+          isDepartureVisibleForCurrentMonth(item.departureDate),
+        );
+
       setTourDepartures(
-        detail.departures?.length
-          ? detail.departures.map((item) => ({
-              ...item,
-              id: String(item.id || ""),
-              departureDate: String(item.departureDate || "").slice(0, 10),
-              endDate: String(item.endDate || "").slice(0, 10),
-            }))
+        currentMonthDepartures.length
+          ? currentMonthDepartures
           : [createDepartureItem()],
       );
       const rootPickupPoints = Array.isArray(detail.pickupPoints)
@@ -2348,6 +2786,8 @@ export default function AdminPage({ initialTab = "overview" }) {
           ? detail.accommodations.map((item) =>
               createAccommodationItem({
                 ...item,
+                id: String(item.id || ""),
+                catalogId: String(item.id || ""),
                 supplierId:
                   item.supplierId ||
                   item.supplier_id ||
@@ -2367,6 +2807,8 @@ export default function AdminPage({ initialTab = "overview" }) {
           ? detail.transports.map((item) =>
               createTransportItem({
                 ...item,
+                id: String(item.id || ""),
+                catalogId: String(item.id || ""),
                 supplierId:
                   item.supplierId ||
                   item.supplier_id ||
@@ -2596,6 +3038,108 @@ export default function AdminPage({ initialTab = "overview" }) {
     resetTourWizard();
   };
 
+  const removePickupPointFromTourWizard = async (item, index) => {
+    if (tourPickupPoints.length <= 1) {
+      showToast("Tour cần giữ ít nhất một điểm đón trong biểu mẫu.", "error");
+      return;
+    }
+
+    if (!item?.id || !tourForm.id) {
+      setTourPickupPoints((prev) => prev.filter((_, idx) => idx !== index));
+      return;
+    }
+
+    try {
+      await apiFetch(
+        `/admin/tours/${tourForm.id}/pickup-points/${item.id}/delete-check`,
+        { cache: "no-store" },
+      );
+
+      if (!window.confirm(`Xóa điểm đón "${item.name}" khỏi tour?`)) return;
+
+      setTourPickupPoints((prev) => prev.filter((_, idx) => idx !== index));
+    } catch (error) {
+      showToast(error?.message || "Không thể xóa điểm đón này.", "error");
+    }
+  };
+
+  const removeAccommodationFromTourWizard = async (item, index) => {
+    if (!item?.id || !tourForm.id) {
+      setTourAccommodations((prev) => prev.filter((_, idx) => idx !== index));
+      return;
+    }
+
+    try {
+      await apiFetch(
+        `/admin/tours/${tourForm.id}/accommodations/${item.id}/delete-check`,
+        { cache: "no-store" },
+      );
+
+      if (!window.confirm(`Xóa chỗ ở "${item.name}" khỏi tour?`)) return;
+
+      setTourAccommodations((prev) => prev.filter((_, idx) => idx !== index));
+    } catch (error) {
+      showToast(error?.message || "Không thể xóa chỗ ở này.", "error");
+    }
+  };
+
+  const removeTransportFromTourWizard = async (item, index) => {
+    if (!item?.id || !tourForm.id) {
+      setTourTransports((prev) => prev.filter((_, idx) => idx !== index));
+      return;
+    }
+
+    try {
+      await apiFetch(
+        `/admin/tours/${tourForm.id}/transports/${item.id}/delete-check`,
+        { cache: "no-store" },
+      );
+
+      if (!window.confirm(`Xóa phương tiện "${item.name}" khỏi tour?`)) return;
+
+      setTourTransports((prev) => prev.filter((_, idx) => idx !== index));
+    } catch (error) {
+      showToast(error?.message || "Không thể xóa phương tiện này.", "error");
+    }
+  };
+
+  const removeDepartureFromTourWizard = async (item, index) => {
+    if (tourDepartures.length <= 1) {
+      showToast(
+        "Tour cần giữ ít nhất một lịch khởi hành trong biểu mẫu.",
+        "error",
+      );
+      return;
+    }
+
+    // Lịch vừa thêm, chưa lưu DB thì chỉ cần bỏ khỏi state.
+    if (!item?.id || !tourForm.id) {
+      setTourDepartures((prev) => prev.filter((_, idx) => idx !== index));
+      return;
+    }
+
+    try {
+      /*
+       * Kiểm tra ngay khi bấm "Xóa lịch này".
+       * Nếu lịch đã có booking, backend trả lỗi kèm bookingCode và
+       * lịch vẫn được giữ nguyên trên form.
+       */
+      await apiFetch(
+        `/admin/tours/${tourForm.id}/departures/${item.id}/delete-check`,
+        { cache: "no-store" },
+      );
+
+      const confirmed = window.confirm(
+        `Xóa lịch khởi hành ${formatDate(item.departureDate)} khỏi tour?`,
+      );
+      if (!confirmed) return;
+
+      setTourDepartures((prev) => prev.filter((_, idx) => idx !== index));
+    } catch (error) {
+      showToast(error?.message || "Không thể xóa lịch khởi hành này.", "error");
+    }
+  };
+
   const saveTourFinal = async () => {
     if (!tourForm.id) return showToast("Bạn cần lưu bước 1 trước.", "error");
     setSubmitting(true);
@@ -2688,6 +3232,7 @@ export default function AdminPage({ initialTab = "overview" }) {
             items: tourAccommodations
               .filter((item) => item.name?.trim())
               .map((item) => ({
+                id: item.id ? Number(item.id) : undefined,
                 supplierId: item.supplierId ? Number(item.supplierId) : null,
                 name: item.name,
                 accommodationType: item.accommodationType,
@@ -2712,6 +3257,7 @@ export default function AdminPage({ initialTab = "overview" }) {
             items: tourTransports
               .filter((item) => item.name?.trim())
               .map((item) => ({
+                id: item.id ? Number(item.id) : undefined,
                 supplierId: item.supplierId ? Number(item.supplierId) : null,
                 name: item.name,
                 transportType: item.transportType,
@@ -2778,14 +3324,14 @@ export default function AdminPage({ initialTab = "overview" }) {
   if (booting) return <Loading text="Đang tải hệ thống quản trị..." />;
 
   const currentTabName =
-    adminTabs.find((item) => item.key === activeTab)?.label || "Dashboard";
+    adminTabs.find((item) => item.key === activeTab)?.label || "Tổng quan";
 
   return (
     <AdminLayout
       current={`/admin${activeTab === "overview" ? "" : `/${activeTab}`}`}
       title={currentTabName}
     >
-      {/* INJECTED CSS ĐỂ NÂNG CẤP UI KHÔNG CẦN SỬA FILE CSS GỐC */}
+      {/* Injected CSS để nâng cấp UI không cần sửa file CSS gốc */}
       <style>{`
         .admin-card {
           background: #ffffff;
@@ -3296,7 +3842,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                   items={tourThemeChart}
                   labelKey="theme"
                   valueKey="total"
-                  formatter={(value) => String(value).toUpperCase()}
+                  formatter={(value) => mapTourThemeLabel(value)}
                 />
 
                 <MiniBarChart
@@ -3405,20 +3951,11 @@ export default function AdminPage({ initialTab = "overview" }) {
                         <td>{item.contactName}</td>
                         <td>{item.tourName}</td>
                         <td>
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <StatusBadge
-                              tone={toneForBooking(item.bookingStatus)}
-                            >
-                              {mapLabel("bookingStatus", item.bookingStatus)}
-                            </StatusBadge>
-                            {item.paymentStatus ? (
-                              <StatusBadge
-                                tone={toneForPayment(item.paymentStatus)}
-                              >
-                                {mapLabel("paymentStatus", item.paymentStatus)}
-                              </StatusBadge>
-                            ) : null}
-                          </div>
+                          <StatusBadge
+                            tone={toneForBooking(item.bookingStatus)}
+                          >
+                            {mapLabel("bookingStatus", item.bookingStatus)}
+                          </StatusBadge>
                         </td>
                         <td>
                           <strong>{formatCurrency(item.finalAmount)}</strong>
@@ -3595,20 +4132,6 @@ export default function AdminPage({ initialTab = "overview" }) {
                 >
                   Xóa lọc
                 </button>
-
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() =>
-                    setBookingFilters((prev) => ({
-                      ...prev,
-                      urgency: "high",
-                      page: 1,
-                    }))
-                  }
-                >
-                  Xem đơn cần xử lý
-                </button>
               </div>
             </div>
 
@@ -3642,35 +4165,12 @@ export default function AdminPage({ initialTab = "overview" }) {
                   "confirmed",
                   "completed",
                   "cancelled",
+                  "cancelled_by_customer",
+                  "cancelled_by_operator",
                   "expired",
                 ].map((item) => (
                   <option key={item} value={item}>
                     {mapLabel("bookingStatus", item)}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={bookingFilters.paymentStatus}
-                onChange={(e) =>
-                  setBookingFilters((prev) => ({
-                    ...prev,
-                    paymentStatus: e.target.value,
-                    page: 1,
-                  }))
-                }
-              >
-                <option value="">Tất cả thanh toán</option>
-                {[
-                  "pending",
-                  "waiting_confirmation",
-                  "paid",
-                  "failed",
-                  "expired",
-                  "refunded",
-                ].map((item) => (
-                  <option key={item} value={item}>
-                    {mapLabel("paymentStatus", item)}
                   </option>
                 ))}
               </select>
@@ -3702,6 +4202,26 @@ export default function AdminPage({ initialTab = "overview" }) {
               </select>
 
               <select
+                value={bookingFilters.tourId}
+                onChange={(e) =>
+                  setBookingFilters((prev) => ({
+                    ...prev,
+                    tourId: e.target.value,
+                    departureId: "",
+                    departureDate: "",
+                    page: 1,
+                  }))
+                }
+              >
+                <option value="">Tất cả tour</option>
+                {bookingTourOptions.map((tour) => (
+                  <option key={tour.id} value={tour.id}>
+                    {tour.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
                 value={bookingFilters.guideStatus}
                 onChange={(e) =>
                   setBookingFilters((prev) => ({
@@ -3717,45 +4237,45 @@ export default function AdminPage({ initialTab = "overview" }) {
               </select>
 
               <select
-                value={bookingFilters.urgency}
+                value={bookingFilters.departureId}
                 onChange={(e) =>
-                  setBookingFilters((prev) => ({
-                    ...prev,
-                    urgency: e.target.value,
-                    page: 1,
-                  }))
+                  setBookingFilters((prev) => {
+                    const selected = bookingDepartureOptions.find(
+                      (item) => String(item.id) === String(e.target.value),
+                    );
+                    return {
+                      ...prev,
+                      departureId: e.target.value,
+                      departureDate: selected?.departureDate
+                        ? String(selected.departureDate).slice(0, 10)
+                        : "",
+                      page: 1,
+                    };
+                  })
                 }
+                disabled={!bookingFilters.tourId}
               >
-                <option value="">Tất cả mức ưu tiên</option>
-                <option value="high">Cần xử lý ngay</option>
-                <option value="upcoming">Sắp khởi hành 7 ngày</option>
-                <option value="payment_review">Cần đối soát thanh toán</option>
+                <option value="">Tất cả lịch khởi hành</option>
+                {bookingDepartureOptions.map((departure) => (
+                  <option key={departure.id} value={departure.id}>
+                    {formatDate(departure.departureDate)} -{" "}
+                    {formatDate(departure.endDate)} ·{" "}
+                    {mapLabel("departureStatus", departure.status)}
+                  </option>
+                ))}
               </select>
 
-              <input
-                type="date"
-                value={bookingFilters.departureFrom}
-                onChange={(e) =>
+              <VietnameseDatePicker
+                value={bookingFilters.departureDate}
+                title="Chọn ngày khởi hành"
+                onChange={(departureDate) =>
                   setBookingFilters((prev) => ({
                     ...prev,
-                    departureFrom: e.target.value,
+                    departureDate,
+                    departureId: "",
                     page: 1,
                   }))
                 }
-                title="Ngày khởi hành từ"
-              />
-
-              <input
-                type="date"
-                value={bookingFilters.departureTo}
-                onChange={(e) =>
-                  setBookingFilters((prev) => ({
-                    ...prev,
-                    departureTo: e.target.value,
-                    page: 1,
-                  }))
-                }
-                title="Ngày khởi hành đến"
               />
 
               <select
@@ -3790,6 +4310,141 @@ export default function AdminPage({ initialTab = "overview" }) {
               </select>
             </div>
           </div>
+
+          {bookingFilters.departureId && departureSummaryLoading && (
+            <section className="admin-card" style={{ color: "#64748b" }}>
+              Đang tải thông tin tổng hợp lịch khởi hành...
+            </section>
+          )}
+
+          {bookingFilters.departureId && departureSummaryError && (
+            <section
+              className="admin-card"
+              style={{
+                border: "1px solid #fecaca",
+                background: "#fef2f2",
+                color: "#b91c1c",
+                fontWeight: 700,
+              }}
+            >
+              Không tải được summary lịch khởi hành: {departureSummaryError}
+            </section>
+          )}
+
+          {selectedDepartureSummary && (
+            <section
+              className="admin-card"
+              style={{
+                display: "grid",
+                gap: 18,
+                border: "1px solid #bfdbfe",
+                background: "#f8fbff",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  alignItems: "flex-start",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <h3 style={{ margin: "0 0 6px", color: "#0f172a" }}>
+                    {selectedDepartureSummary.tourName}
+                  </h3>
+                  <p style={{ margin: 0, color: "#64748b" }}>
+                    Đi: {formatDate(selectedDepartureSummary.departureDate)} ·
+                    Về: {formatDate(selectedDepartureSummary.endDate)}
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <StatusBadge
+                    tone={
+                      selectedDepartureSummary.status === "cancelled"
+                        ? "danger"
+                        : selectedDepartureSummary.status === "completed"
+                          ? "success"
+                          : "info"
+                    }
+                  >
+                    {mapLabel(
+                      "departureStatus",
+                      selectedDepartureSummary.status,
+                    )}
+                  </StatusBadge>
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    onClick={openCancelDepartureModal}
+                    disabled={!selectedDepartureSummary.canCancel}
+                    title={
+                      selectedDepartureSummary.canCancel
+                        ? "Hủy toàn bộ lịch khởi hành"
+                        : "Chỉ được hủy khi lịch chưa hủy, chưa hoàn thành và chưa bắt đầu"
+                    }
+                  >
+                    Hủy lịch khởi hành
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                {[
+                  ["Tổng booking", selectedDepartureSummary.totalBookings],
+                  ["Tổng khách", selectedDepartureSummary.totalGuests],
+                  [
+                    "Booking đã thanh toán",
+                    selectedDepartureSummary.paidBookings,
+                  ],
+                  [
+                    "Booking chưa thanh toán",
+                    selectedDepartureSummary.unpaidBookings,
+                  ],
+                  [
+                    "Tổng tiền đã thanh toán",
+                    formatCurrency(selectedDepartureSummary.totalPaidAmount),
+                  ],
+                  [
+                    "Dự kiến hoàn nếu hủy",
+                    formatCurrency(
+                      selectedDepartureSummary.estimatedRefundAmount,
+                    ),
+                  ],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    style={{
+                      padding: 14,
+                      borderRadius: 12,
+                      background: "#fff",
+                      border: "1px solid #dbeafe",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: "#64748b",
+                        fontSize: 13,
+                        marginBottom: 6,
+                      }}
+                    >
+                      {label}
+                    </div>
+                    <strong style={{ color: "#0f172a", fontSize: 18 }}>
+                      {typeof value === "number" ? formatNumber(value) : value}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <div
             className="admin-card"
@@ -3832,43 +4487,26 @@ export default function AdminPage({ initialTab = "overview" }) {
               <table className="console-table">
                 <thead>
                   <tr>
-                    <th>Mã đơn / Ưu tiên</th>
+                    <th>Mã booking</th>
                     <th>Khách hàng</th>
                     <th>Tour & điểm đến</th>
                     <th>Lịch đi</th>
                     <th>HDV</th>
                     <th>Điểm đón</th>
-                    <th>Thanh toán</th>
+                    <th>Trạng thái</th>
                     <th>Tổng tiền</th>
                     <th style={{ textAlign: "right" }}>Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
                   {bookingsData.items.map((item) => {
-                    const payment = item.latestPayment || item.payments?.[0];
                     const insight = item.operationInsight || {};
                     return (
                       <tr key={item.id}>
                         <td>
                           <strong>{item.bookingCode}</strong>
-                          <div
-                            style={{
-                              marginTop: 6,
-                              display: "flex",
-                              gap: 6,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <StatusBadge
-                              tone={toneForPriority(insight.priorityLevel)}
-                            >
-                              {insight.actionLabel || "Ổn định"}
-                            </StatusBadge>
-                            {(insight.flags || []).slice(0, 2).map((flag) => (
-                              <StatusBadge key={flag.code} tone={flag.tone}>
-                                {flag.label}
-                              </StatusBadge>
-                            ))}
+                          <div className="table-muted">
+                            {formatDateTime(item.createdAt)}
                           </div>
                         </td>
                         <td>
@@ -3918,41 +4556,50 @@ export default function AdminPage({ initialTab = "overview" }) {
                           </div>
                         </td>
                         <td>
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 6,
-                              flexWrap: "wrap",
-                            }}
+                          <StatusBadge
+                            tone={toneForBooking(item.bookingStatus)}
                           >
-                            <StatusBadge
-                              tone={toneForBooking(item.bookingStatus)}
-                            >
-                              {mapLabel("bookingStatus", item.bookingStatus)}
-                            </StatusBadge>
-                            {payment && (
-                              <StatusBadge
-                                tone={toneForPayment(payment.paymentStatus)}
-                              >
-                                {mapLabel(
-                                  "paymentStatus",
-                                  payment.paymentStatus,
-                                )}
-                              </StatusBadge>
-                            )}
-                          </div>
+                            {mapLabel("bookingStatus", item.bookingStatus)}
+                          </StatusBadge>
                         </td>
                         <td>
                           <strong>{formatCurrency(item.finalAmount)}</strong>
                         </td>
                         <td style={{ textAlign: "right" }}>
-                          <button
-                            type="button"
-                            className="btn btn-light btn-sm"
-                            onClick={() => openBookingDetail(item.id)}
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 8,
+                              justifyContent: "flex-end",
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                            }}
                           >
-                            Chi tiết
-                          </button>
+                            <button
+                              type="button"
+                              className="btn btn-light btn-sm"
+                              onClick={() => openBookingDetail(item.id)}
+                            >
+                              Chi tiết
+                            </button>
+                            {getOpenRefundStatus(item) === "pending" ? (
+                              <StatusBadge tone="warning">
+                                Đang chờ hoàn tiền
+                              </StatusBadge>
+                            ) : getOpenRefundStatus(item) === "approved" ? (
+                              <StatusBadge tone="success">
+                                Đã hoàn tiền
+                              </StatusBadge>
+                            ) : canCancelBookingByAdmin(item) ? (
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-sm"
+                                onClick={() => openCancelBookingModal(item)}
+                              >
+                                Hủy booking
+                              </button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -4744,6 +5391,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                 <tr>
                   <th>Khách hàng</th>
                   <th>Chủ đề</th>
+                  <th>Nội dung</th>
                   <th>Trạng thái</th>
                   <th>Email</th>
                   <th>Ngày tạo</th>
@@ -4757,8 +5405,22 @@ export default function AdminPage({ initialTab = "overview" }) {
                       <strong>{item.fullName}</strong>
                       <div className="table-muted">{item.email}</div>
                     </td>
-                    <td style={{ maxWidth: 280, color: "#0f172a" }}>
-                      {item.subject}
+                    <td style={{ maxWidth: 260, color: "#0f172a" }}>
+                      <strong>{item.subject || "—"}</strong>
+                    </td>
+                    <td style={{ maxWidth: 360, color: "#475569" }}>
+                      <div
+                        title={item.message || ""}
+                        style={{
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                          lineHeight: 1.55,
+                        }}
+                      >
+                        {item.message || "Chưa có nội dung chi tiết"}
+                      </div>
                     </td>
                     <td>
                       <StatusBadge
@@ -5317,11 +5979,6 @@ export default function AdminPage({ initialTab = "overview" }) {
                         ? "Đang cập nhật..."
                         : "Cập nhật điểm đón"}
                     </button>
-                    <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
-                      Chỉ được cập nhật trước thời điểm tour bắt đầu. Sau khi
-                      lưu, khách sẽ nhận thông báo trong hệ thống và email (nếu
-                      có email). Giá và tổng tiền booking không thay đổi.
-                    </p>
                   </div>
                 )}
               </div>
@@ -5487,8 +6144,19 @@ export default function AdminPage({ initialTab = "overview" }) {
                     lineHeight: 1.6,
                   }}
                 >
-                  <strong>CĐ: {contactDetail.subject}</strong>
-                  <p style={{ marginTop: 8 }}>{contactDetail.message}</p>
+                  <strong>Chủ đề: {contactDetail.subject || "—"}</strong>
+                  <div
+                    style={{
+                      marginTop: 12,
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                      minHeight: 72,
+                    }}
+                  >
+                    {contactDetail.message ||
+                      contactDetail.content ||
+                      "Không có nội dung chi tiết."}
+                  </div>
                 </div>
               </div>
             </div>
@@ -6149,9 +6817,23 @@ export default function AdminPage({ initialTab = "overview" }) {
                   borderBottom: "1px solid #e2e8f0",
                 }}
               >
-                <h3 style={{ margin: 0, fontSize: 18 }}>
-                  Mở bán (Ngày khởi hành)
-                </h3>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18 }}>
+                    Mở bán (Ngày khởi hành)
+                  </h3>
+                  <small
+                    style={{
+                      display: "block",
+                      marginTop: 6,
+                      color: "#64748b",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    Chỉ hiển thị lịch từ tháng hiện tại trở về sau. Lịch các
+                    tháng trước vẫn được giữ nguyên trong hệ thống và không bị
+                    xóa.
+                  </small>
+                </div>
                 <button
                   type="button"
                   className="btn btn-light btn-sm"
@@ -6180,19 +6862,23 @@ export default function AdminPage({ initialTab = "overview" }) {
                 >
                   <div className="field">
                     <label>Ngày xuất phát</label>
-                    <input
-                      type="date"
+                    <VietnameseDatePicker
                       value={item.departureDate}
-                      onChange={(e) => {
-                        const departureDate = e.target.value;
+                      title="Chọn ngày xuất phát"
+                      onChange={(departureDate) => {
                         const autoEndDate = addDaysToDateInput(
                           departureDate,
                           Math.max(Number(tourForm.durationDays || 1), 1) - 1,
                         );
+
                         setTourDepartures((prev) =>
                           prev.map((row, idx) =>
                             idx === index
-                              ? { ...row, departureDate, endDate: autoEndDate }
+                              ? {
+                                  ...row,
+                                  departureDate,
+                                  endDate: autoEndDate,
+                                }
                               : row,
                           ),
                         );
@@ -6201,15 +6887,14 @@ export default function AdminPage({ initialTab = "overview" }) {
                   </div>
                   <div className="field">
                     <label>Ngày kết thúc</label>
-                    <input
-                      type="date"
+                    <VietnameseDatePicker
                       value={item.endDate}
-                      onChange={(e) =>
+                      title="Chọn ngày kết thúc"
+                      min={item.departureDate || undefined}
+                      onChange={(endDate) =>
                         setTourDepartures((prev) =>
                           prev.map((row, idx) =>
-                            idx === index
-                              ? { ...row, endDate: e.target.value }
-                              : row,
+                            idx === index ? { ...row, endDate } : row,
                           ),
                         )
                       }
@@ -6300,9 +6985,12 @@ export default function AdminPage({ initialTab = "overview" }) {
                         type="button"
                         className="btn btn-danger btn-sm"
                         onClick={() =>
-                          setTourDepartures((prev) =>
-                            prev.filter((_, idx) => idx !== index),
-                          )
+                          removeDepartureFromTourWizard(item, index)
+                        }
+                        title={
+                          item?.id
+                            ? "Hệ thống sẽ kiểm tra booking trước khi cho phép xóa."
+                            : "Xóa lịch mới chưa lưu."
                         }
                       >
                         Xóa lịch này
@@ -6510,18 +7198,14 @@ export default function AdminPage({ initialTab = "overview" }) {
                     }}
                   >
                     <small style={{ color: "#64748b" }}>
-                      Điểm đón #{index + 1} áp dụng cho tất cả lịch khởi hành.
-                      Khách sẽ chọn điểm này ở màn hình đặt tour trước khi thanh
-                      toán.
+                      Điểm đón #{index + 1}
                     </small>
                     {tourPickupPoints.length > 1 && (
                       <button
                         type="button"
                         className="btn btn-danger btn-sm"
                         onClick={() =>
-                          setTourPickupPoints((prev) =>
-                            prev.filter((_, idx) => idx !== index),
-                          )
+                          removePickupPointFromTourWizard(item, index)
                         }
                       >
                         Xóa điểm đón
@@ -6575,7 +7259,8 @@ export default function AdminPage({ initialTab = "overview" }) {
                           marginTop: 4,
                         }}
                       >
-                        Chọn từ nhà cung cấp đã quản lý hoặc nhập thủ công.
+                        Có thể dùng lại chỗ ở đã lưu hoặc thêm nhiều chỗ ở mới
+                        cho tour.
                       </div>
                     </div>
 
@@ -6606,14 +7291,16 @@ export default function AdminPage({ initialTab = "overview" }) {
                       }}
                     >
                       <div className="field">
-                        <label>Chỗ ở đã lưu trong hệ thống</label>
+                        <label>Nguồn chỗ ở</label>
                         <select
                           value={item.catalogId || ""}
                           onChange={(e) =>
                             applyAccommodationCatalog(index, e.target.value)
                           }
                         >
-                          <option value="">+ Nhập chỗ ở mới thủ công</option>
+                          <option value="">
+                            + Nhập / chỉnh chỗ ở thủ công
+                          </option>
                           {(tourCatalogs.accommodations || []).map((option) => (
                             <option key={option.id} value={option.id}>
                               {option.name}
@@ -6626,45 +7313,47 @@ export default function AdminPage({ initialTab = "overview" }) {
                         </small>
                       </div>
 
-                      <TourSupplierSelector
-                        suppliers={suppliers}
-                        supplierType="hotel"
-                        value={
-                          item.isManualSupplier ? "manual" : item.supplierId
-                        }
-                        label="Nhà cung cấp lưu trú"
-                        placeholder="Chọn khách sạn / nơi lưu trú"
-                        onChange={({ supplierId, supplier, isManual }) => {
-                          setTourAccommodations((prev) =>
-                            prev.map((row, idx) => {
-                              if (idx !== index) return row;
+                      {!item.catalogId ? (
+                        <TourSupplierSelector
+                          suppliers={suppliers}
+                          supplierType="hotel"
+                          value={
+                            item.isManualSupplier ? "manual" : item.supplierId
+                          }
+                          label="Nhà cung cấp lưu trú"
+                          placeholder="Chọn khách sạn / nơi lưu trú"
+                          onChange={({ supplierId, supplier, isManual }) => {
+                            setTourAccommodations((prev) =>
+                              prev.map((row, idx) => {
+                                if (idx !== index) return row;
 
-                              if (isManual) {
+                                if (isManual) {
+                                  return {
+                                    ...row,
+                                    supplierId: "",
+                                    isManualSupplier: true,
+                                    name: "",
+                                    address: "",
+                                  };
+                                }
+
                                 return {
                                   ...row,
-                                  supplierId: "",
-                                  isManualSupplier: true,
-                                  name: "",
-                                  address: "",
+                                  supplierId,
+                                  isManualSupplier: false,
+                                  name: supplier?.name || "",
+                                  address: supplier?.address || "",
+                                  description:
+                                    supplier?.note ||
+                                    supplier?.description ||
+                                    row.description ||
+                                    "",
                                 };
-                              }
-
-                              return {
-                                ...row,
-                                supplierId,
-                                isManualSupplier: false,
-                                name: supplier?.name || "",
-                                address: supplier?.address || "",
-                                description:
-                                  supplier?.note ||
-                                  supplier?.description ||
-                                  row.description ||
-                                  "",
-                              };
-                            }),
-                          );
-                        }}
-                      />
+                              }),
+                            );
+                          }}
+                        />
+                      ) : null}
 
                       <div className="field">
                         <label>Tên chỗ ở</label>
@@ -6851,19 +7540,15 @@ export default function AdminPage({ initialTab = "overview" }) {
                         />
                       </div>
 
-                      {tourAccommodations.length > 1 && (
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          onClick={() =>
-                            setTourAccommodations((prev) =>
-                              prev.filter((_, idx) => idx !== index),
-                            )
-                          }
-                        >
-                          Xóa chỗ ở này
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() =>
+                          removeAccommodationFromTourWizard(item, index)
+                        }
+                      >
+                        Xóa chỗ ở này
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -6889,7 +7574,8 @@ export default function AdminPage({ initialTab = "overview" }) {
                           marginTop: 4,
                         }}
                       >
-                        Chọn đơn vị vận chuyển rồi nhập phương tiện cụ thể.
+                        Có thể dùng lại phương tiện đã lưu hoặc thêm nhiều
+                        phương tiện mới cho tour.
                       </div>
                     </div>
 
@@ -6920,7 +7606,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                       }}
                     >
                       <div className="field">
-                        <label>Phương tiện đã lưu trong hệ thống</label>
+                        <label>Nguồn phương tiện</label>
                         <select
                           value={item.catalogId || ""}
                           onChange={(e) =>
@@ -6928,7 +7614,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                           }
                         >
                           <option value="">
-                            + Nhập phương tiện mới thủ công
+                            + Nhập / chỉnh phương tiện thủ công
                           </option>
                           {(tourCatalogs.transports || []).map((option) => (
                             <option key={option.id} value={option.id}>
@@ -6943,43 +7629,45 @@ export default function AdminPage({ initialTab = "overview" }) {
                         </small>
                       </div>
 
-                      <TourSupplierSelector
-                        suppliers={suppliers}
-                        supplierType="transport"
-                        value={
-                          item.isManualSupplier ? "manual" : item.supplierId
-                        }
-                        label="Đơn vị vận chuyển"
-                        placeholder="Chọn nhà cung cấp vận chuyển"
-                        onChange={({ supplierId, supplier, isManual }) => {
-                          setTourTransports((prev) =>
-                            prev.map((row, idx) => {
-                              if (idx !== index) return row;
+                      {!item.catalogId ? (
+                        <TourSupplierSelector
+                          suppliers={suppliers}
+                          supplierType="transport"
+                          value={
+                            item.isManualSupplier ? "manual" : item.supplierId
+                          }
+                          label="Đơn vị vận chuyển"
+                          placeholder="Chọn nhà cung cấp vận chuyển"
+                          onChange={({ supplierId, supplier, isManual }) => {
+                            setTourTransports((prev) =>
+                              prev.map((row, idx) => {
+                                if (idx !== index) return row;
 
-                              if (isManual) {
+                                if (isManual) {
+                                  return {
+                                    ...row,
+                                    supplierId: "",
+                                    isManualSupplier: true,
+                                    provider: "",
+                                  };
+                                }
+
                                 return {
                                   ...row,
-                                  supplierId: "",
-                                  isManualSupplier: true,
-                                  provider: "",
+                                  supplierId,
+                                  isManualSupplier: false,
+                                  provider: supplier?.name || "",
+                                  description:
+                                    supplier?.note ||
+                                    supplier?.description ||
+                                    row.description ||
+                                    "",
                                 };
-                              }
-
-                              return {
-                                ...row,
-                                supplierId,
-                                isManualSupplier: false,
-                                provider: supplier?.name || "",
-                                description:
-                                  supplier?.note ||
-                                  supplier?.description ||
-                                  row.description ||
-                                  "",
-                              };
-                            }),
-                          );
-                        }}
-                      />
+                              }),
+                            );
+                          }}
+                        />
+                      ) : null}
 
                       <div className="field">
                         <label>Tên phương tiện</label>
@@ -7175,25 +7863,318 @@ export default function AdminPage({ initialTab = "overview" }) {
                         />
                       </div>
 
-                      {tourTransports.length > 1 && (
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          onClick={() =>
-                            setTourTransports((prev) =>
-                              prev.filter((_, idx) => idx !== index),
-                            )
-                          }
-                        >
-                          Xóa phương tiện này
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() =>
+                          removeTransportFromTourWizard(item, index)
+                        }
+                      >
+                        Xóa phương tiện này
+                      </button>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
           </div>
+        )}
+      </Modal>
+      <Modal
+        open={cancelBookingOpen}
+        onClose={() => !cancelBookingSubmitting && setCancelBookingOpen(false)}
+        title="Hủy booking"
+      >
+        {cancelBookingTarget && (
+          <form onSubmit={submitCancelBooking} className="modal-form-grid">
+            <div
+              className="span-2"
+              style={{
+                padding: 16,
+                borderRadius: 12,
+                background: "#fff7ed",
+                border: "1px solid #fed7aa",
+                color: "#9a3412",
+                lineHeight: 1.6,
+              }}
+            >
+              <strong>
+                Chỉ hủy booking {cancelBookingTarget.bookingCode}.
+              </strong>
+              <div>{cancelBookingTarget.tour?.name || "Tour Travela"}</div>
+              <div>
+                Đi {formatDate(cancelBookingTarget.departure?.departureDate)} ·
+                Về {formatDate(cancelBookingTarget.departure?.endDate)} ·{" "}
+                {formatNumber(
+                  Number(cancelBookingTarget.adultCount || 0) +
+                    Number(cancelBookingTarget.childCount || 0),
+                )}{" "}
+                khách
+              </div>
+            </div>
+
+            <div className="field">
+              <label>Loại lý do</label>
+              <select
+                value={cancelBookingForm.reasonType}
+                onChange={(e) => {
+                  const nextType = e.target.value;
+                  const label =
+                    cancelReasonLabels[nextType]?.toLowerCase() || "sự cố";
+                  setCancelBookingForm((prev) => ({
+                    ...prev,
+                    reasonType: nextType,
+                    customerMessage:
+                      `Travela rất tiếc phải thông báo booking ${cancelBookingTarget.bookingCode} của quý khách đã bị hủy do ${label}. ` +
+                      "Nếu booking đã thanh toán, Travela sẽ tạo hồ sơ hoàn 100% và hệ thống sẽ tự bổ sung hướng dẫn tài khoản nhận hoàn phù hợp với hồ sơ của quý khách.",
+                  }));
+                }}
+              >
+                {Object.entries(cancelReasonLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field span-2">
+              <label>Lý do chi tiết</label>
+              <textarea
+                rows={4}
+                required
+                value={cancelBookingForm.reason}
+                onChange={(e) =>
+                  setCancelBookingForm((prev) => ({
+                    ...prev,
+                    reason: e.target.value,
+                  }))
+                }
+                placeholder="Ví dụ: Sự cố vận hành, Travela chủ động hủy booking này."
+              />
+            </div>
+
+            <div className="field span-2">
+              <label>Nội dung thông báo khách hàng</label>
+              <textarea
+                rows={6}
+                required
+                value={cancelBookingForm.customerMessage}
+                onChange={(e) =>
+                  setCancelBookingForm((prev) => ({
+                    ...prev,
+                    customerMessage: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                width: "100%",
+                boxSizing: "border-box",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 18,
+                marginTop: 10,
+                paddingTop: 18,
+                borderTop: "1px solid #e2e8f0",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setCancelBookingOpen(false)}
+                disabled={cancelBookingSubmitting}
+                style={{
+                  width: 112,
+                  minHeight: 44,
+                  padding: "10px 18px",
+                  borderRadius: 10,
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#334155",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: cancelBookingSubmitting ? "not-allowed" : "pointer",
+                  opacity: cancelBookingSubmitting ? 0.6 : 1,
+                  boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+                  flexShrink: 0,
+                }}
+              >
+                Đóng
+              </button>
+
+              <button
+                type="submit"
+                disabled={cancelBookingSubmitting}
+                style={{
+                  width: 318,
+                  maxWidth: "calc(100% - 132px)",
+                  minHeight: 44,
+                  padding: "10px 20px",
+                  borderRadius: 10,
+                  border: "1px solid #ef4444",
+                  background: cancelBookingSubmitting ? "#fca5a5" : "#ef4444",
+                  color: "#ffffff",
+                  fontSize: 14,
+                  lineHeight: 1.35,
+                  fontWeight: 800,
+                  cursor: cancelBookingSubmitting ? "not-allowed" : "pointer",
+                  opacity: cancelBookingSubmitting ? 0.75 : 1,
+                  boxShadow: "0 8px 18px rgba(239, 68, 68, 0.18)",
+                  textAlign: "center",
+                  flexShrink: 0,
+                }}
+              >
+                {cancelBookingSubmitting
+                  ? "Đang xử lý..."
+                  : "Xác nhận hủy booking và tạo hoàn tiền"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+      <Modal
+        open={cancelDepartureOpen}
+        onClose={() => setCancelDepartureOpen(false)}
+        title="Hủy lịch khởi hành"
+      >
+        {selectedDepartureSummary && (
+          <form onSubmit={submitCancelDeparture} className="modal-form-grid">
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                padding: 16,
+                borderRadius: 12,
+                background: "#fff7ed",
+                border: "1px solid #fed7aa",
+                color: "#9a3412",
+                lineHeight: 1.6,
+              }}
+            >
+              <strong>Thao tác ảnh hưởng toàn bộ khách trong lịch này.</strong>
+              <div>
+                {selectedDepartureSummary.tourName} · Đi{" "}
+                {formatDate(selectedDepartureSummary.departureDate)} · Về{" "}
+                {formatDate(selectedDepartureSummary.endDate)}
+              </div>
+              <div>
+                {formatNumber(selectedDepartureSummary.totalBookings)} booking ·{" "}
+                {formatNumber(selectedDepartureSummary.totalGuests)} khách · Dự
+                kiến hoàn{" "}
+                {formatCurrency(selectedDepartureSummary.estimatedRefundAmount)}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>Loại sự cố</label>
+              <select
+                value={cancelDepartureForm.reasonType}
+                onChange={(e) => {
+                  const nextType = e.target.value;
+                  const label =
+                    cancelReasonLabels[nextType]?.toLowerCase() || "sự cố";
+                  setCancelDepartureForm((prev) => ({
+                    ...prev,
+                    reasonType: nextType,
+                    customerMessage:
+                      `Travela rất tiếc phải thông báo lịch khởi hành tour '${selectedDepartureSummary.tourName}' ngày ${formatDate(
+                        selectedDepartureSummary.departureDate,
+                      )} đã bị hủy do ${label}. ` +
+                      "Booking của quý khách sẽ được hủy và được áp dụng hoàn 100% số tiền thực thanh toán nếu đã thanh toán. " +
+                      "Hệ thống sẽ tự bổ sung hướng dẫn tài khoản nhận hoàn phù hợp với hồ sơ của từng khách.",
+                  }));
+                }}
+              >
+                {Object.entries(cancelReasonLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="field span-2">
+              <label>Lý do chi tiết</label>
+              <textarea
+                rows={4}
+                required
+                value={cancelDepartureForm.reason}
+                onChange={(e) =>
+                  setCancelDepartureForm((prev) => ({
+                    ...prev,
+                    reason: e.target.value,
+                  }))
+                }
+                placeholder="Ví dụ: Bão lớn, không thể đảm bảo an toàn cho hành khách."
+              />
+            </div>
+
+            <div className="field span-2">
+              <label>Nội dung thông báo khách hàng</label>
+              <textarea
+                rows={6}
+                required
+                value={cancelDepartureForm.customerMessage}
+                onChange={(e) =>
+                  setCancelDepartureForm((prev) => ({
+                    ...prev,
+                    customerMessage: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <label
+              className="span-2"
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "flex-start",
+                color: "#334155",
+                fontWeight: 700,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={cancelDepartureForm.confirmed}
+                onChange={(e) =>
+                  setCancelDepartureForm((prev) => ({
+                    ...prev,
+                    confirmed: e.target.checked,
+                  }))
+                }
+                style={{ marginTop: 3 }}
+              />
+              Tôi hiểu thao tác này sẽ hủy toàn bộ booking thuộc lịch khởi hành.
+            </label>
+
+            <div
+              className="span-2"
+              style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}
+            >
+              <button
+                type="button"
+                className="btn btn-light"
+                onClick={() => setCancelDepartureOpen(false)}
+              >
+                Đóng
+              </button>
+              <button
+                type="submit"
+                className="btn btn-danger"
+                disabled={
+                  cancelDepartureSubmitting || !cancelDepartureForm.confirmed
+                }
+              >
+                {cancelDepartureSubmitting
+                  ? "Đang xử lý..."
+                  : "Xác nhận hủy lịch và tạo hoàn tiền"}
+              </button>
+            </div>
+          </form>
         )}
       </Modal>
     </AdminLayout>

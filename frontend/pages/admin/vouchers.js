@@ -168,7 +168,7 @@ export default function AdminVouchersPage() {
   async function remove(id) {
     if (
       !window.confirm(
-        "Xóa voucher này? Voucher đã dùng sẽ không được xóa cứng.",
+        "Xóa voucher này? Voucher đã gắn với booking hoặc đã phát sinh sử dụng sẽ không được xóa cứng.",
       )
     ) {
       return;
@@ -185,11 +185,30 @@ export default function AdminVouchersPage() {
 
   async function save(e) {
     e.preventDefault();
+
+    if (!form.startDate || !form.endDate) {
+      showToast("Vui lòng chọn đầy đủ ngày bắt đầu và ngày kết thúc.", "error");
+      return;
+    }
+
+    const startDate = new Date(`${form.startDate}T00:00:00`);
+    const endDate = new Date(`${form.endDate}T00:00:00`);
+
+    if (endDate.getTime() < startDate.getTime()) {
+      showToast(
+        "Ngày kết thúc voucher phải bằng hoặc sau ngày bắt đầu.",
+        "error",
+      );
+      return;
+    }
+
     setSubmitting(true);
 
     try {
       const payload = {
         ...form,
+        // Voucher mới luôn phát hành ngay; trạng thái chỉ được chỉnh khi sửa.
+        status: form.id ? form.status : "active",
         code: form.code || undefined,
         discountValue:
           form.discountType === "percent"
@@ -556,6 +575,133 @@ export default function AdminVouchersPage() {
           flex: 0 0 auto;
         }
 
+        .detail-grid {
+          display: grid;
+          grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr);
+          gap: 18px;
+          align-items: stretch;
+        }
+
+        .detail-card {
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          background: #ffffff;
+          padding: 18px;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+          min-height: 460px;
+        }
+
+        .detail-card h4 {
+          margin: 0 0 16px;
+          color: #0f172a;
+          font-size: 24px;
+          font-weight: 800;
+          word-break: break-word;
+        }
+
+        .detail-list {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .detail-list li {
+          display: grid;
+          grid-template-columns: 150px minmax(0, 1fr);
+          gap: 16px;
+          align-items: start;
+          padding-bottom: 10px;
+          border-bottom: 1px dashed #e2e8f0;
+        }
+
+        .detail-list li:last-child {
+          border-bottom: none;
+          padding-bottom: 0;
+        }
+
+        .detail-list span {
+          color: #64748b;
+          font-weight: 500;
+        }
+
+        .detail-list strong {
+          color: #0f172a;
+          text-align: right;
+          word-break: break-word;
+        }
+
+        .detail-card--recipients {
+          min-height: 460px;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .recipient-summary {
+          margin-bottom: 12px;
+          color: #64748b;
+          font-size: 13px;
+        }
+
+        .recipient-summary strong {
+          color: #1d4ed8;
+          font-size: 14px;
+        }
+
+        .overview-list {
+          flex: 1;
+          min-height: 0;
+          max-height: 520px;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding-right: 6px;
+        }
+
+        .overview-list::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .overview-list::-webkit-scrollbar-track {
+          background: #f1f5f9;
+          border-radius: 999px;
+        }
+
+        .overview-list::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 999px;
+        }
+
+        .overview-list-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 14px 16px;
+          border-radius: 16px;
+          border: 1px solid #e2e8f0;
+          background: linear-gradient(180deg, #ffffff, #f8fafc);
+        }
+
+        .overview-list-item strong {
+          display: block;
+          color: #0f172a;
+          font-size: 15px;
+          line-height: 1.4;
+        }
+
+        .overview-list-item span {
+          display: block;
+          margin-top: 4px;
+          color: #64748b;
+          font-size: 13px;
+          line-height: 1.4;
+          word-break: break-word;
+        }
+
         @media (max-width: 1280px) {
           .voucher-filter-grid {
             grid-template-columns: repeat(3, minmax(180px, 1fr));
@@ -575,6 +721,30 @@ export default function AdminVouchersPage() {
         @media (max-width: 640px) {
           .voucher-filter-grid {
             grid-template-columns: 1fr;
+          }
+
+          @media (max-width: 960px) {
+            .detail-grid {
+              grid-template-columns: 1fr;
+            }
+
+            .detail-card,
+            .detail-card--recipients {
+              min-height: auto;
+            }
+
+            .overview-list {
+              max-height: 420px;
+            }
+
+            .detail-list li {
+              grid-template-columns: 1fr;
+              gap: 6px;
+            }
+
+            .detail-list strong {
+              text-align: left;
+            }
           }
 
           .voucher-toolbar-summary {
@@ -1054,6 +1224,8 @@ export default function AdminVouchersPage() {
             <label>Ngày bắt đầu</label>
             <input
               type="date"
+              required
+              max={form.endDate || undefined}
               value={form.startDate}
               onChange={(e) =>
                 setForm((p) => ({ ...p, startDate: e.target.value }))
@@ -1065,6 +1237,8 @@ export default function AdminVouchersPage() {
             <label>Ngày kết thúc</label>
             <input
               type="date"
+              required
+              min={form.startDate || undefined}
               value={form.endDate}
               onChange={(e) =>
                 setForm((p) => ({ ...p, endDate: e.target.value }))
@@ -1072,19 +1246,21 @@ export default function AdminVouchersPage() {
             />
           </div>
 
-          <div className="field">
-            <label>Trạng thái</label>
-            <select
-              value={form.status}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, status: e.target.value }))
-              }
-            >
-              <option value="active">Đang phát hành</option>
-              <option value="inactive">Tạm ngưng</option>
-              <option value="expired">Hết hạn</option>
-            </select>
-          </div>
+          {form.id ? (
+            <div className="field">
+              <label>Trạng thái</label>
+              <select
+                value={form.status}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, status: e.target.value }))
+                }
+              >
+                <option value="active">Đang phát hành</option>
+                <option value="inactive">Tạm ngưng</option>
+                <option value="expired">Hết hạn</option>
+              </select>
+            </div>
+          ) : null}
 
           <div className="field span-2">
             <label>Mô tả</label>
@@ -1144,8 +1320,13 @@ export default function AdminVouchersPage() {
                 </ul>
               </div>
 
-              <div className="detail-card">
+              <div className="detail-card detail-card--recipients">
                 <h4>Người đã nhận voucher</h4>
+
+                <div className="recipient-summary">
+                  Tổng số khách hàng đã nhận:{" "}
+                  <strong>{detail.userVouchers?.length || 0}</strong>
+                </div>
 
                 {(detail.userVouchers || []).length ? (
                   <div className="overview-list">

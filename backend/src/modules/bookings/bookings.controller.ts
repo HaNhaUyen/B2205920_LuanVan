@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
@@ -19,18 +20,34 @@ import { Roles } from "../../common/decorators/roles.decorator";
 import { AdminUpsertBookingDto } from "./dto/admin-upsert-booking.dto";
 import { UpdateBookingDto } from "./dto/update-booking.dto";
 import { UpdateBookingStatusDto } from "./dto/update-booking-status.dto";
+import { CancelDepartureDto } from "./dto/cancel-departure.dto";
+import { CancelBookingByAdminDto } from "./dto/cancel-booking-by-admin.dto";
+import { IdempotencyService } from "../../common/services/idempotency.service";
 
 @Controller()
 export class BookingsController {
-  constructor(private readonly bookingsService: BookingsService) {}
+  constructor(
+    private readonly bookingsService: BookingsService,
+    private readonly idempotency: IdempotencyService,
+  ) {}
 
   @UseGuards(OptionalJwtAuthGuard)
   @Post("bookings")
   create(
     @Body() dto: CreateBookingDto,
     @CurrentUser() user?: { userId: bigint },
+    @Headers("idempotency-key") idempotencyKey?: string,
   ) {
-    return this.bookingsService.create(dto, user?.userId);
+    return this.idempotency.run({
+      userId: user?.userId,
+      key: idempotencyKey,
+      operation: "booking.create",
+      payload: dto,
+      resourceType: "booking",
+      resourceIdSelector: (response: any) =>
+        response?.id || response?.bookingId,
+      handler: () => this.bookingsService.create(dto, user?.userId),
+    });
   }
 
   @UseGuards(JwtAuthGuard)
@@ -60,6 +77,8 @@ export class BookingsController {
     @Query("status") status?: string,
     @Query("paymentStatus") paymentStatus?: string,
     @Query("tourId") tourId?: string,
+    @Query("departureId") departureId?: string,
+    @Query("departureDate") departureDate?: string,
     @Query("destinationId") destinationId?: string,
     @Query("departureFrom") departureFrom?: string,
     @Query("departureTo") departureTo?: string,
@@ -75,6 +94,8 @@ export class BookingsController {
       status,
       paymentStatus,
       tourId,
+      departureId,
+      departureDate,
       destinationId,
       departureFrom,
       departureTo,
@@ -83,6 +104,28 @@ export class BookingsController {
       sortBy,
       sortOrder,
     });
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/departures/:departureId/summary")
+  adminDepartureSummary(@Param("departureId") departureId: string) {
+    return this.bookingsService.adminDepartureSummary(BigInt(departureId));
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Patch("admin/departures/:departureId/cancel")
+  adminCancelDeparture(
+    @Param("departureId") departureId: string,
+    @Body() dto: CancelDepartureDto,
+    @CurrentUser() user: { userId: bigint },
+  ) {
+    return this.bookingsService.adminCancelDeparture(
+      BigInt(departureId),
+      dto,
+      user.userId,
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -100,6 +143,21 @@ export class BookingsController {
   @Get("admin/bookings/:id")
   adminDetail(@Param("id") id: string) {
     return this.bookingsService.findById(Number(id));
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Patch("admin/bookings/:id/cancel")
+  adminCancelBooking(
+    @Param("id") id: string,
+    @Body() dto: CancelBookingByAdminDto,
+    @CurrentUser() user: { userId: bigint },
+  ) {
+    return this.bookingsService.adminCancelBooking(
+      BigInt(id),
+      dto,
+      user.userId,
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

@@ -1,5 +1,14 @@
 import { Injectable } from "@nestjs/common";
-import { addScore, clampScore, stripText } from "./recommendation.utils";
+import {
+  addScore,
+  clampScore,
+  recencyWeight,
+  stripText,
+} from "./recommendation.utils";
+import {
+  getRecommendationDataSource,
+  recommendationSourceWeight,
+} from "./recommendation-data-source";
 import { UserSignals } from "./recommendation.types";
 
 @Injectable()
@@ -21,7 +30,15 @@ export class ContentBasedService {
     }));
 
     for (const behavior of behaviors) {
-      const score = Math.max(Number(behavior.score || 1), 0.2);
+      const sourceWeight = recommendationSourceWeight(
+        getRecommendationDataSource(behavior.meta),
+      );
+      if (sourceWeight <= 0) continue;
+
+      const score =
+        Math.max(Number(behavior.score || 1), 0.2) *
+        recencyWeight(behavior.createdAt || new Date()) *
+        sourceWeight;
       const tour = behavior.tour || {};
 
       if (behavior.tourId) addScore(tourScore, behavior.tourId, score * 1.4);

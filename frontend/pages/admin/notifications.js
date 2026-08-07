@@ -246,6 +246,9 @@ export default function AdminNotificationsPage() {
   const [detail, setDetail] = useState(null);
   const [form, setForm] = useState(initialForm);
   const [users, setUsers] = useState([]);
+  const [recipientSearch, setRecipientSearch] = useState("");
+  const [recipientLoading, setRecipientLoading] = useState(false);
+  const [recipientSuggestOpen, setRecipientSuggestOpen] = useState(false);
   const [bulkFilters, setBulkFilters] = useState(initialBulkFilters);
   const [bulkData, setBulkData] = useState({
     items: [],
@@ -291,20 +294,35 @@ export default function AdminNotificationsPage() {
     [],
   );
 
-  const loadUsers = async () => {
-    const result = await apiFetch(
-      `/admin/users?${buildQuery({
-        page: 1,
-        pageSize: 1000,
-        status: "active",
-      })}`,
-    );
+  const loadUsers = async (search = "") => {
+    const keyword = String(search || "").trim();
 
-    setUsers(
-      (result?.items || []).filter(
-        (item) => String(item.role || "").toLowerCase() !== "admin",
-      ),
-    );
+    // Không tải một danh sách user cố định. Chỉ truy vấn database khi admin gõ.
+    if (!keyword) {
+      setUsers([]);
+      setRecipientLoading(false);
+      return [];
+    }
+
+    setRecipientLoading(true);
+    try {
+      const result = await apiFetch(
+        `/admin/users?${buildQuery({
+          page: 1,
+          pageSize: 20,
+          status: "active",
+          search: keyword,
+          sortBy: "fullName",
+          sortOrder: "asc",
+        })}`,
+      );
+
+      const items = Array.isArray(result?.items) ? result.items : [];
+      setUsers(items);
+      return items;
+    } finally {
+      setRecipientLoading(false);
+    }
   };
 
   const loadBulkTargets = async (nextFilters = bulkFilters) => {
@@ -324,11 +342,7 @@ export default function AdminNotificationsPage() {
   useEffect(() => {
     notificationPageMountedRef.current = true;
 
-    Promise.all([
-      loadData(initialFilters),
-      loadBulkTargets(initialBulkFilters),
-      loadUsers(),
-    ])
+    Promise.all([loadData(initialFilters), loadBulkTargets(initialBulkFilters)])
       .catch((error) => showToast(error.message, "error"))
       .finally(() => {
         if (notificationPageMountedRef.current) {
@@ -340,6 +354,26 @@ export default function AdminNotificationsPage() {
       notificationPageMountedRef.current = false;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!modalOpen || form.targetMode !== "specific_user") return;
+
+    const keyword = recipientSearch.trim();
+    if (!keyword || form.targetUserId) {
+      if (!keyword) setUsers([]);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      loadUsers(keyword)
+        .then(() => setRecipientSuggestOpen(true))
+        .catch((error) =>
+          showToast(error.message || "Không tìm được khách hàng.", "error"),
+        );
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [modalOpen, form.targetMode, recipientSearch, form.targetUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading) return;
@@ -413,6 +447,9 @@ export default function AdminNotificationsPage() {
 
   const openCreate = () => {
     setForm(initialForm);
+    setRecipientSearch("");
+    setUsers([]);
+    setRecipientSuggestOpen(false);
     setModalOpen(true);
   };
 
@@ -426,6 +463,24 @@ export default function AdminNotificationsPage() {
       targetMode = "all_guides";
     } else if (item.targetRole === "all") {
       targetMode = "all";
+    }
+
+    if (item.targetUser) {
+      setUsers((prev) => {
+        const exists = prev.some(
+          (user) => String(user.id) === String(item.targetUser.id),
+        );
+        return exists ? prev : [item.targetUser, ...prev];
+      });
+      setRecipientSearch(
+        [item.targetUser.fullName, item.targetUser.email]
+          .filter(Boolean)
+          .join(" · "),
+      );
+      setRecipientSuggestOpen(false);
+    } else {
+      setRecipientSearch("");
+      setRecipientSuggestOpen(false);
     }
 
     setForm({
@@ -851,6 +906,55 @@ export default function AdminNotificationsPage() {
           border-color: #72b44b;
           background: #fff;
           box-shadow: 0 0 0 3px rgba(114, 180, 75, 0.13);
+        }
+        .recipient-autocomplete {
+          position: relative;
+        }
+        .recipient-suggestions {
+          position: absolute;
+          top: calc(100% + 6px);
+          left: 0;
+          right: 0;
+          z-index: 50;
+          max-height: 240px;
+          overflow-y: auto;
+          background: #ffffff;
+          border: 1px solid #dbe3ef;
+          border-radius: 12px;
+          box-shadow: 0 14px 32px rgba(15, 23, 42, 0.16);
+          padding: 6px;
+        }
+        .recipient-suggestion-item {
+          width: 100%;
+          display: block;
+          text-align: left;
+          border: 0;
+          background: transparent;
+          border-radius: 9px;
+          padding: 10px 11px;
+          cursor: pointer;
+          color: #0f172a;
+        }
+        .recipient-suggestion-item:hover,
+        .recipient-suggestion-item:focus {
+          background: #f1f5f9;
+          outline: none;
+        }
+        .recipient-suggestion-name {
+          display: block;
+          font-weight: 750;
+          font-size: 14px;
+        }
+        .recipient-suggestion-meta {
+          display: block;
+          margin-top: 2px;
+          color: #64748b;
+          font-size: 12px;
+        }
+        .recipient-search-note {
+          margin-top: 6px;
+          color: #94a3b8;
+          font-size: 12px;
         }
         .smart-grid {
           display: grid;
@@ -1424,6 +1528,9 @@ export default function AdminNotificationsPage() {
           if (!submitting) {
             setModalOpen(false);
             setForm(initialForm);
+            setRecipientSearch("");
+            setUsers([]);
+            setRecipientSuggestOpen(false);
           }
         }}
         title={form.id ? "Sửa thông báo" : "Thêm thông báo"}
@@ -1474,36 +1581,91 @@ export default function AdminNotificationsPage() {
             </select>
           </label>
 
-          {["specific_user", "specific_guide"].includes(form.targetMode) && (
-            <label>
-              {form.targetMode === "specific_guide"
-                ? "Chọn hướng dẫn viên"
-                : "Chọn khách hàng"}
-              <select
-                className="smart-input"
-                value={form.targetUserId}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, targetUserId: e.target.value }))
-                }
-              >
-                <option value="">
-                  {form.targetMode === "specific_guide"
-                    ? "-- Chọn hướng dẫn viên --"
-                    : "-- Chọn khách hàng --"}
-                </option>
-                {users
-                  .filter((user) =>
-                    form.targetMode === "specific_guide"
-                      ? String(user.role).toLowerCase() === "guide"
-                      : String(user.role).toLowerCase() === "user",
-                  )
-                  .map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.fullName} · {user.email}
-                    </option>
-                  ))}
-              </select>
-            </label>
+          {form.targetMode === "specific_user" && (
+            <div className="recipient-autocomplete">
+              <label style={{ display: "block" }}>
+                Chọn khách hàng
+                <input
+                  className="smart-input"
+                  value={recipientSearch}
+                  autoComplete="off"
+                  onFocus={() => {
+                    if (!form.targetUserId && recipientSearch.trim()) {
+                      setRecipientSuggestOpen(true);
+                    }
+                  }}
+                  onChange={(e) => {
+                    setRecipientSearch(e.target.value);
+                    setForm((p) => ({ ...p, targetUserId: "" }));
+                    setRecipientSuggestOpen(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setRecipientSuggestOpen(false);
+                  }}
+                  placeholder="Gõ tên, email hoặc SĐT khách hàng..."
+                />
+              </label>
+
+              {recipientLoading && !form.targetUserId ? (
+                <div className="recipient-search-note">
+                  Đang tìm trong hệ thống...
+                </div>
+              ) : null}
+
+              {recipientSuggestOpen &&
+              !form.targetUserId &&
+              recipientSearch.trim() ? (
+                <div className="recipient-suggestions">
+                  {users.length ? (
+                    users.map((user) => (
+                      <button
+                        key={user.id}
+                        type="button"
+                        className="recipient-suggestion-item"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setForm((p) => ({
+                            ...p,
+                            targetUserId: String(user.id),
+                          }));
+                          setRecipientSearch(
+                            [user.fullName || "Chưa có tên", user.email]
+                              .filter(Boolean)
+                              .join(" · "),
+                          );
+                          setRecipientSuggestOpen(false);
+                        }}
+                      >
+                        <span className="recipient-suggestion-name">
+                          {user.fullName || "Chưa có tên"}
+                        </span>
+                        <span className="recipient-suggestion-meta">
+                          {user.email}
+                          {user.phone ? ` · ${user.phone}` : ""}
+                        </span>
+                      </button>
+                    ))
+                  ) : !recipientLoading ? (
+                    <div
+                      style={{
+                        padding: "12px 11px",
+                        color: "#64748b",
+                        fontSize: 13,
+                      }}
+                    >
+                      Không tìm thấy khách hàng phù hợp.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {form.targetMode === "specific_guide" && (
+            <div style={{ color: "#b45309", fontSize: 13 }}>
+              Danh sách hướng dẫn viên dùng nguồn dữ liệu riêng. Nếu cần, tôi có
+              thể nối luôn phần tìm kiếm HDV theo tên/email tương tự.
+            </div>
           )}
           <label>
             Tiêu đề
@@ -1690,9 +1852,6 @@ export default function AdminNotificationsPage() {
                     Email
                   </label>
                 </div>
-                <div style={{ color: "#64748b", marginTop: 8 }}>
-                  Đang chọn: {channelLabel(bulkForm.channels)}
-                </div>
               </div>
             </div>
 
@@ -1745,18 +1904,6 @@ export default function AdminNotificationsPage() {
                   <strong>
                     Danh sách tài khoản đặt booking nhận thông báo/email
                   </strong>
-
-                  <div
-                    style={{
-                      marginTop: 5,
-                      color: "#64748b",
-                      fontSize: 13,
-                      lineHeight: 1.45,
-                    }}
-                  >
-                    Chỉ gửi cho tài khoản sở hữu booking. Danh sách chỉ hiển thị
-                    tên, email và số điện thoại của người đặt tour.
-                  </div>
                 </div>
 
                 <button

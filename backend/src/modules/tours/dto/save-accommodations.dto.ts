@@ -16,6 +16,12 @@ export class SaveAccommodationItemDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   supplierId?: number | null;
 
   @IsString()

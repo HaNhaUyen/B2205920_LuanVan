@@ -17,8 +17,11 @@ export class DepartureMaintenanceService {
 
   /**
    * Chạy tự động mỗi ngày lúc 02:05 theo giờ Việt Nam.
-   * - Lịch cũ hơn 7 ngày, không có booking: xóa vật lý.
-   * - Lịch cũ hơn 7 ngày, đã có booking: chuyển closed để giữ lịch sử.
+   * Không xóa vật lý lịch khởi hành cũ.
+   *
+   * Lịch cũ được giữ lại trong database để bảo toàn lịch sử và báo cáo.
+   * Giao diện quản trị sẽ tự ẩn lịch trước tháng hiện tại.
+   * Maintenance chỉ chuyển các lịch cũ còn open/full sang closed.
    */
   @Cron("0 5 2 * * *", { timeZone: "Asia/Ho_Chi_Minh" })
   async runScheduledMaintenance() {
@@ -102,36 +105,28 @@ export class DepartureMaintenanceService {
       orderBy: { departureDate: "asc" },
     });
 
-    let deletedCount = 0;
+    const deletedCount = 0;
     let archivedCount = 0;
     let skippedCount = 0;
 
     await this.prisma.$transaction(async (tx) => {
       for (const departure of expiredDepartures) {
-        const bookingCount = Number(departure._count.bookings || 0);
-
-        if (bookingCount > 0) {
-          if (
-            !["closed", "completed", "cancelled"].includes(departure.status)
-          ) {
-            await tx.tourDeparture.update({
-              where: { id: departure.id },
-              data: {
-                status: "closed",
-                heldSlots: 0,
-              },
-            });
-            archivedCount += 1;
-          } else {
-            skippedCount += 1;
-          }
-          continue;
+        /*
+         * Không xóa vật lý kể cả lịch chưa có booking.
+         * Chỉ đóng lịch cũ nếu nó vẫn còn ở trạng thái có thể bán.
+         */
+        if (["open", "full"].includes(departure.status)) {
+          await tx.tourDeparture.update({
+            where: { id: departure.id },
+            data: {
+              status: "closed",
+              heldSlots: 0,
+            },
+          });
+          archivedCount += 1;
+        } else {
+          skippedCount += 1;
         }
-
-        await tx.tourDeparture.delete({
-          where: { id: departure.id },
-        });
-        deletedCount += 1;
       }
     });
 
@@ -143,7 +138,7 @@ export class DepartureMaintenanceService {
       archivedCount,
       skippedCount,
       message:
-        "Đã xóa lịch cũ hơn 7 ngày không có booking và đóng các lịch đã có booking.",
+        "Đã giữ nguyên toàn bộ lịch khởi hành cũ trong database và chỉ đóng các lịch đã quá hạn còn đang mở.",
     };
   }
 }

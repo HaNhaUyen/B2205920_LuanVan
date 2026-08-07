@@ -773,32 +773,68 @@ export class ReviewsService {
       throw new BadRequestException("Mã đánh giá không hợp lệ.");
     }
 
-    const existing = await this.prisma.review.findUnique({
-      where: { id: BigInt(id) },
-    });
-
-    if (!existing) throw new NotFoundException("Review not found");
-
     const reply = dto.adminReply?.trim() || null;
-    const nextStatus = dto.status || (reply ? "approved" : existing.status);
 
-    const updated = await this.prisma.review.update({
-      where: { id: BigInt(id) },
-      data: {
-        adminReply: reply,
-        adminReplyAt: reply ? new Date() : null,
-        status: nextStatus as any,
-      },
-      include: {
-        tour: { select: { id: true, name: true } },
-        user: {
-          select: { id: true, fullName: true, email: true, avatarUrl: true },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.review.findUnique({
+        where: { id: BigInt(id) },
+        include: {
+          tour: { select: { id: true, name: true } },
+          user: { select: { id: true, fullName: true } },
         },
-      },
+      });
+
+      if (!existing) throw new NotFoundException("Review not found");
+
+      const nextStatus = dto.status || (reply ? "approved" : existing.status);
+
+      const row = await tx.review.update({
+        where: { id: BigInt(id) },
+        data: {
+          adminReply: reply,
+          adminReplyAt: reply ? new Date() : null,
+          status: nextStatus as any,
+        },
+        include: {
+          tour: { select: { id: true, name: true } },
+          user: {
+            select: { id: true, fullName: true, email: true, avatarUrl: true },
+          },
+        },
+      });
+
+      /*
+       * Khi Admin thực sự gửi phản hồi, tạo thông báo riêng cho đúng khách.
+       * createdAt để Prisma/database tự sinh thống nhất, không dùng NOW() raw SQL.
+       */
+      if (reply && existing.userId) {
+        const tourName = existing.tour?.name || "tour của bạn";
+
+        await tx.notification.create({
+          data: {
+            title: "Travela đã phản hồi đánh giá của bạn",
+            message: `Đánh giá của bạn về ${tourName} đã có phản hồi từ Travela.`,
+            content:
+              `Travela đã phản hồi đánh giá của bạn về tour ${tourName}.
+
+` + `Phản hồi: ${reply}`,
+            targetRole: "user" as any,
+            targetUserId: existing.userId,
+            isPublished: true,
+            metadata: {
+              type: "review_admin_reply",
+              reviewId: String(existing.id),
+              tourId: String(existing.tourId),
+              tourName,
+            } as any,
+          },
+        });
+      }
+
+      return row;
     });
 
     const withMedia = await this.attachMediaToReviews([updated]);
-
     return this.mapReview(withMedia[0]);
   }
 
@@ -807,23 +843,58 @@ export class ReviewsService {
       throw new BadRequestException("Mã đánh giá không hợp lệ.");
     }
 
-    const existing = await this.prisma.review.findUnique({
-      where: { id: BigInt(id) },
-    });
-
-    if (!existing) throw new NotFoundException("Review not found");
-
     const mediaMap = await this.loadMediaMap([BigInt(id)]);
     const mediaItems = mediaMap.get(String(id)) || [];
 
-    await this.prisma.review.delete({
-      where: { id: BigInt(id) },
+    const deletedInfo = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.review.findUnique({
+        where: { id: BigInt(id) },
+        include: {
+          tour: { select: { id: true, name: true } },
+          user: { select: { id: true, fullName: true } },
+        },
+      });
+
+      if (!existing) throw new NotFoundException("Review not found");
+
+      await tx.review.delete({
+        where: { id: BigInt(id) },
+      });
+
+      if (existing.userId) {
+        const tourName = existing.tour?.name || "tour của bạn";
+
+        await tx.notification.create({
+          data: {
+            title: "Đánh giá của bạn đã được gỡ",
+            message: `Đánh giá của bạn về ${tourName} đã được quản trị viên gỡ khỏi hệ thống.`,
+            content:
+              `Travela thông báo đánh giá của bạn về tour ${tourName} đã được quản trị viên gỡ khỏi hệ thống. ` +
+              `Nếu cần hỗ trợ thêm, bạn vui lòng liên hệ Travela.`,
+            targetRole: "user" as any,
+            targetUserId: existing.userId,
+            isPublished: true,
+            metadata: {
+              type: "review_admin_deleted",
+              reviewId: String(existing.id),
+              tourId: String(existing.tourId),
+              tourName,
+            } as any,
+          },
+        });
+      }
+
+      return {
+        reviewId: String(existing.id),
+        userId: existing.userId ? String(existing.userId) : null,
+        tourId: String(existing.tourId),
+      };
     });
 
     for (const media of mediaItems) {
       await this.removeUploadedFile(media.fileUrl || media.file_url);
     }
 
-    return { success: true };
+    return { success: true, ...deletedInfo };
   }
 }

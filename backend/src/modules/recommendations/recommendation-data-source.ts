@@ -7,6 +7,16 @@ export type RecommendationDataSource =
   | "evaluation_seed"
   | "unknown";
 
+const REAL_SOURCE_ALIASES = new Set([
+  "real",
+  "booking_create",
+  "tour_detail",
+  "favorites_service",
+  "ai_smart_search_text",
+  "assistant",
+  "chatbot_suggestion",
+]);
+
 /**
  * Đọc nguồn dữ liệu từ trường meta của user_behaviors.
  *
@@ -27,8 +37,11 @@ export function getRecommendationDataSource(
 
   const normalizedSource = source.trim();
 
+  if (REAL_SOURCE_ALIASES.has(normalizedSource)) {
+    return "real";
+  }
+
   switch (normalizedSource) {
-    case "real":
     case "recommendation_persona_seed_v2":
     case "recommendation_persona_seed_v3":
     case "seed":

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Patch,
   Post,
@@ -15,10 +16,14 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RefundsService } from "./refunds.service";
 import { CreateRefundDto } from "./dto/create-refund.dto";
 import { ReviewRefundDto } from "./dto/review-refund.dto";
+import { IdempotencyService } from "../../common/services/idempotency.service";
 
 @Controller("refunds")
 export class RefundsController {
-  constructor(private readonly service: RefundsService) {}
+  constructor(
+    private readonly service: RefundsService,
+    private readonly idempotency: IdempotencyService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Get("bookings/:bookingId/preview")
@@ -31,8 +36,20 @@ export class RefundsController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  create(@CurrentUser() u: { userId: bigint }, @Body() dto: CreateRefundDto) {
-    return this.service.create(u.userId, dto);
+  create(
+    @CurrentUser() u: { userId: bigint },
+    @Body() dto: CreateRefundDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.idempotency.run({
+      userId: u.userId,
+      key: idempotencyKey,
+      operation: "refund.create",
+      payload: dto,
+      resourceType: "refund",
+      resourceIdSelector: (response: any) => response?.id,
+      handler: () => this.service.create(u.userId, dto),
+    });
   }
 
   @UseGuards(JwtAuthGuard)

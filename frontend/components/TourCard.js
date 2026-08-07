@@ -4,7 +4,12 @@ import { API_URL } from "@/lib/config";
 import { apiFetch } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { mapLabel } from "@/lib/labels";
-import { mapImageUrl, pickTourImage } from "@/lib/tour";
+import {
+  buildTourBadges,
+  getTourBookingCount,
+  mapImageUrl,
+  pickTourImage,
+} from "@/lib/tour";
 import { getUser } from "@/lib/storage";
 import Image from "next/image";
 import {
@@ -63,7 +68,8 @@ function getMatchPercent(tour) {
   if (Number.isNaN(numeric)) return null;
 
   const normalized = numeric <= 1 ? numeric * 100 : numeric;
-  return Math.max(60, Math.min(99, Math.round(normalized)));
+  const percent = Math.max(0, Math.min(99, Math.round(normalized)));
+  return percent >= 35 ? percent : null;
 }
 
 function shouldSkipNextImageOptimization(url = "") {
@@ -267,14 +273,8 @@ export default function TourCard({
     };
   }, [tour?.id, refreshFavoriteStatus]);
 
-  const bookingCount = Number(tour.bookingCount || tour._count?.bookings || 0);
-  const favoriteCount = Number(
-    tour.favoriteCount || tour._count?.favorites || 0,
-  );
-  const isBestSeller = Boolean(tour.dynamicIsBestSeller || bookingCount >= 5);
-  const isPopularFavorite = Boolean(
-    tour.dynamicIsFavorite || favoriteCount >= 5,
-  );
+  const bookingCount = getTourBookingCount(tour);
+  const tourBadges = buildTourBadges(tour);
   const matchPercent = getMatchPercent(tour);
 
   const price = tour.minPrice || tour.basePriceAdult || 0;
@@ -543,6 +543,17 @@ export default function TourCard({
     },
   };
 
+  const badgeStyles = {
+    bestSeller: {
+      background: "linear-gradient(135deg, #ef4444, #dc2626)",
+      Icon: Flame,
+    },
+    favorite: {
+      background: "linear-gradient(135deg, #ec4899, #be185d)",
+      Icon: Heart,
+    },
+  };
+
   return (
     <article
       style={styles.card}
@@ -585,36 +596,25 @@ export default function TourCard({
 
         <div style={styles.overlayTop}>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            {isBestSeller ? (
-              <span
-                style={{
-                  ...styles.badgeFeatured,
-                  background: "linear-gradient(135deg, #ef4444, #dc2626)",
-                }}
-                title={`${bookingCount} lượt đặt hợp lệ`}
-              >
-                🔥 Bán chạy
-              </span>
-            ) : tour.dynamicIsBestDeal ? (
-              <span
-                style={{
-                  ...styles.badgeFeatured,
-                  background: "linear-gradient(135deg, #f59e0b, #d97706)",
-                }}
-              >
-                ⭐ Giá tốt
-              </span>
-            ) : isPopularFavorite ? (
-              <span
-                style={{
-                  ...styles.badgeFeatured,
-                  background: "linear-gradient(135deg, #ec4899, #be185d)",
-                }}
-                title={`${favoriteCount} lượt yêu thích`}
-              >
-                💖 Yêu thích
-              </span>
-            ) : null}
+            {tourBadges.map((badge) => {
+              const badgeStyle = badgeStyles[badge.key];
+              if (!badgeStyle) return null;
+              const Icon = badgeStyle.Icon;
+
+              return (
+                <span
+                  key={badge.key}
+                  style={{
+                    ...styles.badgeFeatured,
+                    background: badgeStyle.background,
+                  }}
+                  title={badge.title}
+                >
+                  <Icon size={13} fill="currentColor" strokeWidth={2.5} />
+                  {badge.label}
+                </span>
+              );
+            })}
           </div>
 
           <button

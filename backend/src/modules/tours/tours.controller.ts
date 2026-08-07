@@ -45,16 +45,30 @@ export class ToursController {
   private filterAdminVisibleDepartures(tour: any) {
     if (!tour) return tour;
 
-    const cutoff = new Date();
-    cutoff.setHours(0, 0, 0, 0);
-    cutoff.setDate(cutoff.getDate() - 7);
+    /*
+     * Form quản trị chỉ hiển thị lịch từ tháng hiện tại trở về sau.
+     * Ví dụ đang là 08/2026:
+     * - lịch 07/2026 trở về trước: ẩn khỏi form, KHÔNG xóa database.
+     * - lịch 02/08/2026, 18/08/2026, 09/2026...: vẫn hiển thị.
+     * Sang 09/2026 thì tự động chỉ còn lịch từ 01/09/2026 trở đi.
+     */
+    const now = new Date();
+    const currentMonthStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
 
     const departures = (Array.isArray(tour.departures) ? tour.departures : [])
       .filter((departure: any) => {
         const departureDate = new Date(departure.departureDate);
         if (Number.isNaN(departureDate.getTime())) return false;
         departureDate.setHours(0, 0, 0, 0);
-        return departureDate.getTime() >= cutoff.getTime();
+        return departureDate.getTime() >= currentMonthStart.getTime();
       })
       .sort(
         (a: any, b: any) =>
@@ -173,6 +187,33 @@ export class ToursController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles("admin")
+  @Get("admin/tours/options")
+  adminTourOptions() {
+    return this.toursService.adminTourOptions();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/tours/:tourId/departures/options")
+  adminTourDepartureOptions(@Param("tourId") tourId: string) {
+    return this.toursService.adminTourDepartureOptions(Number(tourId));
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/tours/:tourId/departures/:departureId/delete-check")
+  checkDepartureDeletion(
+    @Param("tourId") tourId: string,
+    @Param("departureId") departureId: string,
+  ) {
+    return this.toursService.checkDepartureDeletion(
+      Number(tourId),
+      Number(departureId),
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
   @Get("admin/tours/:tourId")
   async adminDetail(@Param("tourId") tourId: string) {
     const tour = await this.toursService.findById(Number(tourId));
@@ -262,6 +303,45 @@ export class ToursController {
     @Body() dto: SavePickupPointsDto,
   ) {
     return this.toursService.savePickupPoints(Number(tourId), dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/tours/:tourId/pickup-points/:pickupPointId/delete-check")
+  checkPickupPointDeletion(
+    @Param("tourId") tourId: string,
+    @Param("pickupPointId") pickupPointId: string,
+  ) {
+    return this.toursService.checkPickupPointDeletion(
+      Number(tourId),
+      Number(pickupPointId),
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/tours/:tourId/accommodations/:accommodationId/delete-check")
+  checkAccommodationDeletion(
+    @Param("tourId") tourId: string,
+    @Param("accommodationId") accommodationId: string,
+  ) {
+    return this.toursService.checkAccommodationDeletion(
+      Number(tourId),
+      Number(accommodationId),
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Get("admin/tours/:tourId/transports/:transportId/delete-check")
+  checkTransportDeletion(
+    @Param("tourId") tourId: string,
+    @Param("transportId") transportId: string,
+  ) {
+    return this.toursService.checkTransportDeletion(
+      Number(tourId),
+      Number(transportId),
+    );
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

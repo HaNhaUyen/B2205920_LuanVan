@@ -1,21 +1,10 @@
-import {
-  IsEmail,
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-} from "class-validator";
+import { IsOptional, IsString, Matches, MaxLength } from "class-validator";
 
 export class UpdateGuideProfileDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
   phone?: string;
-
-  @IsOptional()
-  @IsEmail({}, { message: "Email không đúng định dạng." })
-  @MaxLength(150)
-  email?: string;
 
   @IsOptional()
   @IsString()

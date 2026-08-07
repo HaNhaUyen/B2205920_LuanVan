@@ -45,6 +45,40 @@ export class VouchersService {
     }
   }
 
+  private validateVoucherDates(dto: any, existing?: any) {
+    const startRaw = dto.startDate ?? existing?.startDate;
+    const endRaw = dto.endDate ?? existing?.endDate;
+
+    if (!startRaw) {
+      throw new BadRequestException("Vui lòng chọn ngày bắt đầu voucher.");
+    }
+
+    if (!endRaw) {
+      throw new BadRequestException("Vui lòng chọn ngày kết thúc voucher.");
+    }
+
+    const startDate = new Date(startRaw);
+    const endDate = new Date(endRaw);
+
+    if (Number.isNaN(startDate.getTime())) {
+      throw new BadRequestException("Ngày bắt đầu voucher không hợp lệ.");
+    }
+
+    if (Number.isNaN(endDate.getTime())) {
+      throw new BadRequestException("Ngày kết thúc voucher không hợp lệ.");
+    }
+
+    // Cho phép voucher bắt đầu và kết thúc trong cùng một ngày,
+    // nhưng tuyệt đối không cho ngày kết thúc đứng trước ngày bắt đầu.
+    if (endDate.getTime() < startDate.getTime()) {
+      throw new BadRequestException(
+        "Ngày kết thúc voucher phải bằng hoặc sau ngày bắt đầu.",
+      );
+    }
+
+    return { startDate, endDate };
+  }
+
   private buildData(dto: any, code?: string) {
     const data: any = {
       name: dto.name,
@@ -270,9 +304,17 @@ export class VouchersService {
   async create(dto: any) {
     if (!dto.name)
       throw new BadRequestException("Cần nhập tên chương trình voucher.");
+
+    this.validateVoucherDates(dto);
+
     const code = await this.buildUniqueCode(dto);
     const voucher = await this.prisma.voucher.create({
-      data: this.buildData(dto, code),
+      data: {
+        ...this.buildData(dto, code),
+        // Nghiệp vụ: voucher mới luôn ở trạng thái đang phát hành.
+        // Không tin status gửi từ client khi tạo mới.
+        status: "active",
+      },
     });
     await this.assignVoucherToEligibleUsers(voucher.id);
     return voucher;
@@ -281,6 +323,11 @@ export class VouchersService {
   async update(id: bigint, dto: any) {
     const existing = await this.prisma.voucher.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Không tìm thấy voucher.");
+
+    // Khi sửa có thể frontend chỉ gửi một trong hai ngày, vì vậy phải
+    // đối chiếu với giá trị đang lưu để vẫn chặn được khoảng thời gian sai.
+    this.validateVoucherDates(dto, existing);
+
     const code = dto.code ? await this.buildUniqueCode(dto, id) : undefined;
     const updated = await this.prisma.voucher.update({
       where: { id },
@@ -293,16 +340,76 @@ export class VouchersService {
   async remove(id: bigint) {
     const existed = await this.prisma.voucher.findUnique({
       where: { id },
-      include: { _count: { select: { userVouchers: true } } },
+      include: { _count: { select: { userVouchers: true, bookings: true } } },
     });
+
     if (!existed) throw new NotFoundException("Không tìm thấy voucher.");
-    if (existed.usedCount > 0)
+
+    /*
+     * Ràng buộc nghiệp vụ quan trọng:
+     * Nếu voucher đang nằm trên một booking đã có tín hiệu thanh toán nhưng
+     * chuyến chưa hoàn tất thì tuyệt đối không cho xóa voucher.
+     */
+    const protectedBooking = await this.prisma.booking.findFirst({
+      where: {
+        voucherId: id,
+        bookingStatus: {
+          notIn: [
+            "completed",
+            "cancelled",
+            "cancelled_by_customer",
+            "cancelled_by_operator",
+            "expired",
+          ] as any,
+        },
+        payments: {
+          some: {
+            paymentStatus: {
+              in: ["paid", "waiting_confirmation"] as any,
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        bookingCode: true,
+        bookingStatus: true,
+        departure: {
+          select: {
+            departureDate: true,
+            endDate: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (protectedBooking) {
       throw new BadRequestException(
-        "Voucher đã phát sinh lượt sử dụng nên không thể xóa cứng. Hãy chuyển trạng thái tạm ngưng.",
+        `Không thể xóa voucher vì đang được sử dụng cho booking ${protectedBooking.bookingCode} đã thanh toán nhưng chuyến đi chưa hoàn tất. Hãy chuyển voucher sang trạng thái Tạm ngưng nếu không muốn tiếp tục phát hành.`,
       );
+    }
+
+    /*
+     * Giữ lịch sử đối soát: Booking có khóa ngoại voucherId -> Voucher.
+     * Vì vậy voucher đã từng được gắn với bất kỳ booking nào cũng không nên
+     * xóa cứng, kể cả booking đã hoàn thành/hủy/hoàn tiền.
+     */
+    const bookingReferenceCount = await this.prisma.booking.count({
+      where: { voucherId: id },
+    });
+
+    if (bookingReferenceCount > 0 || Number(existed.usedCount || 0) > 0) {
+      throw new BadRequestException(
+        "Voucher đã phát sinh lịch sử sử dụng/đã được gắn với booking nên không thể xóa để tránh mất dữ liệu đối soát.",
+      );
+    }
+
+    // Chỉ voucher chưa từng gắn booking mới được xóa cứng.
     await this.prisma.userVoucher.deleteMany({
       where: { voucherId: id, status: "available" },
     });
+
     await this.prisma.voucher.delete({ where: { id } });
     return { success: true };
   }

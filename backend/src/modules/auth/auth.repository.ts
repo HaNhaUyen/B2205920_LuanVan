@@ -96,6 +96,13 @@ export class AuthRepository {
       role?: "admin" | "user" | "guide";
       status?: "active" | "inactive" | "blocked";
       identityNumber?: string | null;
+      birthDate?: Date | null;
+      dietaryNotes?: string | null;
+      healthNotes?: string | null;
+      refundBankName?: string | null;
+      refundAccountNo?: string | null;
+      refundAccountName?: string | null;
+      refundQrUrl?: string | null;
       memberPoints?: number;
       memberTier?: any;
     },

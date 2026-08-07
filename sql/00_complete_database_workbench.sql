@@ -13626,7 +13626,7 @@ JOIN tmp_pickup_duplicate_map m
   ON m.duplicate_id = p.id;
 
 SET FOREIGN_KEY_CHECKS = 1;
-SET SQL_SAFE_UPDATES = 1;
+SET SQL_SAFE_UPDATES = 0;
 
 -- 5. Kiểm tra: truy vấn này phải không còn dòng nào.
 SELECT
@@ -13657,3 +13657,679 @@ ORDER BY tour_id, pickup_time, province, name;
 UPDATE journey_logs
 SET created_at = DATE_SUB(created_at, INTERVAL 7 HOUR),
     updated_at = DATE_SUB(updated_at, INTERVAL 7 HOUR);
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    SET SQL_SAFE_UPDATES = 0;
+SET FOREIGN_KEY_CHECKS = 1;
+
+START TRANSACTION;
+
+/* ---------------------------------------------------------------
+1. Chọn 8 tour published để tạo dữ liệu kinh doanh tháng 8.
+--------------------------------------------------------------- */
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_tours;
+CREATE TEMPORARY TABLE tmp_aug26_tours AS
+SELECT
+    ROW_NUMBER() OVER (ORDER BY t.id) AS seed_no,
+    t.id AS tour_id,
+    t.duration_days,
+    t.base_price_adult,
+    t.base_price_child,
+    t.max_capacity_default
+FROM tours t
+WHERE t.status = 'published'
+ORDER BY t.id
+LIMIT 8;
+
+/* ---------------------------------------------------------------
+2. Lập lịch khởi hành tháng 8/2026.
+   Nếu lịch đã tồn tại thì giữ nguyên, không tạo trùng.
+--------------------------------------------------------------- */
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_schedule;
+CREATE TEMPORARY TABLE tmp_aug26_schedule AS
+SELECT
+    x.seed_no,
+    x.tour_id,
+    CASE x.seed_no
+        WHEN 1 THEN DATE('2026-08-08')
+        WHEN 2 THEN DATE('2026-08-10')
+        WHEN 3 THEN DATE('2026-08-12')
+        WHEN 4 THEN DATE('2026-08-15')
+        WHEN 5 THEN DATE('2026-08-18')
+        WHEN 6 THEN DATE('2026-08-22')
+        WHEN 7 THEN DATE('2026-08-26')
+        ELSE DATE('2026-08-29')
+    END AS departure_date
+FROM tmp_aug26_tours x;
+
+INSERT INTO tour_departures (
+    tour_id,
+    departure_date,
+    end_date,
+    adult_price,
+    child_price,
+    total_slots,
+    booked_slots,
+    held_slots,
+    status,
+    created_at,
+    updated_at
+)
+SELECT
+    s.tour_id,
+    s.departure_date,
+    DATE_ADD(s.departure_date, INTERVAL (GREATEST(t.duration_days, 1) - 1) DAY),
+    t.base_price_adult,
+    t.base_price_child,
+    GREATEST(t.max_capacity_default, 30),
+    0,
+    0,
+    'open',
+    '2026-08-01 07:30:00',
+    '2026-08-01 07:30:00'
+FROM tmp_aug26_schedule s
+JOIN tours t ON t.id = s.tour_id
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM tour_departures td
+    WHERE td.tour_id = s.tour_id
+      AND td.departure_date = s.departure_date
+);
+
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_departures;
+CREATE TEMPORARY TABLE tmp_aug26_departures AS
+SELECT
+    s.seed_no,
+    td.id AS departure_id,
+    td.tour_id,
+    td.departure_date,
+    td.end_date,
+    td.adult_price,
+    td.child_price,
+    td.total_slots
+FROM tmp_aug26_schedule s
+JOIN tour_departures td
+  ON td.tour_id = s.tour_id
+ AND td.departure_date = s.departure_date;
+
+/* ---------------------------------------------------------------
+3. Danh sách người dùng active để gán booking.
+--------------------------------------------------------------- */
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_users;
+CREATE TEMPORARY TABLE tmp_aug26_users AS
+SELECT
+    u.id,
+    u.full_name,
+    u.email,
+    u.phone,
+    ROW_NUMBER() OVER (ORDER BY u.id) AS rn
+FROM users u
+WHERE u.role = 'user'
+  AND u.status = 'active';
+
+SET @aug26_user_count := (SELECT COUNT(*) FROM tmp_aug26_users);
+
+/* ---------------------------------------------------------------
+4. Hai nhóm khách cho mỗi lịch khởi hành.
+   Tổng cộng dự kiến: 16 booking, khoảng 60 khách.
+--------------------------------------------------------------- */
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_groups;
+CREATE TEMPORARY TABLE tmp_aug26_groups (
+    group_code CHAR(1) PRIMARY KEY,
+    adult_count INT NOT NULL,
+    child_count INT NOT NULL,
+    user_offset INT NOT NULL,
+    payment_hour INT NOT NULL
+);
+
+INSERT INTO tmp_aug26_groups
+    (group_code, adult_count, child_count, user_offset, payment_hour)
+VALUES
+    ('A', 3, 1, 0, 9),
+    ('B', 2, 1, 16, 15);
+
+/* ---------------------------------------------------------------
+5. Tạo booking confirmed.
+   created_at được rải trong 01-02/08/2026.
+--------------------------------------------------------------- */
+INSERT INTO bookings (
+    booking_code,
+    user_id,
+    tour_id,
+    departure_id,
+    voucher_id,
+    voucher_code,
+    pickup_point_id,
+    pickup_name,
+    pickup_address,
+    pickup_time,
+    pickup_note,
+    adult_count,
+    child_count,
+    original_amount,
+    discount_amount,
+    final_amount,
+    booking_status,
+    hold_expires_at,
+    contact_name,
+    contact_email,
+    contact_phone,
+    note,
+    created_at,
+    updated_at
+)
+SELECT
+    CONCAT(
+        'BKAUGREV26-',
+        LPAD(d.seed_no, 2, '0'),
+        '-',
+        g.group_code
+    ) AS booking_code,
+    u.id,
+    d.tour_id,
+    d.departure_id,
+    NULL,
+    NULL,
+    pp.id,
+    COALESCE(pp.name, 'Điểm đón trung tâm Travela'),
+    COALESCE(pp.address, 'Travela sẽ liên hệ xác nhận điểm đón'),
+    COALESCE(pp.pickup_time, '06:30:00'),
+    COALESCE(pp.note, 'Vui lòng có mặt trước giờ đón 15 phút.'),
+    g.adult_count,
+    g.child_count,
+    d.adult_price * g.adult_count + d.child_price * g.child_count,
+    CASE
+        WHEN MOD(d.seed_no, 3) = 0 THEN 300000
+        WHEN MOD(d.seed_no, 3) = 1 THEN 150000
+        ELSE 0
+    END,
+    GREATEST(
+        0,
+        d.adult_price * g.adult_count
+        + d.child_price * g.child_count
+        - CASE
+            WHEN MOD(d.seed_no, 3) = 0 THEN 300000
+            WHEN MOD(d.seed_no, 3) = 1 THEN 150000
+            ELSE 0
+          END
+    ),
+    'confirmed',
+    NULL,
+    u.full_name,
+    u.email,
+    COALESCE(u.phone, CONCAT('0988', LPAD(u.id, 6, '0'))),
+    CONCAT(
+        'Seed doanh thu tháng 08/2026 - lịch ',
+        DATE_FORMAT(d.departure_date, '%d/%m/%Y'),
+        ' - nhóm ', g.group_code
+    ),
+    CASE
+        WHEN d.seed_no <= 4
+            THEN TIMESTAMP('2026-08-01', MAKETIME(g.payment_hour - 1, d.seed_no * 5, 0))
+        ELSE TIMESTAMP('2026-08-02', MAKETIME(g.payment_hour - 1, (d.seed_no - 4) * 5, 0))
+    END,
+    CASE
+        WHEN d.seed_no <= 4
+            THEN TIMESTAMP('2026-08-01', MAKETIME(g.payment_hour - 1, d.seed_no * 5, 0))
+        ELSE TIMESTAMP('2026-08-02', MAKETIME(g.payment_hour - 1, (d.seed_no - 4) * 5, 0))
+    END
+FROM tmp_aug26_departures d
+CROSS JOIN tmp_aug26_groups g
+JOIN tmp_aug26_users u
+  ON u.rn = MOD((d.seed_no - 1) + g.user_offset, @aug26_user_count) + 1
+LEFT JOIN tour_pickup_points pp
+  ON pp.id = (
+      SELECT pp2.id
+      FROM tour_pickup_points pp2
+      WHERE pp2.tour_id = d.tour_id
+        AND pp2.status = 'active'
+        AND (pp2.departure_id IS NULL OR pp2.departure_id = d.departure_id)
+      ORDER BY
+        CASE WHEN pp2.departure_id = d.departure_id THEN 0 ELSE 1 END,
+        pp2.id
+      LIMIT 1
+  )
+WHERE @aug26_user_count > 0
+  AND NOT EXISTS (
+      SELECT 1
+      FROM bookings b
+      WHERE b.booking_code = CONCAT(
+          'BKAUGREV26-', LPAD(d.seed_no, 2, '0'), '-', g.group_code
+      )
+  );
+
+/* ---------------------------------------------------------------
+6. Tạo hành khách đúng số lượng mỗi booking.
+--------------------------------------------------------------- */
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_guest_numbers;
+CREATE TEMPORARY TABLE tmp_aug26_guest_numbers (guest_no INT PRIMARY KEY);
+INSERT INTO tmp_aug26_guest_numbers VALUES (1), (2), (3), (4), (5);
+
+INSERT INTO booking_guests (
+    booking_id,
+    full_name,
+    date_of_birth,
+    gender,
+    guest_type,
+    id_number,
+    created_at,
+    updated_at
+)
+SELECT
+    b.id,
+    CASE
+        WHEN n.guest_no = 1 THEN b.contact_name
+        ELSE CONCAT('Hành khách ', n.guest_no, ' - ', b.booking_code)
+    END,
+    CASE
+        WHEN n.guest_no <= b.adult_count
+            THEN DATE_SUB('1996-06-15', INTERVAL n.guest_no * 420 DAY)
+        ELSE DATE_SUB('2018-08-15', INTERVAL n.guest_no * 120 DAY)
+    END,
+    CASE WHEN MOD(n.guest_no, 2) = 0 THEN 'female' ELSE 'male' END,
+    CASE WHEN n.guest_no <= b.adult_count THEN 'adult' ELSE 'child' END,
+    CONCAT('AUGREV26-', b.id, '-', n.guest_no),
+    b.created_at,
+    b.created_at
+FROM bookings b
+JOIN tmp_aug26_guest_numbers n
+  ON n.guest_no <= b.adult_count + b.child_count
+WHERE b.booking_code LIKE 'BKAUGREV26-%'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM booking_guests bg
+      WHERE bg.booking_id = b.id
+        AND bg.id_number = CONCAT('AUGREV26-', b.id, '-', n.guest_no)
+  );
+
+/* ---------------------------------------------------------------
+7. Tạo payment paid trong 01-02/08/2026.
+   Đây là phần quyết định biểu đồ doanh thu tháng 8 có dữ liệu.
+--------------------------------------------------------------- */
+INSERT INTO payments (
+    booking_id,
+    payment_method,
+    payment_status,
+    amount,
+    internal_transaction_code,
+    gateway_transaction_id,
+    paid_at,
+    created_at,
+    updated_at
+)
+SELECT
+    b.id,
+    CASE MOD(b.id, 4)
+        WHEN 0 THEN 'momo'
+        WHEN 1 THEN 'vnpay'
+        WHEN 2 THEN 'bank_transfer'
+        ELSE 'card'
+    END,
+    'paid',
+    b.final_amount,
+    CONCAT('TXN-AUGREV26-', b.id),
+    CONCAT('GW-AUGREV26-', b.id),
+    DATE_ADD(b.created_at, INTERVAL 8 MINUTE),
+    b.created_at,
+    DATE_ADD(b.created_at, INTERVAL 8 MINUTE)
+FROM bookings b
+WHERE b.booking_code LIKE 'BKAUGREV26-%'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM payments p
+      WHERE p.booking_id = b.id
+         OR p.internal_transaction_code = CONCAT('TXN-AUGREV26-', b.id)
+  );
+
+/* ---------------------------------------------------------------
+8. Tạo log trạng thái để dữ liệu nghiệp vụ đầy đủ.
+--------------------------------------------------------------- */
+INSERT INTO booking_status_logs (
+    booking_id,
+    payment_id,
+    action_type,
+    old_status,
+    new_status,
+    changed_by_user_id,
+    source,
+    reason,
+    note,
+    created_at
+)
+SELECT
+    b.id,
+    p.id,
+    'payment_success',
+    'pending_payment',
+    'confirmed',
+    1,
+    'payment_gateway',
+    'Thanh toán thành công cho dữ liệu demo tháng 08/2026',
+    'Booking demo đã thanh toán và được xác nhận.',
+    p.paid_at
+FROM bookings b
+JOIN payments p ON p.booking_id = b.id
+WHERE b.booking_code LIKE 'BKAUGREV26-%'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM booking_status_logs l
+      WHERE l.booking_id = b.id
+        AND l.action_type = 'payment_success'
+        AND l.note = 'Booking demo đã thanh toán và được xác nhận.'
+  );
+
+/* ---------------------------------------------------------------
+9. Đồng bộ booked_slots dựa trên booking còn hiệu lực.
+--------------------------------------------------------------- */
+UPDATE tour_departures td
+JOIN tmp_aug26_departures d ON d.departure_id = td.id
+LEFT JOIN (
+    SELECT
+        b.departure_id,
+        SUM(b.adult_count + b.child_count) AS passenger_count
+    FROM bookings b
+    WHERE b.booking_status IN ('waiting_confirmation', 'confirmed', 'completed')
+    GROUP BY b.departure_id
+) x ON x.departure_id = td.id
+SET
+    td.booked_slots = LEAST(COALESCE(x.passenger_count, 0), td.total_slots),
+    td.held_slots = 0,
+    td.status = CASE
+        WHEN COALESCE(x.passenger_count, 0) >= td.total_slots THEN 'full'
+        ELSE 'open'
+    END,
+    td.updated_at = NOW();
+
+COMMIT;
+
+/* ---------------------------------------------------------------
+10. Kiểm tra kết quả seed.
+--------------------------------------------------------------- */
+SELECT
+    DATE_FORMAT(p.paid_at, '%Y-%m') AS revenue_month,
+    COUNT(DISTINCT b.id) AS paid_booking_count,
+    SUM(p.amount) AS gross_revenue
+FROM payments p
+JOIN bookings b ON b.id = p.booking_id
+WHERE p.payment_status = 'paid'
+  AND p.paid_at >= '2026-08-01 00:00:00'
+  AND p.paid_at <  '2026-09-01 00:00:00'
+GROUP BY DATE_FORMAT(p.paid_at, '%Y-%m');
+
+SELECT
+    b.booking_code,
+    t.name AS tour_name,
+    td.departure_date,
+    b.adult_count,
+    b.child_count,
+    b.final_amount,
+    b.booking_status,
+    p.payment_method,
+    p.payment_status,
+    p.paid_at
+FROM bookings b
+JOIN tours t ON t.id = b.tour_id
+JOIN tour_departures td ON td.id = b.departure_id
+JOIN payments p ON p.booking_id = b.id
+WHERE b.booking_code LIKE 'BKAUGREV26-%'
+ORDER BY p.paid_at, b.booking_code;
+
+SELECT
+    td.id AS departure_id,
+    t.name AS tour_name,
+    td.departure_date,
+    td.total_slots,
+    td.booked_slots,
+    td.held_slots,
+    td.status
+FROM tour_departures td
+JOIN tours t ON t.id = td.tour_id
+WHERE td.id IN (SELECT departure_id FROM tmp_aug26_departures)
+ORDER BY td.departure_date;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_guest_numbers;
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_groups;
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_users;
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_departures;
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_schedule;
+DROP TEMPORARY TABLE IF EXISTS tmp_aug26_tours;
+
+
+
+SELECT
+  ub.id,
+  ub.user_id,
+  ub.tour_id,
+  ub.action,
+  ub.score,
+  ub.keyword,
+  ub.meta,
+  ub.created_at,
+  t.name AS tour_name,
+  d.name AS destination_name
+FROM user_behaviors ub
+LEFT JOIN tours t ON t.id = ub.tour_id
+LEFT JOIN destinations d ON d.id = t.destination_id
+WHERE ub.user_id = 451
+ORDER BY ub.created_at DESC
+LIMIT 100;
+
+SELECT
+  t.id,
+  t.name,
+  t.status,
+  t.destination_id,
+  d.name AS destination_name,
+  t.tour_theme,
+  t.tour_type,
+  t.base_price_adult,
+  t.duration_days,
+  td.id AS departure_id,
+  td.departure_date,
+  td.status AS departure_status,
+  td.total_slots,
+  td.booked_slots,
+  td.held_slots
+FROM tours t
+JOIN destinations d ON d.id = t.destination_id
+LEFT JOIN tour_departures td ON td.tour_id = t.id
+WHERE d.name LIKE '%Nha Trang%'
+ORDER BY t.id, td.departure_date;
+
+
+ALTER TABLE bookings
+  MODIFY booking_status ENUM(
+    'draft',
+    'pending_payment',
+    'waiting_confirmation',
+    'confirmed',
+    'cancelled',
+    'cancelled_by_customer',
+    'cancelled_by_operator',
+    'expired',
+    'completed'
+  ) NOT NULL DEFAULT 'pending_payment';
+  
+  
+  
+  -- Travela refund bank profile + approved-refund revenue ledger update.
+-- Safe to run on MySQL 8.x. It only adds missing nullable/defaulted columns,
+-- indexes, and the revenue ledger table used to prevent double deductions.
+
+SET @schema_name = DATABASE();
+
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE users ADD COLUMN refund_bank_name VARCHAR(100) NULL AFTER health_notes',
+    'SELECT ''users.refund_bank_name already exists'''
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'users' AND COLUMN_NAME = 'refund_bank_name'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE users ADD COLUMN refund_account_no VARCHAR(50) NULL AFTER refund_bank_name',
+    'SELECT ''users.refund_account_no already exists'''
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'users' AND COLUMN_NAME = 'refund_account_no'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE users ADD COLUMN refund_account_name VARCHAR(150) NULL AFTER refund_account_no',
+    'SELECT ''users.refund_account_name already exists'''
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'users' AND COLUMN_NAME = 'refund_account_name'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE users ADD COLUMN refund_qr_url VARCHAR(500) NULL AFTER refund_account_name',
+    'SELECT ''users.refund_qr_url already exists'''
+  )
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'users' AND COLUMN_NAME = 'refund_qr_url'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+CREATE TABLE IF NOT EXISTS revenue_adjustments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  booking_id BIGINT UNSIGNED NOT NULL,
+  refund_request_id BIGINT UNSIGNED NOT NULL,
+  adjustment_type ENUM('refund') NOT NULL DEFAULT 'refund',
+  amount DECIMAL(12,2) NOT NULL,
+  occurred_at DATETIME NOT NULL,
+  note TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_revenue_adjustment_refund (refund_request_id),
+  KEY idx_revenue_adjustment_booking (booking_id),
+  KEY idx_revenue_adjustment_occurred_at (occurred_at),
+  CONSTRAINT fk_revenue_adjustment_booking
+    FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+  CONSTRAINT fk_revenue_adjustment_refund
+    FOREIGN KEY (refund_request_id) REFERENCES refund_requests(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'CREATE INDEX idx_refund_requests_booking ON refund_requests (booking_id)',
+    'SELECT ''idx_refund_requests_booking already exists'''
+  )
+  FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'refund_requests' AND INDEX_NAME = 'idx_refund_requests_booking'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'CREATE INDEX idx_refund_requests_user_status ON refund_requests (user_id, status)',
+    'SELECT ''idx_refund_requests_user_status already exists'''
+  )
+  FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'refund_requests' AND INDEX_NAME = 'idx_refund_requests_user_status'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'CREATE INDEX idx_bookings_departure_id ON bookings (departure_id)',
+    'SELECT ''idx_bookings_departure_id already exists'''
+  )
+  FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'bookings' AND INDEX_NAME = 'idx_bookings_departure_id'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+ALTER TABLE notifications
+  ADD COLUMN metadata JSON NULL;
+
+ALTER TABLE refund_requests
+  ADD COLUMN bank_info_status VARCHAR(30) NULL;
+
+
+ALTER TABLE bookings
+  MODIFY booking_status ENUM(
+    'draft',
+    'pending_payment',
+    'waiting_confirmation',
+    'confirmed',
+    'cancelled',
+    'cancelled_by_customer',
+    'cancelled_by_operator',
+    'expired',
+    'completed'
+  ) NOT NULL DEFAULT 'pending_payment';
+
+
+
+
+
+
+ALTER TABLE `refund_requests`
+  ADD COLUMN `active_key` VARCHAR(80) NULL;
+
+UPDATE `refund_requests`
+SET `active_key` = CONCAT('booking:', `booking_id`)
+WHERE `status` IN ('pending', 'approved')
+  AND `active_key` IS NULL
+  AND `booking_id` NOT IN (
+    SELECT `booking_id`
+    FROM (
+      SELECT `booking_id`
+      FROM `refund_requests`
+      WHERE `status` IN ('pending', 'approved')
+      GROUP BY `booking_id`
+      HAVING COUNT(*) > 1
+    ) duplicate_active_refunds
+  );
+
+CREATE UNIQUE INDEX `uk_refund_active_key`
+  ON `refund_requests` (`active_key`);
+
+CREATE TABLE `idempotency_requests` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NULL,
+  `key` VARCHAR(120) NOT NULL,
+  `operation` VARCHAR(80) NOT NULL,
+  `request_hash` VARCHAR(128) NULL,
+  `response_status` INT NULL,
+  `response_body` JSON NULL,
+  `resource_type` VARCHAR(80) NULL,
+  `resource_id` BIGINT UNSIGNED NULL,
+  `created_at` DATETIME(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0),
+  `expires_at` DATETIME(0) NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_idempotency_user_key_operation` (`user_id`, `key`, `operation`),
+  INDEX `idx_idempotency_expires` (`expires_at`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+
+ALTER TABLE refund_requests
+  DROP COLUMN refund_qr_url;
+  
+  
+  SELECT *
+FROM notifications
+ORDER BY created_at DESC;

@@ -132,12 +132,23 @@ export class ContactsService {
     ]);
 
     return {
-      items,
+      // Chuẩn hóa các trường cần dùng ở trang quản trị.
+      // Đặc biệt giữ nguyên message để danh sách và modal Chi tiết luôn có
+      // nội dung khách đã nhập ở form /contacts.
+      items: items.map((item: any) => ({
+        ...item,
+        id: String(item.id),
+        userId: item.userId ? String(item.userId) : null,
+        handledBy: item.handledBy ? String(item.handledBy) : null,
+        message: item.message || "",
+        subject: item.subject || "",
+        adminReply: item.adminReply || null,
+      })),
       pagination: {
         page,
         pageSize,
         total,
-        totalPages: Math.ceil(total / pageSize),
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
     };
   }
@@ -159,7 +170,18 @@ export class ContactsService {
       },
     });
     if (!contact) throw new NotFoundException("Contact not found");
-    return contact;
+
+    // Trả rõ các trường scalar quan trọng để frontend không bị mất phần
+    // "Nội dung chi tiết" khi mở modal Xem.
+    return {
+      ...contact,
+      id: String(contact.id),
+      userId: contact.userId ? String(contact.userId) : null,
+      handledBy: contact.handledBy ? String(contact.handledBy) : null,
+      subject: contact.subject || "",
+      message: contact.message || "",
+      adminReply: contact.adminReply || null,
+    };
   }
 
   async adminEmailHistory(query: {

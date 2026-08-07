@@ -13,6 +13,20 @@ function isActive(currentPath, href) {
   return currentPath === href || currentPath.startsWith(`${href}/`);
 }
 
+const MEMBER_TIER_LABELS = {
+  bronze: "Đồng",
+  silver: "Bạc",
+  gold: "Vàng",
+  diamond: "Kim cương",
+};
+
+function getMemberTierLabel(value) {
+  const key = String(value || "bronze")
+    .trim()
+    .toLowerCase();
+  return MEMBER_TIER_LABELS[key] || "Đồng";
+}
+
 export default function AppShell({ children }) {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -264,6 +278,7 @@ export default function AppShell({ children }) {
           >
             {user ? (
               <div
+                className="app-user-actions"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -274,6 +289,7 @@ export default function AppShell({ children }) {
 
                 <Link
                   href="/profile"
+                  className="app-user-pill"
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
@@ -285,6 +301,7 @@ export default function AppShell({ children }) {
                 >
                   {avatarUrl ? (
                     <img
+                      className="app-user-avatar"
                       src={avatarUrl}
                       alt={user.fullName || "Avatar"}
                       style={{
@@ -297,6 +314,7 @@ export default function AppShell({ children }) {
                     />
                   ) : (
                     <div
+                      className="app-user-avatar app-user-avatar-fallback"
                       style={{
                         width: "38px",
                         height: "38px",
@@ -313,22 +331,22 @@ export default function AppShell({ children }) {
                     </div>
                   )}
 
-                  <span
-                    style={{
-                      fontSize: "0.88rem",
-                      maxWidth: 140,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {user.fullName}
+                  <span className="app-user-meta">
+                    <strong className="app-user-name">{user.fullName}</strong>
+                    <small className="app-user-tier">
+                      {user.role === "admin"
+                        ? "Quản trị viên"
+                        : user.role === "guide"
+                          ? "Hướng dẫn viên"
+                          : `Hạng ${getMemberTierLabel(user.memberTier)}`}
+                    </small>
                   </span>
                 </Link>
 
                 <button
                   type="button"
                   onClick={logout}
+                  className="app-logout-btn"
                   style={{
                     background: "#f1f5f9",
                     border: "none",

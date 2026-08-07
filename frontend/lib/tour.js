@@ -216,7 +216,6 @@ export function getTourFilterOptions(destinations = []) {
     { value: "recommended", label: "Gợi ý phù hợp nhất" },
     { value: "popular_desc", label: "Bán chạy nhất" },
     { value: "favorite_desc", label: "Được yêu thích nhất" },
-    { value: "best_deal_desc", label: "Giá tốt nhất" },
     { value: "remaining_asc", label: "Sắp hết chỗ" },
     { value: "price_asc", label: "Giá: Thấp đến cao" },
     { value: "price_desc", label: "Giá: Cao đến thấp" },
@@ -238,6 +237,77 @@ export function normalizeSearchText(value = "") {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function cleanFilterValue(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const text = String(raw ?? "").trim();
+  const normalized = text.toLowerCase();
+
+  if (
+    !text ||
+    normalized === "all" ||
+    normalized === "undefined" ||
+    normalized === "null"
+  ) {
+    return "";
+  }
+
+  return text;
+}
+
+function getComparableText(...parts) {
+  return normalizeSearchText(parts.filter(Boolean).join(" "));
+}
+
+function getTourPickupPoints(tour = {}) {
+  const items = [
+    ...(Array.isArray(tour.pickupPoints) ? tour.pickupPoints : []),
+    ...(Array.isArray(tour.departures)
+      ? tour.departures.flatMap((dep) => dep?.pickupPoints || [])
+      : []),
+  ];
+
+  const map = new Map();
+
+  items.forEach((point) => {
+    if (!point) return;
+    const key = [
+      point.id,
+      point.province,
+      point.name,
+      point.address,
+      point.pickupTime,
+    ]
+      .filter(Boolean)
+      .join("|");
+
+    if (key && !map.has(key)) map.set(key, point);
+  });
+
+  return Array.from(map.values());
+}
+
+export function getPickupLocationOptions(tours = []) {
+  const map = new Map();
+
+  tours.forEach((tour) => {
+    getTourPickupPoints(tour).forEach((point) => {
+      const province = String(point?.province || "").trim();
+      if (!province) return;
+      const normalized = normalizeSearchText(province);
+      if (!normalized || map.has(normalized)) return;
+
+      map.set(normalized, {
+        value: province,
+        label: province,
+      });
+    });
+  });
+
+  return Array.from(map.values()).sort((a, b) =>
+    a.label.localeCompare(b.label, "vi"),
+  );
 }
 
 const SEARCH_STOP_WORDS = new Set([
@@ -494,38 +564,64 @@ function matchesFlexibleKeyword(tour, rawKeyword) {
   );
 }
 
-function isDynamicBestSeller(tour) {
+export const TOUR_LABEL_THRESHOLDS = {
+  bestSellerBookings: 5,
+  favoriteCount: 5,
+};
+
+export function getTourBookingCount(tour = {}) {
+  return toNumber(tour.bookingCount ?? tour._count?.bookings ?? 0);
+}
+
+export function getTourFavoriteCount(tour = {}) {
+  return toNumber(tour.favoriteCount ?? tour._count?.favorites ?? 0);
+}
+
+export function isDynamicBestSeller(tour) {
   return Boolean(
     tour.dynamicIsBestSeller ||
-    Number(tour.bookingCount || tour._count?.bookings || 0) >= 5,
+      getTourBookingCount(tour) >= TOUR_LABEL_THRESHOLDS.bestSellerBookings,
   );
 }
 
-function isDynamicFavorite(tour) {
+export function isDynamicFavorite(tour) {
   return Boolean(
     tour.dynamicIsFavorite ||
-    Number(tour.favoriteCount || tour._count?.favorites || 0) >= 5,
+      getTourFavoriteCount(tour) >= TOUR_LABEL_THRESHOLDS.favoriteCount,
   );
 }
 
-function isDynamicBestDeal(tour) {
-  return Boolean(tour.dynamicIsBestDeal);
+export function buildTourBadges(tour = {}) {
+  return [
+    isDynamicBestSeller(tour)
+      ? {
+          key: "bestSeller",
+          label: "B\u00e1n ch\u1ea1y",
+          title: `${getTourBookingCount(tour)} l\u01b0\u1ee3t \u0111\u1eb7t h\u1ee3p l\u1ec7`,
+          priority: 1,
+        }
+      : null,
+    isDynamicFavorite(tour)
+      ? {
+          key: "favorite",
+          label: "\u0110\u01b0\u1ee3c y\u00eau th\u00edch",
+          title: `${getTourFavoriteCount(tour)} l\u01b0\u1ee3t y\u00eau th\u00edch`,
+          priority: 2,
+        }
+      : null,
+  ]
+    .filter(Boolean)
+    .sort((a, b) => a.priority - b.priority);
 }
 
 function recommendedScore(tour) {
-  const bookingCount = toNumber(
-    tour.bookingCount || tour._count?.bookings || 0,
-  );
-  const favoriteCount = toNumber(
-    tour.favoriteCount || tour._count?.favorites || 0,
-  );
+  const bookingCount = getTourBookingCount(tour);
+  const favoriteCount = getTourFavoriteCount(tour);
   const bestSellerScore = isDynamicBestSeller(tour) ? 4 : 0;
-  const bestDealScore = isDynamicBestDeal(tour) ? 3 : 0;
   const favoriteScore = isDynamicFavorite(tour) ? 2 : 0;
 
   return [
     bestSellerScore,
-    bestDealScore,
     favoriteScore,
     toNumber(tour.rating || 0),
     bookingCount / 10,
@@ -656,20 +752,9 @@ function getImageMatchForTour(tour = {}, imageScores = []) {
 
 function sortByNormalRule(a, b, sort) {
   if (sort === "popular_desc")
-    return (
-      toNumber(b.bookingCount || b._count?.bookings || 0) -
-      toNumber(a.bookingCount || a._count?.bookings || 0)
-    );
+    return getTourBookingCount(b) - getTourBookingCount(a);
   if (sort === "favorite_desc")
-    return (
-      toNumber(b.favoriteCount || b._count?.favorites || 0) -
-      toNumber(a.favoriteCount || a._count?.favorites || 0)
-    );
-  if (sort === "best_deal_desc")
-    return (
-      Number(isDynamicBestDeal(b)) - Number(isDynamicBestDeal(a)) ||
-      recommendedScore(b) - recommendedScore(a)
-    );
+    return getTourFavoriteCount(b) - getTourFavoriteCount(a);
   if (sort === "remaining_asc")
     return (
       toNumber(a.remainingSlots ?? 999999) -
@@ -693,25 +778,34 @@ function sortByNormalRule(a, b, sort) {
 }
 
 export function filterTours(tours = [], query = {}) {
-  const rawKeyword = String(query.search || "").trim();
-  const destination = query.destination || "";
+  const rawKeyword = cleanFilterValue(query.search);
+  const destination = cleanFilterValue(
+    query.destinationId || query.destination || "",
+  );
   const imageScores = parseImageDestinationScores(query);
   const normalizedImageDestinations = imageScores.map(
     (item) => item.normalized,
   );
-  const province = query.province || "";
-  const departureProvince = query.departureProvince || "";
-  const theme = query.theme || "";
-  const type = query.type || "";
-  const month = toNumber(query.month || 0);
-  const minPrice = toNumber(query.minPrice || 0);
-  const maxPrice = toNumber(query.maxPrice || 0);
-  const durationMax = toNumber(query.durationMax || 0);
-  const minRating = toNumber(query.minRating || query.hotelStars || 0);
+  const province = cleanFilterValue(query.province);
+  const departureProvince = cleanFilterValue(
+    query.departureProvince ||
+      query.departureLocation ||
+      query.pickupLocation ||
+      "",
+  );
+  const theme = cleanFilterValue(query.theme);
+  const type = cleanFilterValue(query.type || query.tourType || "");
+  const month = toNumber(cleanFilterValue(query.month || query.departureMonth));
+  const minPrice = toNumber(cleanFilterValue(query.minPrice));
+  const maxPrice = toNumber(cleanFilterValue(query.maxPrice));
+  const durationMax = toNumber(
+    cleanFilterValue(query.durationMax || query.durationDays),
+  );
+  const minRating = toNumber(cleanFilterValue(query.minRating || query.hotelStars));
   const featured =
     query.featured === "1" || query.featured === 1 || query.featured === true;
-  const bestDeal =
-    query.bestDeal === "1" || query.bestDeal === 1 || query.bestDeal === true;
+  const favorite =
+    query.favorite === "1" || query.favorite === 1 || query.favorite === true;
   const sort = query.sort || "recommended";
 
   const filtered = tours
@@ -723,30 +817,38 @@ export function filterTours(tours = [], query = {}) {
       const matchesKeyword =
         !rawKeyword || matchesFlexibleKeyword(tour, rawKeyword);
 
-      const tourDestinationName = tour.destination?.name || "";
+      const destinationText = getComparableText(
+        tour.destinationId,
+        tour.destination?.id,
+        tour.destination?.name,
+        tour.destination?.slug,
+      );
+      const normalizedDestination = normalizeSearchText(destination);
       const matchesImageDestination = normalizedImageDestinations.length
         ? Boolean(imageMatch)
         : true;
       const matchesDestination = normalizedImageDestinations.length
         ? matchesImageDestination
-        : !destination || tourDestinationName === destination;
+        : !destination || destinationText.includes(normalizedDestination);
       const matchesProvince =
-        !province || tour.destination?.province === province;
+        !province ||
+        getComparableText(tour.destination?.province).includes(
+          normalizeSearchText(province),
+        );
       const normalizedDepartureProvince =
         normalizeSearchText(departureProvince);
-      const pickupPoints = [
-        ...(Array.isArray(tour.pickupPoints) ? tour.pickupPoints : []),
-        ...(Array.isArray(tour.departures)
-          ? tour.departures.flatMap((dep) => dep.pickupPoints || [])
-          : []),
-      ];
+      const pickupPoints = getTourPickupPoints(tour);
       const matchesDepartureProvince =
         !departureProvince ||
-        pickupPoints.some((point) =>
-          normalizeSearchText(point?.province || "").includes(
-            normalizedDepartureProvince,
-          ),
-        );
+        pickupPoints.some((point) => {
+          const pickupText = getComparableText(
+            point?.id,
+            point?.province,
+            point?.name,
+            point?.address,
+          );
+          return pickupText.includes(normalizedDepartureProvince);
+        });
       const matchesTheme = !theme || tour.tourTheme === theme;
       const matchesType = !type || tour.tourType === type;
       const matchesMonth =
@@ -761,8 +863,7 @@ export function filterTours(tours = [], query = {}) {
       const matchesRating =
         !minRating || toNumber(tour.rating || 0) >= minRating;
       const matchesFeatured = !featured || isDynamicBestSeller(tour);
-      const matchesBestDeal = !bestDeal || isDynamicBestDeal(tour);
-
+      const matchesFavorite = !favorite || isDynamicFavorite(tour);
       return [
         matchesKeyword,
         matchesDestination,
@@ -776,7 +877,7 @@ export function filterTours(tours = [], query = {}) {
         matchesDuration,
         matchesRating,
         matchesFeatured,
-        matchesBestDeal,
+        matchesFavorite,
       ].every(Boolean);
     });
 

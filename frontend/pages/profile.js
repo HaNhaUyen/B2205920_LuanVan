@@ -1,5 +1,6 @@
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+﻿import Link from "next/link";
+import { useRouter } from "next/router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Loading from "@/components/Loading";
 import { useToast } from "@/components/ToastContext";
 import { apiFetch } from "@/lib/api";
@@ -11,7 +12,6 @@ import {
   clearSession,
   updateStoredUser,
 } from "@/lib/storage";
-import SessionManager from "@/components/profile/SessionManager";
 import { mapImageUrl } from "@/lib/tour";
 import {
   User,
@@ -29,6 +29,8 @@ import {
   Pencil,
   Trash2,
   Save,
+  LockKeyhole,
+  Landmark,
 } from "lucide-react";
 
 const tabs = [
@@ -375,7 +377,9 @@ const styles = {
 };
 
 export default function ProfilePage() {
+  const router = useRouter();
   const { showToast } = useToast();
+  const refundBankScrollHandledRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("info");
   const [user, setUser] = useState(null);
@@ -416,10 +420,6 @@ export default function ProfilePage() {
   const [refundForm, setRefundForm] = useState({
     bookingId: "",
     reason: "",
-    refundBankName: "",
-    refundAccountNo: "",
-    refundAccountName: "",
-    refundQrUrl: "",
   });
   const [refundModalBooking, setRefundModalBooking] = useState(null);
   const [refundPreview, setRefundPreview] = useState(null);
@@ -432,8 +432,12 @@ export default function ProfilePage() {
     phone: "",
     identityNumber: "",
     birthDate: "",
+    gender: "",
     dietaryNotes: "",
     healthNotes: "",
+    refundBankName: "",
+    refundAccountNo: "",
+    refundAccountName: "",
   });
 
   const [passwordForm, setPasswordForm] = useState({
@@ -446,6 +450,23 @@ export default function ProfilePage() {
     () => (user?.avatarUrl ? mapImageUrl(user.avatarUrl, API_URL) : ""),
     [user],
   );
+
+  const normalizedRole = String(user?.role || "")
+    .trim()
+    .toLowerCase();
+  const isAdmin = normalizedRole === "admin";
+  const isGuide = ["guide", "tour_guide", "tourguide"].includes(normalizedRole);
+  const isCustomer = ["user", "customer"].includes(normalizedRole);
+  const isEmailLocked = isAdmin || isGuide;
+  const hasRefundBankInfo = Boolean(
+    profileForm.refundBankName?.trim() &&
+    profileForm.refundAccountNo?.trim() &&
+    profileForm.refundAccountName?.trim(),
+  );
+  const maskedRefundAccountNo = profileForm.refundAccountNo
+    ? `****${String(profileForm.refundAccountNo).replace(/\s+/g, "").slice(-4)}`
+    : "--";
+  const roleLabel = isAdmin ? "Quản trị viên hệ thống" : "Khách hàng Travela";
 
   const favoriteTotalPages = Math.max(
     1,
@@ -524,6 +545,32 @@ export default function ProfilePage() {
     if (activeTab === "travelers") setTravelerPage(1);
   }, [activeTab]);
 
+  useEffect(() => {
+    if (!router.isReady) return;
+    if (router.query?.tab === "info") {
+      setActiveTab("info");
+    }
+  }, [router.isReady, router.query?.tab]);
+
+  useEffect(() => {
+    if (
+      loading ||
+      !router.isReady ||
+      router.query?.tab !== "info" ||
+      router.query?.section !== "refund-bank" ||
+      refundBankScrollHandledRef.current
+    ) {
+      return;
+    }
+
+    refundBankScrollHandledRef.current = true;
+    window.setTimeout(() => {
+      document
+        .getElementById("refund-bank-section")
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+  }, [loading, router.isReady, router.query?.tab, router.query?.section]);
+
   const syncUser = (nextUser) => {
     setUser(nextUser);
     setProfileForm({
@@ -534,8 +581,12 @@ export default function ProfilePage() {
       birthDate: nextUser.birthDate
         ? String(nextUser.birthDate).slice(0, 10)
         : "",
+      gender: nextUser.gender || "",
       dietaryNotes: nextUser.dietaryNotes || "",
       healthNotes: nextUser.healthNotes || "",
+      refundBankName: nextUser.refundBankName || "",
+      refundAccountNo: nextUser.refundAccountNo || "",
+      refundAccountName: nextUser.refundAccountName || "",
     });
     updateStoredUser(nextUser);
   };
@@ -587,19 +638,42 @@ export default function ProfilePage() {
 
   const saveProfile = async (event) => {
     event.preventDefault();
+    const normalizedEmail = profileForm.email.trim().toLowerCase();
+
+    if (!isEmailLocked) {
+      if (!normalizedEmail) {
+        return showToast("Vui lòng nhập email.", "error");
+      }
+
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return showToast("Email không đúng định dạng.", "error");
+      }
+    }
+
+    const payload = {
+      fullName: profileForm.fullName.trim(),
+      phone: profileForm.phone.trim(),
+      identityNumber: profileForm.identityNumber.trim(),
+      birthDate: profileForm.birthDate || null,
+      gender: profileForm.gender || null,
+      dietaryNotes: profileForm.dietaryNotes.trim() || null,
+      healthNotes: profileForm.healthNotes.trim() || null,
+      refundBankName: profileForm.refundBankName.trim() || null,
+      refundAccountNo: profileForm.refundAccountNo.replace(/\s+/g, "") || null,
+      refundAccountName:
+        profileForm.refundAccountName.trim().toUpperCase() || null,
+    };
+
+    if (!isEmailLocked) {
+      payload.email = normalizedEmail;
+    }
+
     setSavingProfile(true);
 
     try {
       const nextUser = await apiFetch("/auth/me", {
         method: "PATCH",
-        body: JSON.stringify({
-          fullName: profileForm.fullName,
-          phone: profileForm.phone,
-          identityNumber: profileForm.identityNumber,
-          birthDate: profileForm.birthDate || null,
-          dietaryNotes: profileForm.dietaryNotes.trim() || null,
-          healthNotes: profileForm.healthNotes.trim() || null,
-        }),
+        body: JSON.stringify(payload),
       });
 
       syncUser(nextUser);
@@ -671,10 +745,6 @@ export default function ProfilePage() {
   const emptyRefundForm = (bookingId = "") => ({
     bookingId,
     reason: "",
-    refundBankName: "",
-    refundAccountNo: "",
-    refundAccountName: "",
-    refundQrUrl: "",
   });
 
   const openRefundModal = async (booking) => {
@@ -733,23 +803,21 @@ export default function ProfilePage() {
       );
     }
 
-    if (
-      !refundForm.refundBankName.trim() ||
-      !refundForm.refundAccountNo.trim() ||
-      !refundForm.refundAccountName.trim()
-    ) {
+    if (!hasRefundBankInfo) {
       return showToast(
-        "Vui lòng nhập đủ ngân hàng, số tài khoản và tên chủ tài khoản nhận hoàn tiền.",
+        "Vui lòng cập nhật đầy đủ tài khoản nhận hoàn tiền trong Hồ sơ cá nhân trước khi gửi yêu cầu hủy vé.",
         "error",
       );
     }
-
     setSubmittingRefund(true);
 
     try {
       await apiFetch("/refunds", {
         method: "POST",
-        body: JSON.stringify(refundForm),
+        body: JSON.stringify({
+          bookingId: refundForm.bookingId,
+          reason: refundForm.reason,
+        }),
       });
 
       closeRefundModal();
@@ -864,6 +932,7 @@ export default function ProfilePage() {
 
   return (
     <section
+      className="profile-page"
       style={{
         backgroundColor: "#f8fafc",
         minHeight: "100vh",
@@ -873,19 +942,70 @@ export default function ProfilePage() {
       <div style={styles.container}>
         <aside>
           <div
+            className="profile-sidebar-card"
             style={{
               ...styles.card,
               textAlign: "center",
               position: "sticky",
               top: "100px",
+              overflow: "hidden",
+              background: isAdmin
+                ? "linear-gradient(165deg, #ffffff 0%, #f8fbff 58%, #eff6ff 100%)"
+                : "#fff",
+              border: isAdmin ? "1px solid #dbeafe" : styles.card.border,
+              boxShadow: isAdmin
+                ? "0 18px 45px rgba(37, 99, 235, 0.12)"
+                : styles.card.boxShadow,
             }}
           >
+            {isAdmin && (
+              <div
+                style={{
+                  margin: "-28px -28px 26px",
+                  padding: "20px 20px 46px",
+                  background:
+                    "linear-gradient(135deg, #0f172a 0%, #1e3a8a 58%, #2563eb 100%)",
+                  color: "#fff",
+                  textAlign: "left",
+                  position: "relative",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    width: "140px",
+                    height: "140px",
+                    borderRadius: "50%",
+                    right: "-50px",
+                    top: "-70px",
+                    background: "rgba(255,255,255,0.12)",
+                  }}
+                />
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: 800,
+                    letterSpacing: "0.9px",
+                    textTransform: "uppercase",
+                    color: "#bfdbfe",
+                    marginBottom: "7px",
+                  }}
+                >
+                  Trung tâm quản trị
+                </div>
+                <strong style={{ fontSize: "19px", position: "relative" }}>
+                  Hồ sơ quản trị viên
+                </strong>
+              </div>
+            )}
+
             <div
               style={{
                 position: "relative",
                 width: "120px",
                 height: "120px",
-                margin: "0 auto 16px",
+                margin: isAdmin ? "-70px auto 16px" : "0 auto 16px",
               }}
             >
               {avatarUrl ? (
@@ -971,10 +1091,30 @@ export default function ProfilePage() {
             </p>
 
             <div style={{ marginBottom: "24px" }}>
-              <StatusPill tone="info">
-                Hạng {tierLabel[user.memberTier] || user.memberTier} •{" "}
-                {user.memberPoints || 0} điểm
-              </StatusPill>
+              {isAdmin ? (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "8px 14px",
+                    borderRadius: "999px",
+                    background: "#eff6ff",
+                    color: "#1d4ed8",
+                    border: "1px solid #bfdbfe",
+                    fontSize: "13px",
+                    fontWeight: 800,
+                  }}
+                >
+                  <Shield size={16} />
+                  {roleLabel}
+                </div>
+              ) : (
+                <StatusPill tone="info">
+                  Hạng {tierLabel[user.memberTier] || user.memberTier} •{" "}
+                  {user.memberPoints || 0} điểm
+                </StatusPill>
+              )}
             </div>
 
             <nav
@@ -986,6 +1126,7 @@ export default function ProfilePage() {
                 return (
                   <button
                     key={tab.key}
+                    className={`profile-menu-btn${activeTab === tab.key ? " active" : ""}`}
                     style={styles.menuButton(activeTab === tab.key)}
                     onClick={() => setActiveTab(tab.key)}
                     onMouseEnter={(e) => {
@@ -1008,211 +1149,468 @@ export default function ProfilePage() {
           </div>
         </aside>
 
-        <main style={{ minWidth: 0 }}>
+        <main className="profile-main" style={{ minWidth: 0 }}>
           {activeTab === "info" && (
-            <div style={styles.card}>
-              <h2
-                style={{
-                  fontSize: "22px",
-                  fontWeight: 700,
-                  marginBottom: "24px",
-                  color: "#0f172a",
-                }}
-              >
-                Thông tin cá nhân
-              </h2>
-
-              <form
-                onSubmit={saveProfile}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "24px",
-                }}
-              >
-                <div>
-                  <label style={styles.label}>Họ và tên</label>
-                  <input
-                    style={styles.input}
-                    value={profileForm.fullName}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        fullName: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label style={styles.label}>Email (Chỉ xem)</label>
-                  <input
-                    style={{
-                      ...styles.input,
-                      background: "#f8fafc",
-                      color: "#94a3b8",
-                    }}
-                    value={profileForm.email}
-                    readOnly
-                  />
-                </div>
-
-                <div>
-                  <label style={styles.label}>Số điện thoại *</label>
-                  <input
-                    style={styles.input}
-                    value={profileForm.phone}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({ ...p, phone: e.target.value }))
-                    }
-                    placeholder="Ví dụ: 09xxxxxxxx"
-                  />
-                </div>
-
-                <div>
-                  <label style={styles.label}>Căn cước công dân *</label>
-                  <input
-                    style={styles.input}
-                    value={profileForm.identityNumber}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        identityNumber: e.target.value,
-                      }))
-                    }
-                    placeholder="12 số CCCD"
-                  />
-                </div>
-
-                <div>
-                  <label style={styles.label}>Ngày sinh (Không bắt buộc)</label>
-                  <input
-                    type="date"
-                    style={styles.input}
-                    value={profileForm.birthDate}
-                    onChange={(e) =>
-                      setProfileForm((p) => ({
-                        ...p,
-                        birthDate: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-
+            <div style={{ display: "grid", gap: "20px" }}>
+              {isAdmin && (
                 <div
                   style={{
-                    gridColumn: "1 / -1",
-                    marginTop: "4px",
-                    padding: "20px",
-                    borderRadius: "16px",
-                    background: "#f8fbff",
-                    border: "1px solid #dbeafe",
+                    borderRadius: "22px",
+                    padding: "28px 30px",
+                    color: "#fff",
+                    background:
+                      "linear-gradient(135deg, #0f172a 0%, #1e3a8a 52%, #2563eb 100%)",
+                    boxShadow: "0 18px 42px rgba(30, 58, 138, 0.22)",
+                    position: "relative",
+                    overflow: "hidden",
                   }}
                 >
-                  <div style={{ marginBottom: "16px" }}>
-                    <h3
+                  <div
+                    style={{
+                      position: "absolute",
+                      width: "220px",
+                      height: "220px",
+                      borderRadius: "50%",
+                      right: "-75px",
+                      top: "-120px",
+                      background: "rgba(255,255,255,0.1)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "relative",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "20px",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div>
+                      <p
+                        style={{
+                          margin: "0 0 7px",
+                          color: "#bfdbfe",
+                          fontSize: "12px",
+                          fontWeight: 800,
+                          letterSpacing: "0.8px",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Tài khoản quản trị
+                      </p>
+                      <h1
+                        style={{
+                          margin: "0 0 9px",
+                          fontSize: "27px",
+                          lineHeight: 1.25,
+                        }}
+                      >
+                        Xin chào, {user.fullName}
+                      </h1>
+                      <p
+                        style={{
+                          margin: 0,
+                          color: "rgba(255,255,255,0.78)",
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        Quản lý thông tin định danh và bảo mật tài khoản quản
+                        trị Travela.
+                      </p>
+                    </div>
+                    <div
                       style={{
-                        margin: "0 0 6px",
-                        color: "#0f172a",
-                        fontSize: "18px",
-                        fontWeight: 800,
+                        width: "64px",
+                        height: "64px",
+                        borderRadius: "20px",
+                        display: "grid",
+                        placeItems: "center",
+                        background: "rgba(255,255,255,0.15)",
+                        border: "1px solid rgba(255,255,255,0.22)",
                       }}
                     >
-                      Thông tin hỗ trợ trong chuyến đi
-                    </h3>
-                    <p
+                      <Shield size={30} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="profile-card" style={styles.card}>
+                <h2
+                  style={{
+                    fontSize: "22px",
+                    fontWeight: 700,
+                    marginBottom: "24px",
+                    color: "#0f172a",
+                  }}
+                >
+                  {isAdmin ? "Thông tin quản trị viên" : "Thông tin cá nhân"}
+                </h2>
+
+                <form
+                  onSubmit={saveProfile}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "24px",
+                  }}
+                >
+                  <div>
+                    <label style={styles.label}>Họ và tên</label>
+                    <input
+                      style={styles.input}
+                      value={profileForm.fullName}
+                      onChange={(e) =>
+                        setProfileForm((p) => ({
+                          ...p,
+                          fullName: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label style={styles.label}>Email đăng nhập</label>
+                    <div style={{ position: "relative" }}>
+                      {isEmailLocked && (
+                        <LockKeyhole
+                          size={18}
+                          style={{
+                            position: "absolute",
+                            left: "14px",
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            color: "#64748b",
+                            pointerEvents: "none",
+                            zIndex: 1,
+                          }}
+                        />
+                      )}
+                      <input
+                        className="profile-email-input"
+                        type="email"
+                        value={profileForm.email}
+                        onChange={
+                          isEmailLocked
+                            ? undefined
+                            : (event) =>
+                                setProfileForm((prev) => ({
+                                  ...prev,
+                                  email: event.target.value,
+                                }))
+                        }
+                        readOnly={isEmailLocked}
+                        disabled={isEmailLocked}
+                        aria-readonly={isEmailLocked}
+                        tabIndex={isEmailLocked ? -1 : 0}
+                        required={!isEmailLocked}
+                        placeholder="Nhập email đăng nhập"
+                        title={
+                          isEmailLocked
+                            ? "Email đăng nhập do hệ thống quản lý và không thể thay đổi tại hồ sơ."
+                            : undefined
+                        }
+                        style={{
+                          ...styles.input,
+                          minHeight: "44px",
+                          display: "block",
+                          appearance: "none",
+                          WebkitAppearance: "none",
+                          paddingLeft: isEmailLocked ? "44px" : "16px",
+                          background: isEmailLocked ? "#f1f5f9" : "#ffffff",
+                          color: isEmailLocked ? "#475569" : "#0f172a",
+                          borderColor: isEmailLocked ? "#dbe3ee" : undefined,
+                          cursor: isEmailLocked ? "not-allowed" : "text",
+                          opacity: 1,
+                        }}
+                      />
+                    </div>
+                    {isEmailLocked && (
+                      <p
+                        style={{
+                          margin: "8px 0 0",
+                          color: "#64748b",
+                          fontSize: "12px",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        Email của Admin và hướng dẫn viên do hệ thống quản lý và
+                        không thể thay đổi tại hồ sơ.
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label style={styles.label}>Số điện thoại *</label>
+                    <input
+                      style={styles.input}
+                      value={profileForm.phone}
+                      onChange={(e) =>
+                        setProfileForm((p) => ({ ...p, phone: e.target.value }))
+                      }
+                      placeholder="Ví dụ: 09xxxxxxxx"
+                    />
+                  </div>
+
+                  <div>
+                    <label style={styles.label}>Căn cước công dân *</label>
+                    <input
+                      style={styles.input}
+                      value={profileForm.identityNumber}
+                      onChange={(e) =>
+                        setProfileForm((p) => ({
+                          ...p,
+                          identityNumber: e.target.value,
+                        }))
+                      }
+                      placeholder="12 số CCCD"
+                    />
+                  </div>
+
+                  <div>
+                    <label style={styles.label}>Ngày sinh</label>
+                    <input
+                      type="date"
+                      style={styles.input}
+                      value={profileForm.birthDate}
+                      onChange={(e) =>
+                        setProfileForm((p) => ({
+                          ...p,
+                          birthDate: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label style={styles.label}>Giới tính</label>
+                    <select
+                      style={styles.input}
+                      value={profileForm.gender}
+                      onChange={(e) =>
+                        setProfileForm((p) => ({
+                          ...p,
+                          gender: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Chưa cập nhật</option>
+                      <option value="male">Nam</option>
+                      <option value="female">Nữ</option>
+                      <option value="other">Khác</option>
+                    </select>
+                  </div>
+
+                  {!isAdmin && (
+                    <div
+                      id="refund-bank-section"
+                      className="profile-soft-section profile-refund-bank-section"
                       style={{
-                        margin: 0,
-                        color: "#64748b",
-                        fontSize: "14px",
-                        lineHeight: 1.6,
+                        gridColumn: "1 / -1",
+                        marginTop: "4px",
+                        padding: "20px",
+                        borderRadius: "16px",
+                        background: "#f8fafc",
+                        border: "1px solid #e2e8f0",
                       }}
                     >
-                      Các ghi chú này giúp Travela và hướng dẫn viên chuẩn bị
-                      dịch vụ phù hợp hơn cho bạn. Đây là thông tin không bắt
-                      buộc.
-                    </p>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          marginBottom: "14px",
+                        }}
+                      >
+                        <Landmark size={22} color="#0f766e" />
+                        <div>
+                          <h3
+                            style={{
+                              margin: "0 0 4px",
+                              color: "#0f172a",
+                              fontSize: "18px",
+                              fontWeight: 800,
+                            }}
+                          >
+                            Tài khoản nhận hoàn tiền
+                          </h3>
+                          <p
+                            style={{
+                              margin: 0,
+                              color: "#64748b",
+                              fontSize: "13px",
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            Tài khoản này được dùng mặc định khi Travela xử lý
+                            hoàn tiền.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                          gap: "16px",
+                        }}
+                      >
+                        <div>
+                          <label style={styles.label}>Ngân hàng</label>
+                          <input
+                            style={styles.input}
+                            value={profileForm.refundBankName}
+                            onChange={(e) =>
+                              setProfileForm((p) => ({
+                                ...p,
+                                refundBankName: e.target.value,
+                              }))
+                            }
+                            placeholder="VD: Vietcombank, MBBank..."
+                          />
+                        </div>
+
+                        <div>
+                          <label style={styles.label}>Số tài khoản</label>
+                          <input
+                            style={styles.input}
+                            value={profileForm.refundAccountNo}
+                            onChange={(e) =>
+                              setProfileForm((p) => ({
+                                ...p,
+                                refundAccountNo: e.target.value.replace(
+                                  /\s+/g,
+                                  "",
+                                ),
+                              }))
+                            }
+                            placeholder="Không nhập khoảng trắng"
+                          />
+                        </div>
+
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <label style={styles.label}>Tên chủ tài khoản</label>
+                          <input
+                            style={styles.input}
+                            value={profileForm.refundAccountName}
+                            onChange={(e) =>
+                              setProfileForm((p) => ({
+                                ...p,
+                                refundAccountName: e.target.value.toUpperCase(),
+                              }))
+                            }
+                            placeholder="VD: NGUYEN VAN A"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div
+                    className="profile-soft-section profile-support-section"
+                    style={{
+                      gridColumn: "1 / -1",
+                      marginTop: "4px",
+                      padding: "20px",
+                      borderRadius: "16px",
+                      background: "#f8fbff",
+                      border: "1px solid #dbeafe",
+                    }}
+                  >
+                    <div style={{ marginBottom: "16px" }}>
+                      <h3
+                        style={{
+                          margin: "0 0 6px",
+                          color: "#0f172a",
+                          fontSize: "18px",
+                          fontWeight: 800,
+                        }}
+                      >
+                        Thông tin hỗ trợ trong chuyến đi
+                      </h3>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                        gap: "18px",
+                      }}
+                    >
+                      <div>
+                        <label style={styles.label}>Ghi chú ăn uống</label>
+                        <textarea
+                          style={{
+                            ...styles.input,
+                            minHeight: "100px",
+                            resize: "vertical",
+                            lineHeight: 1.55,
+                          }}
+                          value={profileForm.dietaryNotes}
+                          onChange={(e) =>
+                            setProfileForm((prev) => ({
+                              ...prev,
+                              dietaryNotes: e.target.value,
+                            }))
+                          }
+                          placeholder="Ví dụ: ăn chay, dị ứng hải sản, không dùng sữa..."
+                        />
+                      </div>
+
+                      <div>
+                        <label style={styles.label}>Ghi chú sức khỏe</label>
+                        <textarea
+                          style={{
+                            ...styles.input,
+                            minHeight: "100px",
+                            resize: "vertical",
+                            lineHeight: 1.55,
+                          }}
+                          value={profileForm.healthNotes}
+                          onChange={(e) =>
+                            setProfileForm((prev) => ({
+                              ...prev,
+                              healthNotes: e.target.value,
+                            }))
+                          }
+                          placeholder="Ví dụ: say xe, cao huyết áp, cần hỗ trợ di chuyển..."
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   <div
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                      gap: "18px",
+                      gridColumn: "1 / -1",
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      marginTop: "12px",
                     }}
                   >
-                    <div>
-                      <label style={styles.label}>Ghi chú ăn uống</label>
-                      <textarea
-                        style={{
-                          ...styles.input,
-                          minHeight: "100px",
-                          resize: "vertical",
-                          lineHeight: 1.55,
-                        }}
-                        value={profileForm.dietaryNotes}
-                        onChange={(e) =>
-                          setProfileForm((prev) => ({
-                            ...prev,
-                            dietaryNotes: e.target.value,
-                          }))
-                        }
-                        placeholder="Ví dụ: ăn chay, dị ứng hải sản, không dùng sữa..."
-                      />
-                    </div>
-
-                    <div>
-                      <label style={styles.label}>Ghi chú sức khỏe</label>
-                      <textarea
-                        style={{
-                          ...styles.input,
-                          minHeight: "100px",
-                          resize: "vertical",
-                          lineHeight: 1.55,
-                        }}
-                        value={profileForm.healthNotes}
-                        onChange={(e) =>
-                          setProfileForm((prev) => ({
-                            ...prev,
-                            healthNotes: e.target.value,
-                          }))
-                        }
-                        placeholder="Ví dụ: say xe, cao huyết áp, cần hỗ trợ di chuyển..."
-                      />
-                    </div>
+                    <button
+                      className="btn btn-primary"
+                      style={{
+                        padding: "12px 32px",
+                        borderRadius: "10px",
+                        fontWeight: 600,
+                        background: "#2563eb",
+                        color: "#fff",
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                      disabled={savingProfile}
+                    >
+                      {savingProfile ? "Đang lưu..." : "Lưu thay đổi"}
+                    </button>
                   </div>
-                </div>
-
-                <div
-                  style={{
-                    gridColumn: "1 / -1",
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    marginTop: "12px",
-                  }}
-                >
-                  <button
-                    className="btn btn-primary"
-                    style={{
-                      padding: "12px 32px",
-                      borderRadius: "10px",
-                      fontWeight: 600,
-                      background: "#2563eb",
-                      color: "#fff",
-                      border: "none",
-                      cursor: "pointer",
-                    }}
-                    disabled={savingProfile}
-                  >
-                    {savingProfile ? "Đang lưu..." : "Lưu thay đổi"}
-                  </button>
-                </div>
-              </form>
+                </form>
+              </div>
             </div>
           )}
 
           {activeTab === "favorites" && (
-            <div style={styles.card}>
+            <div className="profile-card" style={styles.card}>
               <h2
                 style={{
                   fontSize: "22px",
@@ -1330,7 +1728,7 @@ export default function ProfilePage() {
           )}
 
           {activeTab === "bookings" && (
-            <div style={styles.card}>
+            <div className="profile-card" style={styles.card}>
               <h2
                 style={{
                   fontSize: "22px",
@@ -1514,7 +1912,7 @@ export default function ProfilePage() {
           )}
 
           {activeTab === "refunds" && (
-            <div style={styles.card}>
+            <div className="profile-card" style={styles.card}>
               <h2
                 style={{
                   fontSize: "22px",
@@ -1743,7 +2141,7 @@ export default function ProfilePage() {
           )}
 
           {activeTab === "vouchers" && (
-            <div style={styles.card}>
+            <div className="profile-card" style={styles.card}>
               <h2
                 style={{
                   fontSize: "22px",
@@ -1780,6 +2178,7 @@ export default function ProfilePage() {
                     {pagedVouchers.map((uv) => (
                       <div
                         key={String(uv.id)}
+                        className="profile-voucher-card"
                         style={{
                           border: "1px dashed #cbd5e1",
                           borderRadius: "16px",
@@ -1789,6 +2188,7 @@ export default function ProfilePage() {
                         }}
                       >
                         <div
+                          className="profile-voucher-code"
                           style={{
                             position: "absolute",
                             top: -8,
@@ -1806,6 +2206,7 @@ export default function ProfilePage() {
                         </div>
 
                         <h3
+                          className="profile-voucher-title"
                           style={{
                             fontSize: "16px",
                             fontWeight: 700,
@@ -1817,6 +2218,7 @@ export default function ProfilePage() {
                         </h3>
 
                         <p
+                          className="profile-voucher-description"
                           style={{
                             color: "#64748b",
                             fontSize: "14px",
@@ -1827,6 +2229,7 @@ export default function ProfilePage() {
                         </p>
 
                         <div
+                          className="profile-voucher-footer"
                           style={{
                             display: "flex",
                             justifyContent: "space-between",
@@ -1889,7 +2292,7 @@ export default function ProfilePage() {
 
           {activeTab === "travelers" && (
             <div style={{ display: "grid", gap: "22px" }}>
-              <div style={styles.card}>
+              <div className="profile-card" style={styles.card}>
                 <div
                   style={{
                     display: "flex",
@@ -2161,6 +2564,7 @@ export default function ProfilePage() {
                     />
                   </div>
                   <div
+                    className="profile-traveler-action-bar"
                     style={{
                       gridColumn: "1 / -1",
                       position: "sticky",
@@ -2210,7 +2614,7 @@ export default function ProfilePage() {
                 </form>
               </div>
 
-              <div style={styles.card}>
+              <div className="profile-card" style={styles.card}>
                 <div style={{ marginBottom: "20px" }}>
                   <h2
                     style={{
@@ -2247,6 +2651,7 @@ export default function ProfilePage() {
                     {pagedTravelers.map((traveler) => (
                       <article
                         key={String(traveler.id)}
+                        className={`profile-traveler-card${traveler.isDefault ? " is-default" : ""}`}
                         style={{
                           border: "1px solid #e2e8f0",
                           borderRadius: "16px",
@@ -2403,6 +2808,7 @@ export default function ProfilePage() {
 
           {activeTab === "security" && (
             <div
+              className="profile-card profile-security-card"
               style={{
                 ...styles.card,
                 padding: 0,
@@ -2417,6 +2823,7 @@ export default function ProfilePage() {
                 }}
               >
                 <div
+                  className="profile-security-intro"
                   style={{
                     background:
                       "linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%)",
@@ -2506,6 +2913,7 @@ export default function ProfilePage() {
                 </div>
 
                 <div
+                  className="profile-security-form-pane"
                   style={{
                     padding: "36px",
                     background: "#fff",
@@ -2626,15 +3034,19 @@ export default function ProfilePage() {
                   </form>
                 </div>
               </div>
-              <SessionManager />
             </div>
           )}
         </main>
       </div>
 
       {refundModalBooking && (
-        <div style={styles.refundOverlay} onClick={closeRefundModal}>
+        <div
+          className="profile-refund-overlay"
+          style={styles.refundOverlay}
+          onClick={closeRefundModal}
+        >
           <div
+            className="profile-refund-modal"
             style={styles.refundModal}
             onClick={(event) => event.stopPropagation()}
           >
@@ -2952,115 +3364,75 @@ export default function ProfilePage() {
 
                 <div
                   style={{
-                    background: "#f8fafc",
-                    border: "1px solid #e2e8f0",
+                    background: hasRefundBankInfo ? "#f8fafc" : "#fff7ed",
+                    border: `1px solid ${hasRefundBankInfo ? "#e2e8f0" : "#fed7aa"}`,
                     borderRadius: "16px",
                     padding: "20px",
+                    marginBottom: "20px",
                   }}
                 >
                   <h3
                     style={{
-                      margin: "0 0 10px",
+                      margin: "0 0 12px",
                       fontSize: "18px",
                       color: "#0f172a",
                       fontWeight: 800,
                     }}
                   >
-                    Tài khoản nhận hoàn tiền
+                    Tài khoản nhận hoàn
                   </h3>
 
-                  <p
+                  {hasRefundBankInfo ? (
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns:
+                          "repeat(auto-fit, minmax(180px, 1fr))",
+                        gap: "12px",
+                        color: "#334155",
+                        fontSize: "14px",
+                      }}
+                    >
+                      <div>
+                        <strong>Ngân hàng:</strong> {profileForm.refundBankName}
+                      </div>
+                      <div>
+                        <strong>Số tài khoản:</strong> {maskedRefundAccountNo}
+                      </div>
+                      <div>
+                        <strong>Chủ tài khoản:</strong>{" "}
+                        {profileForm.refundAccountName}
+                      </div>
+                    </div>
+                  ) : (
+                    <p style={{ margin: 0, color: "#9a3412", lineHeight: 1.6 }}>
+                      Vui lòng cập nhật đầy đủ tài khoản nhận hoàn tiền trong Hồ
+                      sơ cá nhân trước khi gửi yêu cầu hủy vé.
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab("info");
+                      setTimeout(
+                        () => window.scrollTo({ top: 0, behavior: "smooth" }),
+                        0,
+                      );
+                    }}
                     style={{
-                      margin: "0 0 18px",
-                      color: "#64748b",
-                      fontSize: "14px",
-                      lineHeight: 1.6,
+                      marginTop: "14px",
+                      padding: "10px 14px",
+                      borderRadius: "10px",
+                      border: "1px solid #0f766e",
+                      background: "#fff",
+                      color: "#0f766e",
+                      fontWeight: 700,
+                      cursor: "pointer",
                     }}
                   >
-                    Travela cần thông tin tài khoản ngân hàng để admin đối soát
-                    và chuyển khoản hoàn tiền. Mã QR ngân hàng chỉ là tùy chọn.
-                  </p>
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(220px, 1fr))",
-                      gap: "16px",
-                    }}
-                  >
-                    <div>
-                      <label style={styles.label}>
-                        Ngân hàng <span style={{ color: "#ef4444" }}>*</span>
-                      </label>
-                      <input
-                        style={styles.input}
-                        value={refundForm.refundBankName}
-                        onChange={(e) =>
-                          setRefundForm((p) => ({
-                            ...p,
-                            refundBankName: e.target.value,
-                          }))
-                        }
-                        placeholder="VD: MBBank, Vietcombank..."
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label style={styles.label}>
-                        Số tài khoản <span style={{ color: "#ef4444" }}>*</span>
-                      </label>
-                      <input
-                        style={styles.input}
-                        value={refundForm.refundAccountNo}
-                        onChange={(e) =>
-                          setRefundForm((p) => ({
-                            ...p,
-                            refundAccountNo: e.target.value,
-                          }))
-                        }
-                        placeholder="Nhập số tài khoản nhận tiền"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label style={styles.label}>
-                        Tên chủ tài khoản{" "}
-                        <span style={{ color: "#ef4444" }}>*</span>
-                      </label>
-                      <input
-                        style={styles.input}
-                        value={refundForm.refundAccountName}
-                        onChange={(e) =>
-                          setRefundForm((p) => ({
-                            ...p,
-                            refundAccountName: e.target.value,
-                          }))
-                        }
-                        placeholder="VD: NGUYEN VAN A"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label style={styles.label}>
-                        Link QR ngân hàng nếu có
-                      </label>
-                      <input
-                        style={styles.input}
-                        value={refundForm.refundQrUrl}
-                        onChange={(e) =>
-                          setRefundForm((p) => ({
-                            ...p,
-                            refundQrUrl: e.target.value,
-                          }))
-                        }
-                        placeholder="Không bắt buộc"
-                      />
-                    </div>
-                  </div>
+                    Cập nhật trong hồ sơ
+                  </button>
                 </div>
               </div>
 
@@ -3084,7 +3456,7 @@ export default function ProfilePage() {
 
                 <button
                   type="submit"
-                  disabled={submittingRefund}
+                  disabled={submittingRefund || !hasRefundBankInfo}
                   style={{
                     minWidth: "140px",
                     padding: "12px 22px",
@@ -3093,7 +3465,11 @@ export default function ProfilePage() {
                     color: "#fff",
                     fontWeight: 700,
                     border: "none",
-                    cursor: "pointer",
+                    cursor:
+                      submittingRefund || !hasRefundBankInfo
+                        ? "not-allowed"
+                        : "pointer",
+                    opacity: submittingRefund || !hasRefundBankInfo ? 0.65 : 1,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -3115,9 +3491,46 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
-      <style jsx>{`
+      <style jsx global>{`
+        .profile-page .profile-email-input {
+          display: block !important;
+          width: 100% !important;
+          min-height: 44px !important;
+          padding: 12px 16px !important;
+          border: 1px solid #cbd5e1 !important;
+          border-radius: 10px !important;
+          background: #ffffff !important;
+          color: #0f172a !important;
+          box-sizing: border-box !important;
+          box-shadow: none !important;
+          opacity: 1 !important;
+          -webkit-text-fill-color: #0f172a !important;
+        }
+
+        .profile-page .profile-email-input:disabled,
+        .profile-page .profile-email-input[readonly] {
+          background: #f1f5f9 !important;
+          color: #475569 !important;
+          -webkit-text-fill-color: #475569 !important;
+          cursor: not-allowed;
+        }
+
+        html.dark-mode .profile-page .profile-email-input {
+          background: #0c1525 !important;
+          border-color: #334155 !important;
+          color: #f1f5f9 !important;
+          -webkit-text-fill-color: #f1f5f9 !important;
+        }
+
+        html.dark-mode .profile-page .profile-email-input:disabled,
+        html.dark-mode .profile-page .profile-email-input[readonly] {
+          background: #111a2b !important;
+          color: #9fb0c8 !important;
+          -webkit-text-fill-color: #9fb0c8 !important;
+        }
+
         @media (max-width: 768px) {
-          :global(.refund-responsive-grid) {
+          .refund-responsive-grid {
             grid-template-columns: 1fr !important;
           }
         }

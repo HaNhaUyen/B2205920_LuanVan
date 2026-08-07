@@ -23,9 +23,100 @@ function slugify(text = "") {
     .slice(0, 200);
 }
 
+const VALID_BOOKING_STATUSES = [
+  "waiting_confirmation",
+  "confirmed",
+  "completed",
+] as const;
+
+const PAID_PAYMENT_STATUSES = ["paid"] as const;
+
+const FINAL_BOOKING_STATUSES = [
+  "completed",
+  "cancelled",
+  "cancelled_by_customer",
+  "cancelled_by_operator",
+  "expired",
+] as const;
+
+const BEST_SELLER_THRESHOLD = 5;
+const FAVORITE_THRESHOLD = 5;
+
 @Injectable()
 export class ToursService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private getCurrentMonthStart() {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  }
+
+  private formatDateVi(value: Date | string) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value || "");
+    return new Intl.DateTimeFormat("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(date);
+  }
+
+  private buildDepartureBookingLockMessage(
+    departureDate: Date | string,
+    bookingCodes: string[] = [],
+  ) {
+    const uniqueCodes = Array.from(
+      new Set(
+        bookingCodes.map((value) => String(value || "").trim()).filter(Boolean),
+      ),
+    );
+
+    const codeText = uniqueCodes.length
+      ? ` Booking liên quan: ${uniqueCodes.join(", ")}.`
+      : "";
+
+    return (
+      `Không thể xóa lịch khởi hành ${this.formatDateVi(departureDate)} ` +
+      `vì lịch này đã phát sinh booking. ` +
+      "Lịch được giữ lại để bảo toàn lịch sử đặt tour."
+    );
+  }
+
+  private buildActivePaidBookingLockMessage(
+    resourceLabel: string,
+    resourceName: string,
+    bookingCodes: string[] = [],
+  ) {
+    const uniqueCodes = Array.from(
+      new Set(
+        bookingCodes.map((value) => String(value || "").trim()).filter(Boolean),
+      ),
+    );
+
+    const codeText = uniqueCodes.length
+      ? ` Booking liên quan: ${uniqueCodes.join(", ")}.`
+      : "";
+
+    return (
+      `Không thể xóa ${resourceLabel} "${resourceName}" vì đang có booking ` +
+      `đã thanh toán nhưng chuyến đi chưa hoàn thành.${codeText}`
+    );
+  }
+
+  private activePaidBookingWhere(tourId: bigint, extraWhere: any = {}) {
+    return {
+      tourId,
+      ...extraWhere,
+      bookingStatus: {
+        notIn: [...FINAL_BOOKING_STATUSES] as any,
+      },
+      payments: {
+        some: {
+          paymentStatus: "paid" as any,
+        },
+      },
+    };
+  }
 
   /**
    * Điểm đón được quản lý ở cấp tour và dùng chung cho mọi lịch khởi hành.
@@ -103,6 +194,18 @@ export class ToursService {
     return Number(tour.basePriceAdult || tour.base_price_adult || 0);
   }
 
+  private isValidSellerBooking(booking: any) {
+    const bookingStatus = String(booking?.bookingStatus || "");
+    const payments = Array.isArray(booking?.payments) ? booking.payments : [];
+
+    return (
+      VALID_BOOKING_STATUSES.includes(bookingStatus as any) &&
+      payments.some((payment: any) =>
+        PAID_PAYMENT_STATUSES.includes(String(payment?.paymentStatus) as any),
+      )
+    );
+  }
+
   private buildDestinationAveragePriceMap(tours: any[]) {
     const groups: Record<string, { total: number; count: number }> = {};
 
@@ -159,7 +262,9 @@ export class ToursService {
 
     const remainingSlots = this.getRemainingSlots(nextDeparture);
     const bookingCount = Array.isArray(tour.bookings)
-      ? tour.bookings.length
+      ? tour.bookings.filter((booking: any) =>
+          this.isValidSellerBooking(booking),
+        ).length
       : Number(tour._count?.bookings || 0);
     const favoriteCount = Array.isArray(tour.favorites)
       ? tour.favorites.length
@@ -169,11 +274,6 @@ export class ToursService {
     const destinationAveragePrice = Number(
       context.destinationAveragePrice || 0,
     );
-    const dynamicIsBestDeal =
-      tourPrice > 0 &&
-      destinationAveragePrice > 0 &&
-      tourPrice <= destinationAveragePrice * 0.85;
-
     const pickupPoints = this.dedupePickupPoints(
       Array.isArray(tour.pickupPoints) ? tour.pickupPoints : [],
     );
@@ -198,9 +298,12 @@ export class ToursService {
       bookingCount,
       favoriteCount,
       destinationAveragePrice,
-      dynamicIsBestSeller: bookingCount >= 5,
-      dynamicIsFavorite: favoriteCount >= 5,
-      dynamicIsBestDeal,
+      dynamicIsBestSeller: bookingCount >= BEST_SELLER_THRESHOLD,
+      dynamicIsFavorite: favoriteCount >= FAVORITE_THRESHOLD,
+      labelPriority: {
+        bestSeller: 1,
+        favorite: 2,
+      },
     };
   }
 
@@ -293,14 +396,32 @@ export class ToursService {
           take: 3,
           orderBy: { createdAt: "asc" },
         },
+        pickupPoints: {
+          where: { status: "active" },
+          orderBy: [
+            { departureId: "asc" },
+            { pickupTime: "asc" },
+            { province: "asc" },
+            { name: "asc" },
+          ],
+        },
         reviews: { where: { status: "approved" }, select: { rating: true } },
         bookings: {
           where: {
             bookingStatus: {
-              in: ["waiting_confirmation", "confirmed", "completed"],
+              in: [...VALID_BOOKING_STATUSES],
+            },
+            payments: {
+              some: {
+                paymentStatus: { in: [...PAID_PAYMENT_STATUSES] },
+              },
             },
           },
-          select: { id: true },
+          select: {
+            id: true,
+            bookingStatus: true,
+            payments: { select: { paymentStatus: true } },
+          },
         },
         favorites: { select: { id: true } },
       },
@@ -368,6 +489,46 @@ export class ToursService {
     });
   }
 
+  async adminTourOptions() {
+    const tours = await this.prisma.tour.findMany({
+      where: { status: { in: ["published", "draft", "inactive"] as any } },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+
+    return tours.map((tour) => ({
+      id: String(tour.id),
+      name: tour.name,
+    }));
+  }
+
+  async adminTourDepartureOptions(tourId: number) {
+    const departures = await this.prisma.tourDeparture.findMany({
+      where: { tourId: BigInt(tourId) },
+      select: {
+        id: true,
+        departureDate: true,
+        endDate: true,
+        status: true,
+        bookedSlots: true,
+        heldSlots: true,
+        totalSlots: true,
+      },
+      orderBy: { departureDate: "asc" },
+      take: 200,
+    });
+
+    return departures.map((departure) => ({
+      id: String(departure.id),
+      departureDate: departure.departureDate,
+      endDate: departure.endDate,
+      status: departure.status,
+      bookedSlots: departure.bookedSlots,
+      heldSlots: departure.heldSlots,
+      totalSlots: departure.totalSlots,
+    }));
+  }
+
   async findById(tourId: number) {
     const tour = await this.prisma.tour.findUnique({
       where: { id: BigInt(tourId) },
@@ -409,10 +570,19 @@ export class ToursService {
         bookings: {
           where: {
             bookingStatus: {
-              in: ["waiting_confirmation", "confirmed", "completed"],
+              in: [...VALID_BOOKING_STATUSES],
+            },
+            payments: {
+              some: {
+                paymentStatus: { in: [...PAID_PAYMENT_STATUSES] },
+              },
             },
           },
-          select: { id: true },
+          select: {
+            id: true,
+            bookingStatus: true,
+            payments: { select: { paymentStatus: true } },
+          },
         },
         favorites: { select: { id: true } },
       },
@@ -468,10 +638,19 @@ export class ToursService {
         bookings: {
           where: {
             bookingStatus: {
-              in: ["waiting_confirmation", "confirmed", "completed"],
+              in: [...VALID_BOOKING_STATUSES],
+            },
+            payments: {
+              some: {
+                paymentStatus: { in: [...PAID_PAYMENT_STATUSES] },
+              },
             },
           },
-          select: { id: true },
+          select: {
+            id: true,
+            bookingStatus: true,
+            payments: { select: { paymentStatus: true } },
+          },
         },
         favorites: { select: { id: true } },
       },
@@ -996,6 +1175,248 @@ export class ToursService {
     return { message: "Itinerary saved", totalItems: dto.items.length };
   }
 
+  async checkPickupPointDeletion(tourId: number, pickupPointId: number) {
+    const point = await this.prisma.tourPickupPoint.findFirst({
+      where: {
+        id: BigInt(pickupPointId),
+        tourId: BigInt(tourId),
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!point) {
+      throw new NotFoundException("Không tìm thấy điểm đón thuộc tour này.");
+    }
+
+    const blockingBookings = await this.prisma.booking.findMany({
+      where: this.activePaidBookingWhere(BigInt(tourId), {
+        pickupPointId: point.id,
+      }),
+      select: {
+        bookingCode: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 20,
+    });
+
+    if (blockingBookings.length > 0) {
+      throw new BadRequestException(
+        this.buildActivePaidBookingLockMessage(
+          "điểm đón",
+          point.name,
+          blockingBookings.map((item) => item.bookingCode),
+        ),
+      );
+    }
+
+    return {
+      canDelete: true,
+      id: String(point.id),
+      message:
+        "Điểm đón không còn booking đã thanh toán đang hoạt động và có thể xóa.",
+    };
+  }
+
+  async checkAccommodationDeletion(tourId: number, accommodationId: number) {
+    const accommodation = await this.prisma.tourAccommodation.findFirst({
+      where: {
+        id: BigInt(accommodationId),
+        tourId: BigInt(tourId),
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!accommodation) {
+      throw new NotFoundException("Không tìm thấy chỗ ở thuộc tour này.");
+    }
+
+    /*
+     * Booking không lưu accommodationId riêng.
+     * Chỗ ở là dịch vụ cấp tour nên chỉ cần tour còn một booking đã thanh toán
+     * và chưa hoàn thành/hủy thì không cho xóa bất kỳ chỗ ở đang dùng nào.
+     */
+    const blockingBookings = await this.prisma.booking.findMany({
+      where: this.activePaidBookingWhere(BigInt(tourId)),
+      select: {
+        bookingCode: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 20,
+    });
+
+    if (blockingBookings.length > 0) {
+      throw new BadRequestException(
+        this.buildActivePaidBookingLockMessage(
+          "chỗ ở",
+          accommodation.name,
+          blockingBookings.map((item) => item.bookingCode),
+        ),
+      );
+    }
+
+    return {
+      canDelete: true,
+      id: String(accommodation.id),
+      message:
+        "Chỗ ở không còn booking đã thanh toán đang hoạt động và có thể xóa.",
+    };
+  }
+
+  async checkTransportDeletion(tourId: number, transportId: number) {
+    const transport = await this.prisma.tourTransport.findFirst({
+      where: {
+        id: BigInt(transportId),
+        tourId: BigInt(tourId),
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!transport) {
+      throw new NotFoundException("Không tìm thấy phương tiện thuộc tour này.");
+    }
+
+    /*
+     * Booking không lưu transportId riêng.
+     * Phương tiện là dịch vụ cấp tour nên khóa xóa theo booking đã thanh toán
+     * chưa ở trạng thái kết thúc.
+     */
+    const blockingBookings = await this.prisma.booking.findMany({
+      where: this.activePaidBookingWhere(BigInt(tourId)),
+      select: {
+        bookingCode: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 20,
+    });
+
+    if (blockingBookings.length > 0) {
+      throw new BadRequestException(
+        this.buildActivePaidBookingLockMessage(
+          "phương tiện",
+          transport.name,
+          blockingBookings.map((item) => item.bookingCode),
+        ),
+      );
+    }
+
+    return {
+      canDelete: true,
+      id: String(transport.id),
+      message:
+        "Phương tiện không còn booking đã thanh toán đang hoạt động và có thể xóa.",
+    };
+  }
+
+  async checkDepartureDeletion(tourId: number, departureId: number) {
+    if (
+      !tourId ||
+      Number.isNaN(tourId) ||
+      !departureId ||
+      Number.isNaN(departureId)
+    ) {
+      throw new BadRequestException(
+        "Mã tour hoặc mã lịch khởi hành không hợp lệ.",
+      );
+    }
+
+    const departure = await this.prisma.tourDeparture.findFirst({
+      where: {
+        id: BigInt(departureId),
+        tourId: BigInt(tourId),
+      },
+      select: {
+        id: true,
+        departureDate: true,
+        bookings: {
+          select: {
+            bookingCode: true,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 10,
+        },
+      },
+    });
+
+    if (!departure) {
+      throw new NotFoundException(
+        "Không tìm thấy lịch khởi hành thuộc tour này.",
+      );
+    }
+
+    if (departure.bookings.length > 0) {
+      throw new BadRequestException(
+        this.buildDepartureBookingLockMessage(
+          departure.departureDate,
+          departure.bookings.map((item) => item.bookingCode),
+        ),
+      );
+    }
+
+    const [
+      tripOperationCount,
+      electronicTicketCount,
+      oldDepartureChangeCount,
+      newDepartureChangeCount,
+      operationalAlertCount,
+    ] = await Promise.all([
+      this.prisma.tripOperation.count({
+        where: { departureId: departure.id },
+      }),
+      this.prisma.electronicTicket.count({
+        where: { departureId: departure.id },
+      }),
+      this.prisma.departureChangeRequest.count({
+        where: { oldDepartureId: departure.id },
+      }),
+      this.prisma.departureChangeRequest.count({
+        where: { newDepartureId: departure.id },
+      }),
+      this.prisma.operationalAlert.count({
+        where: { departureId: departure.id },
+      }),
+    ]);
+
+    const hasOperationalData =
+      tripOperationCount > 0 ||
+      electronicTicketCount > 0 ||
+      oldDepartureChangeCount > 0 ||
+      newDepartureChangeCount > 0 ||
+      operationalAlertCount > 0;
+
+    if (hasOperationalData) {
+      throw new BadRequestException(
+        `Không thể xóa lịch khởi hành ${this.formatDateVi(
+          departure.departureDate,
+        )} vì lịch đã phát sinh dữ liệu vận hành. Lịch cần được giữ lại để bảo toàn lịch sử.`,
+      );
+    }
+
+    return {
+      canDelete: true,
+      departureId: String(departure.id),
+      departureDate: departure.departureDate,
+      message:
+        "Lịch khởi hành chưa có booking hoặc dữ liệu vận hành và có thể xóa.",
+    };
+  }
+
   async saveDepartures(tourId: number, dto: SaveDeparturesDto) {
     const tour = await this.prisma.tour.findUnique({
       where: { id: BigInt(tourId) },
@@ -1043,6 +1464,14 @@ export class ToursService {
       orderBy: { departureDate: "asc" },
     });
 
+    /*
+     * Chỉ quản lý xóa đối với lịch từ tháng hiện tại trở về sau.
+     * Các lịch thuộc tháng trước đã bị ẩn khỏi form admin nên dù không được
+     * frontend gửi lại, backend vẫn phải giữ nguyên, tuyệt đối không xem đó
+     * là yêu cầu xóa.
+     */
+    const currentMonthStart = this.getCurrentMonthStart();
+
     const keptIncomingIds = new Set(
       normalizedItems.filter((item) => item.id).map((item) => String(item.id)),
     );
@@ -1059,30 +1488,50 @@ export class ToursService {
         }
 
         /*
-         * Không chỉ kiểm tra booking đang hoạt động.
-         * Chỉ cần còn bất kỳ booking nào tham chiếu departure này
-         * thì không được xóa vật lý.
+         * Lịch thuộc tháng trước chỉ bị ẩn trên giao diện.
+         * Vì frontend không gửi các lịch ẩn này về nên phải bỏ qua hoàn toàn,
+         * không xóa và cũng không đổi trạng thái.
          */
-        const bookingCount = await tx.booking.count({
+        const existingDate = new Date(existing.departureDate);
+        existingDate.setHours(0, 0, 0, 0);
+
+        if (existingDate.getTime() < currentMonthStart.getTime()) {
+          continue;
+        }
+
+        /*
+         * Lịch từ tháng hiện tại trở đi mà bị bỏ khỏi payload được hiểu là
+         * Admin muốn xóa. Nếu đã có BẤT KỲ booking nào thì chặn ngay và trả
+         * bookingCode để frontend hiển thị cho Admin.
+         */
+        const relatedBookings = await tx.booking.findMany({
           where: {
             departureId: existing.id,
           },
+          select: {
+            bookingCode: true,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 10,
         });
 
-        /*
-         * TripOperation có quan hệ 1-1 với TourDeparture.
-         * Nếu đã tạo dữ liệu điều hành thì cũng phải giữ lịch.
-         */
+        if (relatedBookings.length > 0) {
+          throw new BadRequestException(
+            this.buildDepartureBookingLockMessage(
+              existing.departureDate,
+              relatedBookings.map((item) => item.bookingCode),
+            ),
+          );
+        }
+
         const tripOperationCount = await tx.tripOperation.count({
           where: {
             departureId: existing.id,
           },
         });
 
-        /*
-         * Một số bảng nghiệp vụ không khai báo relation trực tiếp trong Prisma,
-         * nhưng vẫn lưu departure_id trong database.
-         */
         const electronicTicketCount = await tx.electronicTicket.count({
           where: {
             departureId: existing.id,
@@ -1107,30 +1556,19 @@ export class ToursService {
           },
         });
 
-        const hasRelatedData =
-          bookingCount > 0 ||
+        const hasOperationalData =
           tripOperationCount > 0 ||
           electronicTicketCount > 0 ||
           oldDepartureChangeCount > 0 ||
           newDepartureChangeCount > 0 ||
           operationalAlertCount > 0;
 
-        if (hasRelatedData) {
-          /*
-           * Không xóa lịch đã phát sinh dữ liệu.
-           * Chuyển sang đóng lịch để giữ toàn vẹn lịch sử.
-           */
-          await tx.tourDeparture.update({
-            where: {
-              id: existing.id,
-            },
-            data: {
-              status: "closed",
-            },
-          });
-
-          preservedBookedCount += 1;
-          continue;
+        if (hasOperationalData) {
+          throw new BadRequestException(
+            `Không thể xóa lịch khởi hành ${this.formatDateVi(
+              existing.departureDate,
+            )} vì lịch đã phát sinh dữ liệu vận hành. Lịch cần được giữ lại để bảo toàn lịch sử.`,
+          );
         }
 
         await tx.tourDeparture.delete({
@@ -1272,29 +1710,42 @@ export class ToursService {
       for (const existing of existingPoints) {
         if (incomingIds.has(String(existing.id))) continue;
 
-        const bookingCount = await tx.booking.count({
-          where: {
+        const blockingBookings = await tx.booking.findMany({
+          where: this.activePaidBookingWhere(BigInt(tourId), {
             pickupPointId: existing.id,
-            bookingStatus: {
-              in: [
-                "pending_payment",
-                "waiting_confirmation",
-                "confirmed",
-                "completed",
-              ],
-            },
+          }),
+          select: {
+            bookingCode: true,
           },
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 20,
         });
 
-        if (bookingCount > 0) {
-          // Không xóa điểm đón đã có booking để không làm mất thông tin booking cũ.
-          await tx.tourPickupPoint.update({
-            where: { id: existing.id },
-            data: { status: "inactive" as any },
-          });
-          preservedBookedCount += 1;
-          continue;
+        if (blockingBookings.length > 0) {
+          throw new BadRequestException(
+            this.buildActivePaidBookingLockMessage(
+              "điểm đón",
+              existing.name,
+              blockingBookings.map((item) => item.bookingCode),
+            ),
+          );
         }
+
+        /*
+         * Booking đã hoàn thành/đã hủy hoặc booking chưa thanh toán được phép
+         * bỏ liên kết tới điểm đón. Booking vẫn giữ snapshot pickupName,
+         * pickupAddress, pickupTime, pickupNote nên lịch sử không mất.
+         */
+        await tx.booking.updateMany({
+          where: {
+            pickupPointId: existing.id,
+          },
+          data: {
+            pickupPointId: null,
+          },
+        });
 
         await tx.tourPickupPoint.delete({ where: { id: existing.id } });
         deletedCount += 1;
@@ -1345,25 +1796,27 @@ export class ToursService {
       updatedCount,
       deletedCount,
       preservedBookedCount,
-      note:
-        preservedBookedCount > 0
-          ? "Một số điểm đón đã có booking nên được giữ lại và chuyển sang tạm ẩn để bảo toàn dữ liệu booking."
-          : undefined,
+      note: undefined,
     };
   }
 
   async saveAccommodations(tourId: number, dto: SaveAccommodationsDto) {
     const tour = await this.prisma.tour.findUnique({
       where: { id: BigInt(tourId) },
+      select: { id: true },
     });
 
     if (!tour) {
       throw new NotFoundException("Tour not found");
     }
 
-    const validItems = (dto.items || []).filter((item) =>
-      String(item.name || "").trim(),
-    );
+    const validItems = (dto.items || [])
+      .filter((item) => String(item.name || "").trim())
+      .map((item) => ({
+        ...item,
+        id: item.id ? BigInt(item.id) : null,
+        name: String(item.name || "").trim(),
+      }));
 
     for (const item of validItems) {
       if (item.supplierId) {
@@ -1381,37 +1834,110 @@ export class ToursService {
       }
     }
 
+    const existingItems = await this.prisma.tourAccommodation.findMany({
+      where: {
+        tourId: BigInt(tourId),
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
+
+    const existingIdSet = new Set(existingItems.map((item) => String(item.id)));
+
+    for (const item of validItems) {
+      if (item.id && !existingIdSet.has(String(item.id))) {
+        throw new BadRequestException(
+          `Chỗ ở mã ${String(item.id)} không thuộc tour này.`,
+        );
+      }
+    }
+
+    const incomingIds = new Set(
+      validItems.filter((item) => item.id).map((item) => String(item.id)),
+    );
+    const removedItems = existingItems.filter(
+      (item) => !incomingIds.has(String(item.id)),
+    );
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    let deletedCount = 0;
+
     await this.prisma.$transaction(async (tx) => {
-      await tx.tourAccommodation.deleteMany({
-        where: {
-          tourId: BigInt(tourId),
-        },
-      });
+      if (removedItems.length > 0) {
+        const blockingBookings = await tx.booking.findMany({
+          where: this.activePaidBookingWhere(BigInt(tourId)),
+          select: {
+            bookingCode: true,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 20,
+        });
 
-      for (const item of validItems) {
-        await tx.tourAccommodation.create({
-          data: {
+        if (blockingBookings.length > 0) {
+          throw new BadRequestException(
+            this.buildActivePaidBookingLockMessage(
+              "chỗ ở",
+              removedItems.map((item) => item.name).join(", "),
+              blockingBookings.map((item) => item.bookingCode),
+            ),
+          );
+        }
+
+        await tx.tourAccommodation.deleteMany({
+          where: {
+            id: {
+              in: removedItems.map((item) => item.id),
+            },
             tourId: BigInt(tourId),
-
-            supplierId: item.supplierId ? BigInt(item.supplierId) : null,
-
-            name: String(item.name || "").trim(),
-            accommodationType: item.accommodationType as any,
-            starRating: item.starRating,
-            address: item.address,
-            description: item.description,
-            pricePerNight: item.pricePerNight,
-            imageUrl: item.imageUrl,
-            amenities: item.amenities,
-            status: (item.status || "active") as any,
           },
         });
+        deletedCount = removedItems.length;
+      }
+
+      for (const item of validItems) {
+        const data = {
+          supplierId: item.supplierId ? BigInt(item.supplierId) : null,
+          name: item.name,
+          accommodationType: item.accommodationType as any,
+          starRating: item.starRating,
+          address: item.address,
+          description: item.description,
+          pricePerNight: item.pricePerNight,
+          imageUrl: item.imageUrl,
+          amenities: item.amenities,
+          status: (item.status || "active") as any,
+        };
+
+        if (item.id) {
+          await tx.tourAccommodation.update({
+            where: {
+              id: item.id,
+            },
+            data,
+          });
+          updatedCount += 1;
+        } else {
+          await tx.tourAccommodation.create({
+            data: {
+              tourId: BigInt(tourId),
+              ...data,
+            },
+          });
+          createdCount += 1;
+        }
       }
     });
 
     return {
       message: "Accommodations saved",
       totalItems: validItems.length,
+      createdCount,
+      updatedCount,
+      deletedCount,
     };
   }
 
@@ -1420,15 +1946,20 @@ export class ToursService {
       where: {
         id: BigInt(tourId),
       },
+      select: { id: true },
     });
 
     if (!tour) {
       throw new NotFoundException("Tour not found");
     }
 
-    const validItems = (dto.items || []).filter((item) =>
-      String(item.name || "").trim(),
-    );
+    const validItems = (dto.items || [])
+      .filter((item) => String(item.name || "").trim())
+      .map((item) => ({
+        ...item,
+        id: item.id ? BigInt(item.id) : null,
+        name: String(item.name || "").trim(),
+      }));
 
     for (const item of validItems) {
       if (item.supplierId) {
@@ -1446,38 +1977,111 @@ export class ToursService {
       }
     }
 
+    const existingItems = await this.prisma.tourTransport.findMany({
+      where: {
+        tourId: BigInt(tourId),
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
+
+    const existingIdSet = new Set(existingItems.map((item) => String(item.id)));
+
+    for (const item of validItems) {
+      if (item.id && !existingIdSet.has(String(item.id))) {
+        throw new BadRequestException(
+          `Phương tiện mã ${String(item.id)} không thuộc tour này.`,
+        );
+      }
+    }
+
+    const incomingIds = new Set(
+      validItems.filter((item) => item.id).map((item) => String(item.id)),
+    );
+    const removedItems = existingItems.filter(
+      (item) => !incomingIds.has(String(item.id)),
+    );
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    let deletedCount = 0;
+
     await this.prisma.$transaction(async (tx) => {
-      await tx.tourTransport.deleteMany({
-        where: {
-          tourId: BigInt(tourId),
-        },
-      });
+      if (removedItems.length > 0) {
+        const blockingBookings = await tx.booking.findMany({
+          where: this.activePaidBookingWhere(BigInt(tourId)),
+          select: {
+            bookingCode: true,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 20,
+        });
 
-      for (const item of validItems) {
-        await tx.tourTransport.create({
-          data: {
+        if (blockingBookings.length > 0) {
+          throw new BadRequestException(
+            this.buildActivePaidBookingLockMessage(
+              "phương tiện",
+              removedItems.map((item) => item.name).join(", "),
+              blockingBookings.map((item) => item.bookingCode),
+            ),
+          );
+        }
+
+        await tx.tourTransport.deleteMany({
+          where: {
+            id: {
+              in: removedItems.map((item) => item.id),
+            },
             tourId: BigInt(tourId),
-
-            supplierId: item.supplierId ? BigInt(item.supplierId) : null,
-
-            name: String(item.name || "").trim(),
-            transportType: item.transportType as any,
-            provider: item.provider,
-            origin: item.origin,
-            destinationLabel: item.destinationLabel,
-            durationHours: item.durationHours,
-            price: item.price,
-            description: item.description,
-            imageUrl: item.imageUrl,
-            status: (item.status || "active") as any,
           },
         });
+        deletedCount = removedItems.length;
+      }
+
+      for (const item of validItems) {
+        const data = {
+          supplierId: item.supplierId ? BigInt(item.supplierId) : null,
+          name: item.name,
+          transportType: item.transportType as any,
+          provider: item.provider,
+          origin: item.origin,
+          destinationLabel: item.destinationLabel,
+          durationHours: item.durationHours,
+          price: item.price,
+          description: item.description,
+          imageUrl: item.imageUrl,
+          status: (item.status || "active") as any,
+        };
+
+        if (item.id) {
+          await tx.tourTransport.update({
+            where: {
+              id: item.id,
+            },
+            data,
+          });
+          updatedCount += 1;
+        } else {
+          await tx.tourTransport.create({
+            data: {
+              tourId: BigInt(tourId),
+              ...data,
+            },
+          });
+          createdCount += 1;
+        }
       }
     });
 
     return {
       message: "Transports saved",
       totalItems: validItems.length,
+      createdCount,
+      updatedCount,
+      deletedCount,
     };
   }
 
@@ -1564,8 +2168,18 @@ export class ToursService {
         item.bookings.length > 0,
     );
     if (lockedDeparture) {
+      const bookingCodes = lockedDeparture.bookings
+        .map((item) => String(item.bookingCode || "").trim())
+        .filter(Boolean);
+
+      const codeText = bookingCodes.length
+        ? ` Booking liên quan: ${bookingCodes.join(", ")}.`
+        : "";
+
       throw new BadRequestException(
-        `Tour này còn đợt khởi hành có dữ liệu giữ chỗ/booking (${String(lockedDeparture.departureDate).slice(0, 10)} - ${String(lockedDeparture.endDate).slice(0, 10)}), không được xóa. Hãy chuyển tour sang inactive nếu muốn ẩn khỏi người dùng.`,
+        `Không thể xóa tour vì lịch khởi hành ${this.formatDateVi(
+          lockedDeparture.departureDate,
+        )} đã có dữ liệu giữ chỗ/booking.${codeText}`,
       );
     }
 

@@ -56,3 +56,11 @@ http://localhost:3000
 docker start travela-redis
 docker stop travela-redis
 ```
+
+
+### 6) rcm
+```bash
+npx ts-node src/scripts/train-recommendations.ts
+npx ts-node src/scripts/evaluate-recommendations.ts
+python scripts\plot_recommendation_metrics.py
+```

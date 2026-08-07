@@ -218,6 +218,7 @@ export default function TourReviewSection({
   const [submitting, setSubmitting] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingModal, setLoadingModal] = useState(false);
+  const [loadingEligibility, setLoadingEligibility] = useState(false);
 
   const canReview = useMemo(
     () => Boolean(currentUser && selectedBookingId),
@@ -346,8 +347,11 @@ export default function TourReviewSection({
     if (!tour?.id || !currentUser) {
       setEligibleBookings([]);
       setSelectedBookingId("");
+      setLoadingEligibility(false);
       return;
     }
+
+    setLoadingEligibility(true);
 
     try {
       const items = await apiFetch(
@@ -361,6 +365,8 @@ export default function TourReviewSection({
     } catch (error) {
       setEligibleBookings([]);
       setSelectedBookingId("");
+    } finally {
+      setLoadingEligibility(false);
     }
   };
 
@@ -702,6 +708,22 @@ export default function TourReviewSection({
     </>
   );
 
+  /*
+   * Chỉ hiển thị khu vực đánh giá khi:
+   * - Tour đã có ít nhất một đánh giá công khai; hoặc
+   * - Người dùng có booking đã hoàn thành và còn đủ điều kiện gửi đánh giá.
+   *
+   * Người chưa hoàn thành tour, đã đánh giá booking hoặc không đủ điều kiện
+   * sẽ không nhìn thấy form đánh giá. Khi tour chưa có đánh giá công khai,
+   * toàn bộ khu vực đánh giá cũng được ẩn để tránh hiển thị khối trống.
+   */
+  const hasPublicReviews = totalReviews > 0;
+  const showReviewForm = canReview && !loadingEligibility;
+  const shouldRenderSection =
+    loadingPreview || loadingEligibility || hasPublicReviews || showReviewForm;
+
+  if (!shouldRenderSection) return null;
+
   return (
     <section
       style={{
@@ -732,276 +754,247 @@ export default function TourReviewSection({
             Đánh giá từ khách hàng
           </h2>
           <p style={{ margin: "6px 0 0", color: "#64748b" }}>
-            Chỉ khách đã hoàn thành chuyến đi mới có thể gửi đánh giá.
+            {showReviewForm
+              ? "Bạn đã hoàn thành chuyến đi và có thể chia sẻ trải nghiệm."
+              : "Nhận xét thực tế từ những khách hàng đã hoàn thành chuyến đi."}
           </p>
         </div>
 
-        <div
-          style={{
-            minWidth: 180,
-            padding: 18,
-            borderRadius: 18,
-            background: "#fff7ed",
-            textAlign: "center",
-            border: "1px solid #fed7aa",
-          }}
-        >
-          <strong
+        {hasPublicReviews ? (
+          <div
             style={{
-              display: "block",
-              color: "#ea580c",
-              fontSize: 34,
-              lineHeight: 1,
+              minWidth: 180,
+              padding: 18,
+              borderRadius: 18,
+              background: "#fff7ed",
+              textAlign: "center",
+              border: "1px solid #fed7aa",
             }}
           >
-            {summary.averageRating || 0}/5
-          </strong>
-          <div style={{ marginTop: 6 }}>
-            <Stars value={Math.round(summary.averageRating || 0)} />
-          </div>
-          <span style={{ color: "#9a3412", fontSize: 13 }}>
-            {summary.total || 0} đánh giá
-          </span>
-        </div>
-      </div>
-
-      <form
-        onSubmit={submitReview}
-        style={{
-          marginTop: 24,
-          padding: 18,
-          borderRadius: 18,
-          background: "#f8fafc",
-          border: "1px solid #e2e8f0",
-          display: "grid",
-          gap: 14,
-        }}
-      >
-        <strong style={{ color: "#0f172a" }}>Gửi đánh giá của bạn</strong>
-
-        {currentUser ? (
-          eligibleBookings.length ? (
-            <div style={{ display: "grid", gap: 8 }}>
-              <label
-                style={{
-                  color: "#334155",
-                  fontWeight: 800,
-                  fontSize: 13,
-                }}
-              >
-                Chọn chuyến đi muốn đánh giá
-              </label>
-
-              <select
-                value={selectedBookingId}
-                onChange={(event) => setSelectedBookingId(event.target.value)}
-                style={{
-                  width: "100%",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: 14,
-                  padding: "12px 14px",
-                  outline: "none",
-                  background: "#fff",
-                  color: "#0f172a",
-                }}
-              >
-                {eligibleBookings.map((booking) => (
-                  <option key={booking.id} value={booking.id}>
-                    {booking.bookingCode} · {booking.tourName || tour.name} ·
-                    Kết thúc{" "}
-                    {booking.endDate ? formatDate(booking.endDate) : "chưa rõ"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div
+            <strong
               style={{
-                padding: 14,
-                borderRadius: 14,
-                background: "#fff7ed",
-                border: "1px solid #fed7aa",
-                color: "#9a3412",
-                fontSize: 13,
-                lineHeight: 1.6,
+                display: "block",
+                color: "#ea580c",
+                fontSize: 34,
+                lineHeight: 1,
               }}
             >
-              Bạn cần đặt tour, thanh toán thành công và hoàn thành chuyến đi
-              trước khi gửi đánh giá.
+              {summary.averageRating || 0}/5
+            </strong>
+            <div style={{ marginTop: 6 }}>
+              <Stars value={Math.round(summary.averageRating || 0)} />
             </div>
-          )
-        ) : (
-          <button
-            type="button"
-            onClick={onRequireLogin}
-            style={{
-              border: "none",
-              background: "#0f172a",
-              color: "#fff",
-              borderRadius: 14,
-              padding: "12px 16px",
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-          >
-            Đăng nhập để đánh giá
-          </button>
-        )}
+            <span style={{ color: "#9a3412", fontSize: 13 }}>
+              {summary.total || 0} đánh giá
+            </span>
+          </div>
+        ) : null}
+      </div>
 
-        <div>
-          <label
-            style={{
-              display: "block",
-              color: "#334155",
-              fontWeight: 800,
-              fontSize: 13,
-              marginBottom: 8,
-            }}
-          >
-            Số sao
-          </label>
-          <select
-            value={form.rating}
-            disabled={!canReview}
+      {showReviewForm ? (
+        <form
+          onSubmit={submitReview}
+          style={{
+            marginTop: 24,
+            padding: 18,
+            borderRadius: 18,
+            background: "#f8fafc",
+            border: "1px solid #e2e8f0",
+            display: "grid",
+            gap: 14,
+          }}
+        >
+          <strong style={{ color: "#0f172a" }}>Gửi đánh giá của bạn</strong>
+
+          <div style={{ display: "grid", gap: 8 }}>
+            <label
+              style={{
+                color: "#334155",
+                fontWeight: 800,
+                fontSize: 13,
+              }}
+            >
+              Chọn chuyến đi muốn đánh giá
+            </label>
+
+            <select
+              value={selectedBookingId}
+              onChange={(event) => setSelectedBookingId(event.target.value)}
+              style={{
+                width: "100%",
+                border: "1px solid #cbd5e1",
+                borderRadius: 14,
+                padding: "12px 14px",
+                outline: "none",
+                background: "#fff",
+                color: "#0f172a",
+              }}
+            >
+              {eligibleBookings.map((booking) => (
+                <option key={booking.id} value={booking.id}>
+                  {booking.bookingCode} · {booking.tourName || tour.name} · Kết
+                  thúc{" "}
+                  {booking.endDate ? formatDate(booking.endDate) : "chưa rõ"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              style={{
+                display: "block",
+                color: "#334155",
+                fontWeight: 800,
+                fontSize: 13,
+                marginBottom: 8,
+              }}
+            >
+              Số sao
+            </label>
+            <select
+              value={form.rating}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  rating: Number(event.target.value),
+                }))
+              }
+              style={{
+                border: "1px solid #cbd5e1",
+                borderRadius: 14,
+                padding: "12px 14px",
+                background: "#fff",
+                color: "#0f172a",
+                width: "100%",
+              }}
+            >
+              {[5, 4, 3, 2, 1].map((star) => (
+                <option key={star} value={star}>
+                  {star} sao
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <textarea
+            value={form.comment}
             onChange={(event) =>
               setForm((prev) => ({
                 ...prev,
-                rating: Number(event.target.value),
+                comment: event.target.value,
               }))
             }
+            rows={4}
+            placeholder="Chia sẻ trải nghiệm thực tế của bạn về tour..."
             style={{
+              width: "100%",
               border: "1px solid #cbd5e1",
               borderRadius: 14,
               padding: "12px 14px",
+              resize: "vertical",
+              outline: "none",
               background: "#fff",
               color: "#0f172a",
-              width: "100%",
             }}
-          >
-            {[5, 4, 3, 2, 1].map((star) => (
-              <option key={star} value={star}>
-                {star} sao
-              </option>
-            ))}
-          </select>
-        </div>
+          />
 
-        <textarea
-          value={form.comment}
-          disabled={!canReview}
-          onChange={(event) =>
-            setForm((prev) => ({
-              ...prev,
-              comment: event.target.value,
-            }))
-          }
-          rows={4}
-          placeholder="Chia sẻ trải nghiệm thực tế của bạn về tour..."
-          style={{
-            width: "100%",
-            border: "1px solid #cbd5e1",
-            borderRadius: 14,
-            padding: "12px 14px",
-            resize: "vertical",
-            outline: "none",
-            background: "#fff",
-            color: "#0f172a",
-          }}
-        />
-
-        <div>
-          <label
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              border: "1px dashed #cbd5e1",
-              background: "#fff",
-              color: "#334155",
-              borderRadius: 14,
-              padding: "12px 16px",
-              cursor: canReview ? "pointer" : "not-allowed",
-              fontWeight: 800,
-            }}
-          >
-            Tải ảnh trải nghiệm
-            <input
-              hidden
-              type="file"
-              accept="image/*"
-              multiple
-              disabled={!canReview}
-              onChange={handleImageChange}
-            />
-          </label>
-
-          {imagePreviews.length ? (
-            <div
+          <div>
+            <label
               style={{
-                display: "flex",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
                 gap: 8,
-                flexWrap: "wrap",
-                marginTop: 10,
+                border: "1px dashed #cbd5e1",
+                background: "#fff",
+                color: "#334155",
+                borderRadius: 14,
+                padding: "12px 16px",
+                cursor: "pointer",
+                fontWeight: 800,
               }}
             >
-              {imagePreviews.map((url) => (
-                <img
-                  key={url}
-                  src={url}
-                  alt="Preview"
-                  style={{
-                    width: 78,
-                    height: 78,
-                    objectFit: "cover",
-                    borderRadius: 10,
-                    border: "1px solid #e2e8f0",
-                  }}
-                />
-              ))}
-              <button
-                type="button"
-                onClick={clearSelectedImages}
+              Tải ảnh trải nghiệm
+              <input
+                hidden
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleImageChange}
+              />
+            </label>
+
+            {imagePreviews.length ? (
+              <div
                 style={{
-                  border: "none",
-                  background: "#fee2e2",
-                  color: "#b91c1c",
-                  borderRadius: 10,
-                  padding: "0 12px",
-                  fontWeight: 900,
-                  cursor: "pointer",
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginTop: 10,
                 }}
               >
-                Xóa ảnh
-              </button>
-            </div>
-          ) : null}
-        </div>
+                {imagePreviews.map((url) => (
+                  <img
+                    key={url}
+                    src={url}
+                    alt="Preview"
+                    style={{
+                      width: 78,
+                      height: 78,
+                      objectFit: "cover",
+                      borderRadius: 10,
+                      border: "1px solid #e2e8f0",
+                    }}
+                  />
+                ))}
+                <button
+                  type="button"
+                  onClick={clearSelectedImages}
+                  style={{
+                    border: "none",
+                    background: "#fee2e2",
+                    color: "#b91c1c",
+                    borderRadius: 10,
+                    padding: "0 12px",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                >
+                  Xóa ảnh
+                </button>
+              </div>
+            ) : null}
+          </div>
 
-        <button
-          type="submit"
-          disabled={!canReview || submitting}
-          style={{
-            border: "none",
-            background:
-              canReview && !submitting
-                ? "linear-gradient(135deg, #f97316, #fb923c)"
-                : "#cbd5e1",
-            color: "#fff",
-            borderRadius: 14,
-            padding: "13px 16px",
-            fontWeight: 900,
-            cursor: canReview && !submitting ? "pointer" : "not-allowed",
-          }}
-        >
-          {submitting ? "Đang gửi..." : "Gửi đánh giá"}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={submitting}
+            style={{
+              border: "none",
+              background: submitting
+                ? "#cbd5e1"
+                : "linear-gradient(135deg, #f97316, #fb923c)",
+              color: "#fff",
+              borderRadius: 14,
+              padding: "13px 16px",
+              fontWeight: 900,
+              cursor: submitting ? "wait" : "pointer",
+            }}
+          >
+            {submitting ? "Đang gửi..." : "Gửi đánh giá"}
+          </button>
+        </form>
+      ) : null}
 
-      {FilterChips}
-      {PreviewList}
+      {hasPublicReviews || loadingPreview ? (
+        <>
+          {FilterChips}
+          {PreviewList}
+        </>
+      ) : null}
 
-      {shouldShowMoreButton ? (
+      {hasPublicReviews && shouldShowMoreButton ? (
         <button
           type="button"
           onClick={openReviewModal}

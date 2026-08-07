@@ -156,10 +156,8 @@ export default function AdminGuidesPage() {
     identityNumber: "",
     languages: "Tiếng Việt",
     experienceYears: 1,
-    status: "active",
     note: "",
-    createAccount: true,
-    password: "123456",
+    password: "",
   });
 
   const [assignForm, setAssignForm] = useState({
@@ -281,10 +279,8 @@ export default function AdminGuidesPage() {
       identityNumber: "",
       languages: "Tiếng Việt",
       experienceYears: 1,
-      status: "active",
       note: "",
-      createAccount: true,
-      password: "123456",
+      password: "",
     });
     setFormOpen(true);
   };
@@ -298,9 +294,7 @@ export default function AdminGuidesPage() {
       identityNumber: guide.identityNumber || "",
       languages: guide.languages || "Tiếng Việt",
       experienceYears: Number(guide.experienceYears || 0),
-      status: guide.status || "active",
       note: guide.note || "",
-      createAccount: false,
       password: "",
     });
     setFormOpen(true);
@@ -308,20 +302,65 @@ export default function AdminGuidesPage() {
 
   const saveGuide = async (event) => {
     event.preventDefault();
+
+    const fullName = String(form.fullName || "").trim();
+    const phone = String(form.phone || "").replace(/\D/g, "");
+    const email = String(form.email || "")
+      .trim()
+      .toLowerCase();
+    const identityNumber = String(form.identityNumber || "").replace(/\D/g, "");
+    const languages = String(form.languages || "").trim();
+    const experienceYears = Number(form.experienceYears);
+    const password = String(form.password || "");
+
+    if (!fullName) return showToast("Vui lòng nhập họ tên HDV.", "error");
+    if (!/^0\d{9}$/.test(phone)) {
+      return showToast(
+        "Số điện thoại phải gồm đúng 10 chữ số và bắt đầu bằng 0.",
+        "error",
+      );
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return showToast("Email đăng nhập HDV không hợp lệ.", "error");
+    }
+    if (!/^\d{12}$/.test(identityNumber)) {
+      return showToast("Số CCCD phải gồm đúng 12 chữ số.", "error");
+    }
+    if (!languages) {
+      return showToast("Vui lòng nhập ngôn ngữ của HDV.", "error");
+    }
+    if (
+      !Number.isInteger(experienceYears) ||
+      experienceYears < 0 ||
+      experienceYears > 60
+    ) {
+      return showToast(
+        "Số năm kinh nghiệm phải là số nguyên từ 0 đến 60.",
+        "error",
+      );
+    }
+    if (!form.id && password.length < 6) {
+      return showToast(
+        "Mật khẩu đăng nhập HDV cần tối thiểu 6 ký tự.",
+        "error",
+      );
+    }
+    if (form.id && password && password.length < 6) {
+      return showToast("Mật khẩu mới cần tối thiểu 6 ký tự.", "error");
+    }
+
     setSubmitting(true);
 
     try {
       const payload = {
-        fullName: form.fullName,
-        phone: form.phone,
-        email: form.email || null,
-        identityNumber: form.identityNumber || null,
-        languages: form.languages || null,
-        experienceYears: Number(form.experienceYears || 0),
-        status: form.status || "active",
-        note: form.note || null,
-        createAccount: Boolean(form.createAccount),
-        password: form.password || undefined,
+        fullName,
+        phone,
+        email,
+        identityNumber,
+        languages,
+        experienceYears,
+        note: String(form.note || "").trim() || null,
+        ...(password ? { password } : {}),
       };
 
       if (form.id) {
@@ -337,7 +376,10 @@ export default function AdminGuidesPage() {
           body: JSON.stringify(payload),
         });
 
-        showToast("Đã thêm hướng dẫn viên.", "success");
+        showToast(
+          "Đã thêm hướng dẫn viên và tạo tài khoản đăng nhập.",
+          "success",
+        );
       }
 
       setFormOpen(false);
@@ -1550,10 +1592,14 @@ export default function AdminGuidesPage() {
               <input
                 className="guide-input"
                 value={form.phone}
+                inputMode="numeric"
+                pattern="0[0-9]{9}"
+                maxLength={10}
+                placeholder="VD: 0912345678"
                 onChange={(e) =>
                   setForm((prev) => ({
                     ...prev,
-                    phone: e.target.value,
+                    phone: e.target.value.replace(/\D/g, "").slice(0, 10),
                   }))
                 }
                 required
@@ -1561,17 +1607,19 @@ export default function AdminGuidesPage() {
             </div>
 
             <div>
-              <label style={{ fontWeight: 800 }}>Email</label>
+              <label style={{ fontWeight: 800 }}>Email đăng nhập *</label>
               <input
                 className="guide-input"
                 type="email"
                 value={form.email}
+                placeholder="hdv@travela.vn"
                 onChange={(e) =>
                   setForm((prev) => ({
                     ...prev,
                     email: e.target.value,
                   }))
                 }
+                required
               />
             </div>
 
@@ -1580,10 +1628,16 @@ export default function AdminGuidesPage() {
               <input
                 className="guide-input"
                 value={form.identityNumber}
+                inputMode="numeric"
+                pattern="[0-9]{12}"
+                maxLength={12}
+                placeholder="12 chữ số CCCD"
                 onChange={(e) =>
                   setForm((prev) => ({
                     ...prev,
-                    identityNumber: e.target.value,
+                    identityNumber: e.target.value
+                      .replace(/\D/g, "")
+                      .slice(0, 12),
                   }))
                 }
                 required
@@ -1591,25 +1645,29 @@ export default function AdminGuidesPage() {
             </div>
 
             <div>
-              <label style={{ fontWeight: 800 }}>Ngôn ngữ</label>
+              <label style={{ fontWeight: 800 }}>Ngôn ngữ *</label>
               <input
                 className="guide-input"
                 value={form.languages}
+                placeholder="VD: Tiếng Việt, Tiếng Anh"
                 onChange={(e) =>
                   setForm((prev) => ({
                     ...prev,
                     languages: e.target.value,
                   }))
                 }
+                required
               />
             </div>
 
             <div>
-              <label style={{ fontWeight: 800 }}>Số năm kinh nghiệm</label>
+              <label style={{ fontWeight: 800 }}>Số năm kinh nghiệm *</label>
               <input
                 className="guide-input"
                 type="number"
                 min="0"
+                max="60"
+                step="1"
                 value={form.experienceYears}
                 onChange={(e) =>
                   setForm((prev) => ({
@@ -1617,99 +1675,39 @@ export default function AdminGuidesPage() {
                     experienceYears: e.target.value,
                   }))
                 }
+                required
               />
             </div>
 
             <div>
-              <label style={{ fontWeight: 800 }}>Trạng thái</label>
-              <select
+              <label style={{ fontWeight: 800 }}>
+                {form.id ? "Mật khẩu mới" : "Mật khẩu đăng nhập *"}
+              </label>
+              <input
                 className="guide-input"
-                value={form.status}
+                type="password"
+                value={form.password}
+                minLength={6}
+                autoComplete="new-password"
+                placeholder={
+                  form.id
+                    ? "Để trống nếu không đổi mật khẩu"
+                    : "Tối thiểu 6 ký tự"
+                }
                 onChange={(e) =>
                   setForm((prev) => ({
                     ...prev,
-                    status: e.target.value,
+                    password: e.target.value,
                   }))
                 }
-              >
-                <option value="active">Đang hoạt động</option>
-                <option value="inactive">Tạm ngưng</option>
-                <option value="locked">Đã khóa</option>
-              </select>
-            </div>
-
-            <div
-              style={{
-                gridColumn: "1 / -1",
-                padding: 14,
-                borderRadius: 14,
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-              }}
-            >
-              <label
-                style={{
-                  display: "flex",
-                  gap: 10,
-                  alignItems: "center",
-                  fontWeight: 800,
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={Boolean(form.createAccount)}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      createAccount: e.target.checked,
-                    }))
-                  }
-                />
-                Tạo / liên kết tài khoản đăng nhập cho HDV
-              </label>
-
-              {form.createAccount && (
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
-                    gap: 12,
-                    marginTop: 12,
-                  }}
-                >
-                  <input
-                    className="guide-input"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        email: e.target.value,
-                      }))
-                    }
-                    placeholder="Email đăng nhập"
-                    required
-                  />
-
-                  <input
-                    className="guide-input"
-                    type="text"
-                    value={form.password}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        password: e.target.value,
-                      }))
-                    }
-                    placeholder="Mật khẩu mặc định"
-                  />
-                </div>
-              )}
+                required={!form.id}
+              />
             </div>
 
             <div style={{ gridColumn: "1 / -1" }}>
-              <label style={{ fontWeight: 800 }}>Ghi chú chuyên môn</label>
+              <label style={{ fontWeight: 800 }}>
+                Ghi chú chuyên môn (không bắt buộc)
+              </label>
               <textarea
                 className="guide-input"
                 rows={3}

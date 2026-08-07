@@ -6,7 +6,13 @@ import FilterSidebar from "@/components/FilterSidebar";
 import AISmartSearchBar from "@/components/AISmartSearchBar";
 import Pagination from "@/components/Pagination";
 import { apiFetch } from "@/lib/api";
-import { normalizeTour, filterTours } from "@/lib/tour";
+import {
+  filterTours,
+  getTourBookingCount,
+  getTourFavoriteCount,
+  getPickupLocationOptions,
+  normalizeTour,
+} from "@/lib/tour";
 import { formatNumber } from "@/lib/format";
 import { useToast } from "@/components/ToastContext";
 import { trackBehavior } from "@/lib/behavior";
@@ -27,10 +33,22 @@ const resetKeys = [
   "month",
   "sort",
   "featured",
-  "bestDeal",
+  "favorite",
   "page",
 ];
 const PAGE_SIZE = 6;
+
+function getRecommendationPercent(tour) {
+  const raw =
+    tour?.recommendationScore ?? tour?.recommendation?.score ?? tour?.score;
+
+  if (raw === undefined || raw === null || raw === "") return -1;
+
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return -1;
+
+  return numeric <= 1 ? numeric * 100 : numeric;
+}
 
 // Danh sách ảnh tự động chuyển cho Slide Hero
 const heroImages = [
@@ -94,13 +112,19 @@ export default function ToursPage() {
 
     if (query.sort === "popular_desc") {
       return [...base].sort(
-        (a, b) => Number(b.bookingCount || 0) - Number(a.bookingCount || 0),
+        (a, b) => getTourBookingCount(b) - getTourBookingCount(a),
+      );
+    }
+
+    if (query.sort === "recommended") {
+      return [...base].sort(
+        (a, b) => getRecommendationPercent(b) - getRecommendationPercent(a),
       );
     }
 
     if (query.sort === "favorite_desc") {
       return [...base].sort(
-        (a, b) => Number(b.favoriteCount || 0) - Number(a.favoriteCount || 0),
+        (a, b) => getTourFavoriteCount(b) - getTourFavoriteCount(a),
       );
     }
 
@@ -123,16 +147,40 @@ export default function ToursPage() {
     [filteredTours, safePage],
   );
 
+  const pickupLocationOptions = useMemo(
+    () => getPickupLocationOptions(tours),
+    [tours],
+  );
+
+  const cleanQueryValue = (value) => {
+    const raw = Array.isArray(value) ? value[0] : value;
+    const text = String(raw ?? "").trim();
+    const normalized = text.toLowerCase();
+
+    if (
+      !text ||
+      normalized === "all" ||
+      normalized === "undefined" ||
+      normalized === "null"
+    ) {
+      return null;
+    }
+
+    return text;
+  };
+
   const updateQuery = (next) => {
     const merged = { ...router.query, ...next };
     Object.keys(merged).forEach((key) => {
+      const cleaned = cleanQueryValue(merged[key]);
+
       if (
-        merged[key] === null ||
-        merged[key] === undefined ||
-        merged[key] === "" ||
+        cleaned === null ||
         merged[key] === false
       ) {
         delete merged[key];
+      } else {
+        merged[key] = cleaned;
       }
     });
 
@@ -158,23 +206,23 @@ export default function ToursPage() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const nextQuery = {
-      search: formData.get("search"),
-      destination: formData.get("destination"),
+      search: cleanQueryValue(formData.get("search")),
+      destination: cleanQueryValue(formData.get("destination")),
       // Khi người dùng lọc thủ công thì bỏ chế độ lọc nhiều điểm đến bằng ảnh.
       imageDestinations: null,
       imageDestinationScores: null,
-      province: formData.get("province"),
-      departureProvince: formData.get("departureProvince"),
-      theme: formData.get("theme"),
-      type: formData.get("type"),
-      minPrice: formData.get("minPrice"),
-      maxPrice: formData.get("maxPrice"),
-      durationMax: formData.get("durationMax"),
-      minRating: formData.get("minRating"),
-      month: formData.get("month"),
-      sort: formData.get("sort"),
+      province: cleanQueryValue(formData.get("province")),
+      departureProvince: cleanQueryValue(formData.get("departureProvince")),
+      theme: cleanQueryValue(formData.get("theme")),
+      type: cleanQueryValue(formData.get("type")),
+      minPrice: cleanQueryValue(formData.get("minPrice")),
+      maxPrice: cleanQueryValue(formData.get("maxPrice")),
+      durationMax: cleanQueryValue(formData.get("durationMax")),
+      minRating: cleanQueryValue(formData.get("minRating")),
+      month: cleanQueryValue(formData.get("month")),
+      sort: cleanQueryValue(formData.get("sort")),
       featured: formData.get("featured") ? "1" : null,
-      bestDeal: formData.get("bestDeal") ? "1" : null,
+      favorite: formData.get("favorite") ? "1" : null,
       page: 1,
     };
 
@@ -532,6 +580,7 @@ export default function ToursPage() {
             >
               <FilterSidebar
                 destinations={destinations}
+                pickupLocationOptions={pickupLocationOptions}
                 query={query}
                 onSubmit={onFilterSubmit}
                 key={filterSidebarKey}

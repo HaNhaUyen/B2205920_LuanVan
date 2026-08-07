@@ -16,6 +16,38 @@ import { useToast } from "@/components/ToastContext";
 
 const PAGE_SIZE = 8;
 
+function isLegacyGuideNotification(item) {
+  const title = String(item?.title || "").trim();
+  const type = String(item?.metadata?.type || "").trim();
+  return (
+    !type &&
+    [
+      "Đã có hướng dẫn viên phụ trách",
+      "Hướng dẫn viên đã được cập nhật",
+      "Hồ sơ năng lực đã được duyệt",
+      "Hồ sơ năng lực bị từ chối",
+    ].includes(title)
+  );
+}
+
+function formatGuideNotificationDateTime(value, item = null) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+
+  const timeZone = isLegacyGuideNotification(item) ? "UTC" : "Asia/Ho_Chi_Minh";
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour12: false,
+    timeZone,
+  }).format(parsed);
+}
+
 export default function GuideNotificationsPanel({ notificationId = null }) {
   const { showToast } = useToast();
 
@@ -259,7 +291,7 @@ export default function GuideNotificationsPanel({ notificationId = null }) {
 
                     <span className="notification-time">
                       <Clock size={13} />
-                      {formatDateTime(item.createdAt)}
+                      {formatGuideNotificationDateTime(item.createdAt, item)}
                     </span>
                   </div>
 
@@ -303,7 +335,7 @@ export default function GuideNotificationsPanel({ notificationId = null }) {
 
               <div className="detail-time">
                 <Clock size={16} />
-                {formatDateTime(selected.createdAt)}
+                {formatGuideNotificationDateTime(selected.createdAt, selected)}
               </div>
 
               {selected.message && (

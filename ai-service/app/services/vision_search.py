@@ -43,6 +43,8 @@ VALID_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".jfif"}
 
 CACHE_VERSION = "travela-vision-v4-image-text-prototype-rerank"
 
+PERF_LOG_ENABLED = os.getenv("IMAGE_SEARCH_PERF_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
+
 # Ngưỡng này nên điều chỉnh theo dữ liệu thật.
 MIN_RAW_SCORE = float(os.getenv("VISION_MIN_RAW_SCORE", "0.22"))
 MIN_CONFIDENCE = float(os.getenv("VISION_MIN_CONFIDENCE", "0.32"))
@@ -58,6 +60,31 @@ ENABLE_TEXT_RERANK = os.getenv("VISION_TEXT_RERANK", "1") == "1"
 
 # Bật prototype rerank: so ảnh query với vector trung bình của từng điểm đến.
 ENABLE_PROTOTYPE_RERANK = os.getenv("VISION_PROTOTYPE_RERANK", "1") == "1"
+
+
+class PerfTimer:
+    def __init__(self, event: str) -> None:
+        self.event = event
+        self.started_at = time.perf_counter()
+        self.last = self.started_at
+        self.stages: Dict[str, float] = {}
+
+    def mark(self, name: str) -> None:
+        now = time.perf_counter()
+        self.stages[name] = round((now - self.last) * 1000, 2)
+        self.last = now
+
+    def finish(self, **extra: Any) -> Dict[str, Any]:
+        total_ms = round((time.perf_counter() - self.started_at) * 1000, 2)
+        payload: Dict[str, Any] = {
+            "event": self.event,
+            "total_ms": total_ms,
+            "stages_ms": self.stages,
+            **extra,
+        }
+        if PERF_LOG_ENABLED:
+            print("[ImageSearchPerf]", json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return payload
 
 
 # ============================================================
@@ -362,12 +389,19 @@ class VisionSearchEngine:
         self.model.to(self.device)
         self.model.eval()
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        return self.encode_pil_images([image])[0]
+
+    @torch.inference_mode()
+    def encode_pil_images(self, images: List[Image.Image]) -> torch.Tensor:
         self._load_model()
 
-        image = image.convert("RGB")
-        inputs = self.processor(images=image, return_tensors="pt")
+        clean_images = [image.convert("RGB") for image in images]
+        if not clean_images:
+            raise RuntimeError("Không có ảnh để encode.")
+
+        inputs = self.processor(images=clean_images, return_tensors="pt")
         pixel_values = inputs["pixel_values"].to(self.device)
 
         # Cách lấy image feature ổn định giữa các version transformers.
@@ -376,18 +410,16 @@ class VisionSearchEngine:
         image_features = self.model.visual_projection(pooled_output)
         image_features = F.normalize(image_features, dim=-1)
 
-        return image_features.squeeze(0).detach().cpu()
+        return image_features.detach().cpu()
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def encode_query_image(self, image: Image.Image) -> torch.Tensor:
         views = _make_query_views(image)
-        vectors = []
 
-        for view in views:
-            try:
-                vectors.append(self.encode_pil_image(view))
-            except Exception:
-                continue
+        try:
+            vectors = [v for v in self.encode_pil_images(views)]
+        except Exception:
+            vectors = []
 
         if not vectors:
             raise RuntimeError("Không encode được ảnh truy vấn.")
@@ -398,7 +430,7 @@ class VisionSearchEngine:
 
         return query.float()
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def encode_texts(self, texts: List[str]) -> torch.Tensor:
         self._load_model()
 
@@ -818,6 +850,14 @@ class VisionSearchEngine:
 
         return self.load(force_rebuild_cache=force_rebuild_cache)
 
+    def warmup(self) -> None:
+        self._ensure_loaded()
+        image = Image.new("RGB", (224, 224), color=(128, 128, 128))
+        _ = self.encode_query_image(image)
+
+    def status_snapshot(self) -> Dict[str, Any]:
+        return asdict(self.status())
+
     def _ensure_loaded(self) -> None:
         if not self.loaded or self.gallery_embeddings is None or not self.gallery_images:
             self.load(force_rebuild_cache=False)
@@ -830,16 +870,20 @@ class VisionSearchEngine:
     # ------------------------------------------------------------
 
     def search_pil_image(self, image: Image.Image, top_k: int = 5) -> Dict[str, Any]:
+        perf = PerfTimer("clip_search")
         self._ensure_loaded()
+        perf.mark("ensure_loaded")
 
         query = self.encode_query_image(image).float()
         query = F.normalize(query, dim=-1)
+        perf.mark("encode_query")
 
         scores = torch.matmul(self.gallery_embeddings, query)
 
         # Lấy nhiều ảnh raw hơn để ranking theo destination ổn định hơn.
         top_n = min(max(top_k * 12, 80), len(self.gallery_images))
         top_scores, top_indices = torch.topk(scores, k=top_n)
+        perf.mark("vector_search")
 
         raw_matches: List[Dict[str, Any]] = []
         for score, idx in zip(top_scores.tolist(), top_indices.tolist()):
@@ -860,6 +904,7 @@ class VisionSearchEngine:
 
         scene_scores = self._detect_scene_scores(query)
         ranked = self._rank_destinations(raw_matches, query=query, scene_scores=scene_scores, top_k=top_k)
+        perf.mark("rerank")
 
         detected = ranked[0] if ranked else None
         final_score = float(detected["score"]) if detected else 0.0
@@ -872,6 +917,13 @@ class VisionSearchEngine:
             or float(detected.get("best_image_score", 0.0)) < MIN_RAW_SCORE
             or confidence < MIN_CONFIDENCE
             or (len(ranked) > 1 and top_gap < MIN_TOP_GAP)
+        )
+
+        perf_payload = perf.finish(
+            top_k=top_k,
+            low_confidence=low_confidence,
+            detected=(detected or {}).get("destination_slug"),
+            views=len(_make_query_views(image)),
         )
 
         return {
@@ -890,6 +942,7 @@ class VisionSearchEngine:
             "raw_matches": raw_matches[: min(30, len(raw_matches))],
             "scene_scores": scene_scores[:5],
             "vision_status": asdict(self.status()),
+            "perf": perf_payload if PERF_LOG_ENABLED else None,
         }
 
     def search_image_file(self, image_path: Path, top_k: int = 5) -> Dict[str, Any]:
@@ -1091,4 +1144,3 @@ def search_similar_destinations_from_pil(image: Image.Image, top_k: int = 5) -> 
 
 def search_similar_destinations_from_file(image_path: Path, top_k: int = 5) -> Dict[str, Any]:
     return vision_search_engine.search_image_file(image_path, top_k=top_k)
-

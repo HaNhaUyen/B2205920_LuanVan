@@ -58,7 +58,6 @@ function buildUserFormData(form, isCreate = false) {
 function UserStatusBadge({ status }) {
   const map = {
     active: { bg: "#dcfce7", color: "#166534", label: "Đang hoạt động" },
-    inactive: { bg: "#fef3c7", color: "#92400e", label: "Tạm ngưng" },
     blocked: { bg: "#fee2e2", color: "#991b1b", label: "Bị khóa" },
   };
   const current = map[status] || {
@@ -470,7 +469,6 @@ export default function AdminUsersPage() {
               >
                 <option value="">Tất cả trạng thái</option>
                 <option value="active">Đang hoạt động</option>
-                <option value="inactive">Tạm ngưng</option>
                 <option value="blocked">Bị khóa</option>
               </select>
               <SortSelects filters={filters} setFilters={setFilters} />
@@ -758,7 +756,6 @@ export default function AdminUsersPage() {
                 }
               >
                 <option value="active">Đang hoạt động</option>
-                <option value="inactive">Tạm ngưng</option>
                 <option value="blocked">Bị khóa</option>
               </select>
             </div>

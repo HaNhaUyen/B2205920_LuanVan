@@ -77,6 +77,81 @@ function customerSegmentFromSignals(signals: string[]) {
   return labels.length ? labels.join(", ") : "Chưa đủ dữ liệu hành vi";
 }
 
+function viReportLabel(group: string, value: any) {
+  const key = String(value || "").toLowerCase();
+  const maps: Record<string, Record<string, string>> = {
+    severity: {
+      info: "Thông tin",
+      warning: "Cảnh báo",
+      danger: "Nghiêm trọng",
+      success: "Tích cực",
+    },
+    bookingStatus: {
+      pending_payment: "Chờ thanh toán",
+      waiting_confirmation: "Chờ xác nhận",
+      confirmed: "Đã xác nhận",
+      completed: "Hoàn thành",
+      cancelled: "Đã hủy",
+      cancelled_by_customer: "Khách đã hủy",
+      cancelled_by_operator: "Nhân viên đã hủy",
+      expired: "Hết hạn",
+    },
+    paymentStatus: {
+      pending: "Chờ thanh toán",
+      paid: "Đã thanh toán",
+      failed: "Thất bại",
+      expired: "Hết hạn",
+      refunded: "Đã hoàn tiền",
+    },
+    paymentMethod: {
+      bank_transfer: "Chuyển khoản",
+      momo: "MoMo",
+      vnpay: "VNPay",
+      cash: "Tiền mặt",
+      wallet: "Ví điện tử",
+    },
+    memberTier: {
+      bronze: "Hạng Đồng",
+      silver: "Hạng Bạc",
+      gold: "Hạng Vàng",
+      platinum: "Hạng Bạch kim",
+    },
+    tourTheme: {
+      family: "Gia đình",
+      beach: "Biển",
+      luxury: "Nghỉ dưỡng cao cấp",
+      culture: "Văn hóa",
+      adventure: "Phiêu lưu",
+      discovery: "Khám phá",
+      nature: "Thiên nhiên",
+      culinary: "Ẩm thực",
+      eco: "Sinh thái",
+      spiritual: "Tâm linh",
+      honeymoon: "Trăng mật",
+    },
+    status: {
+      active: "Hoạt động",
+      blocked: "Bị khóa",
+      inactive: "Ngừng hoạt động",
+      published: "Đang mở bán",
+      draft: "Bản nháp",
+      hidden: "Đã ẩn",
+      pending: "Chờ xử lý",
+      approved: "Đã duyệt",
+      rejected: "Từ chối",
+      new: "Mới",
+      resolved: "Đã xử lý",
+    },
+  };
+  return maps[group]?.[key] || (value ?? "");
+}
+
+function viReportDate(value: any) {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("vi-VN");
+}
+
 @Injectable()
 export class AdminDashboardService {
   constructor(private readonly prisma: PrismaService) {}
@@ -261,7 +336,8 @@ export class AdminDashboardService {
     const tourMap = new Map(tours.map((tour) => [tour.id.toString(), tour]));
     const topTours = topToursRaw.map((item) => ({
       tourId: item.tourId.toString(),
-      tourName: tourMap.get(item.tourId.toString())?.name ?? "Unknown tour",
+      tourName:
+        tourMap.get(item.tourId.toString())?.name ?? "Tour chưa xác định",
       slug: tourMap.get(item.tourId.toString())?.slug ?? "",
       price: money(tourMap.get(item.tourId.toString())?.basePriceAdult),
       totalBookings: item._count._all,
@@ -729,7 +805,8 @@ export class AdminDashboardService {
             severity: "danger",
             title: `Doanh thu tháng này giảm ${Math.abs(revenueChangePct)}%`,
             message: `Tháng này: ${revenueNow.toLocaleString("vi-VN")}đ, tháng trước: ${revenuePrev.toLocaleString("vi-VN")}đ.`,
-            action: "Kiểm tra tour yếu, voucher và booking pending_payment.",
+            action:
+              "Kiểm tra các tour hiệu quả thấp, voucher và booking đang chờ thanh toán.",
           }
         : null,
     ].filter(Boolean);
@@ -740,7 +817,7 @@ export class AdminDashboardService {
         : "Booking chờ thanh toán đang ổn định.",
       pendingRefunds > 0
         ? `Có ${pendingRefunds} refund pending, nên xử lý để giảm tồn đọng chăm sóc khách hàng.`
-        : "Không có refund pending nghiêm trọng.",
+        : "Không có yêu cầu hoàn tiền tồn đọng nghiêm trọng.",
       weakTours.length
         ? `Có ${weakTours.length} tour cần tối ưu: kiểm tra giá, ảnh, lịch khởi hành hoặc voucher.`
         : "Hiệu suất tour chưa phát hiện bất thường lớn.",
@@ -775,6 +852,170 @@ export class AdminDashboardService {
     };
   }
 
+  private localizeSmartReport(report: any) {
+    const type = String(report?.type || "");
+
+    const insightRows = (
+      Array.isArray(report?.insights) ? report.insights : []
+    ).map((item: any) => ({
+      type:
+        item?.segment ||
+        viReportLabel("status", item?.type) ||
+        item?.type ||
+        "Thông tin",
+      severity: viReportLabel("severity", item?.severity || "info"),
+      title: item?.title || item?.label || item?.segment || "Thông tin",
+      message:
+        item?.message ||
+        item?.description ||
+        (item?.segment && item?.total !== undefined
+          ? `Nhóm này hiện có ${item.total} lượt ghi nhận.`
+          : item?.tourName
+            ? `Tour ${item.tourName} tại ${item.destination || "-"}: ${item.views || 0} lượt xem, ${item.bookingCount || 0} booking.`
+            : ""),
+      recommendation:
+        item?.action || item?.recommendation || item?.smartSuggestion || "",
+    }));
+
+    const summaryMaps: Record<string, Record<string, string>> = {
+      overview: {
+        totalTours: "Tổng tour",
+        publishedTours: "Tour đang bán",
+        totalBookings: "Tổng booking",
+        pendingBookings: "Booking chờ xử lý",
+        confirmedBookings: "Booking đã xác nhận",
+        totalUsers: "Tổng người dùng",
+        newUsers: "Người dùng mới",
+        totalGuides: "Tổng hướng dẫn viên",
+        busyGuides: "Hướng dẫn viên đang bận",
+        totalRefunds: "Tổng yêu cầu hoàn tiền",
+        pendingRefunds: "Hoàn tiền chờ xử lý",
+        totalVouchers: "Tổng voucher",
+        activeVouchers: "Voucher đang hoạt động",
+        totalRevenue: "Tổng doanh thu",
+        totalContacts: "Tổng liên hệ",
+        newContacts: "Liên hệ mới",
+        totalReviews: "Tổng đánh giá",
+        pendingReviews: "Đánh giá chờ duyệt",
+        paymentSuccessRate: "Tỷ lệ thanh toán thành công (%)",
+      },
+      bookings: {
+        totalBookings: "Tổng booking",
+        pendingPayment: "Chờ thanh toán",
+        waitingConfirmation: "Chờ xác nhận",
+        confirmed: "Đã xác nhận",
+        cancelled: "Đã hủy",
+        totalRevenue: "Tổng doanh thu",
+        riskBookings: "Booking cần lưu ý",
+      },
+      tours: {
+        totalTours: "Tổng tour",
+        publishedTours: "Tour đang bán",
+        totalBookings: "Tổng booking",
+        totalRevenue: "Tổng doanh thu",
+        weakTours: "Tour cần tối ưu",
+      },
+      users: {
+        totalUsers: "Tổng người dùng",
+        activeUsers: "Người dùng hoạt động",
+        totalSpent: "Tổng chi tiêu",
+        behaviorReadyUsers: "Người dùng đủ dữ liệu hành vi",
+        segments: "Phân nhóm hành vi",
+      },
+    };
+
+    const localizedSummary: any = {};
+    Object.entries(report?.summary || {}).forEach(([key, value]) => {
+      localizedSummary[summaryMaps[type]?.[key] || key] =
+        value && typeof value === "object" ? JSON.stringify(value) : value;
+    });
+
+    const data = (Array.isArray(report?.data) ? report.data : []).map(
+      (row: any) => {
+        if (type === "bookings")
+          return {
+            "Mã booking": row.bookingCode,
+            "Khách hàng": row.customer,
+            Email: row.email,
+            "Số điện thoại": row.phone,
+            "Tên tour": row.tour,
+            "Điểm đến": row.destination,
+            "Ngày khởi hành": viReportDate(row.departureDate),
+            "Ngày kết thúc": viReportDate(row.endDate),
+            "Người lớn": row.adultCount,
+            "Trẻ em": row.childCount,
+            "Trạng thái booking": viReportLabel(
+              "bookingStatus",
+              row.bookingStatus,
+            ),
+            "Trạng thái thanh toán": viReportLabel(
+              "paymentStatus",
+              row.paymentStatus,
+            ),
+            "Phương thức thanh toán": viReportLabel(
+              "paymentMethod",
+              row.paymentMethod,
+            ),
+            "Thành tiền": row.finalAmount,
+            Voucher: row.voucherCode || "",
+            "Hướng dẫn viên": row.guide || "",
+            "Điểm đón": row.pickup || "",
+            "Rủi ro vận hành": row.smartRisk,
+            "Ngày tạo": viReportDate(row.createdAt),
+          };
+        if (type === "tours")
+          return {
+            "Mã tour": row.code,
+            "Tên tour": row.name,
+            "Điểm đến": row.destination,
+            "Tỉnh/Thành": row.province,
+            "Chủ đề": viReportLabel("tourTheme", row.tourTheme),
+            "Thời lượng": row.duration,
+            "Trạng thái": viReportLabel("status", row.status),
+            "Giá người lớn": row.basePriceAdult,
+            "Tổng lịch khởi hành": row.totalDepartures,
+            "Lịch đang mở": row.openDepartures,
+            "Chỗ trống thấp nhất": row.minRemainingSlots,
+            "Tổng booking": row.totalBookings,
+            "Booking hợp lệ": row.paidBookings,
+            "Doanh thu": row.revenue,
+            "Lượt xem": row.views,
+            "Lượt yêu thích": row.favorites,
+            "Tỷ lệ chuyển đổi (%)": row.conversionRate,
+            "Điểm đánh giá TB": row.avgRating,
+            "Gợi ý": row.smartSuggestion,
+            "Ngày tạo": viReportDate(row.createdAt),
+          };
+        if (type === "users")
+          return {
+            "Họ và tên": row.fullName,
+            Email: row.email,
+            "Số điện thoại": row.phone,
+            "Hạng thành viên": viReportLabel("memberTier", row.memberTier),
+            "Điểm tích lũy": row.memberPoints,
+            "Trạng thái": viReportLabel("status", row.status),
+            "Tổng booking": row.totalBookings,
+            "Booking đã thanh toán": row.paidBookings,
+            "Tổng chi tiêu": row.totalSpent,
+            "Số tour yêu thích": row.favoriteCount,
+            "Số hành vi": row.behaviorCount,
+            "Voucher khả dụng": row.availableVouchers,
+            "Voucher đã dùng": row.usedVouchers,
+            "Phân nhóm hành vi": row.smartSegment,
+            "Ngày tạo": viReportDate(row.createdAt),
+          };
+        return row;
+      },
+    );
+
+    return {
+      ...report,
+      summary: localizedSummary,
+      insights: insightRows,
+      data,
+    };
+  }
+
   async getReport(type: string, query: Record<string, any> = {}) {
     const key = String(type || "overview").toLowerCase();
     const generatedAt = new Date();
@@ -782,34 +1023,50 @@ export class AdminDashboardService {
 
     if (key === "overview" || key === "dashboard") {
       const overview = await this.getOverview();
-      return {
+      return this.localizeSmartReport({
         type: "overview",
         title: "Báo cáo tổng quan hệ thống Travela",
         generatedAt,
         summary: overview.summary,
         insights: smartInsights.alerts,
         data: [overview.summary],
-      };
+      });
     }
 
-    if (key === "tours") return this.reportTours(generatedAt, smartInsights);
+    if (key === "tours")
+      return this.localizeSmartReport(
+        await this.reportTours(generatedAt, smartInsights),
+      );
     if (key === "bookings")
-      return this.reportBookings(query, generatedAt, smartInsights);
+      return this.localizeSmartReport(
+        await this.reportBookings(query, generatedAt, smartInsights),
+      );
     if (key === "vouchers")
       return this.reportVouchers(generatedAt, smartInsights);
     if (key === "users")
-      return this.reportUsers(query, generatedAt, smartInsights);
+      return this.localizeSmartReport(
+        await this.reportUsers(query, generatedAt, smartInsights),
+      );
     if (key === "refunds")
-      return this.reportRefunds(query, generatedAt, smartInsights);
-    if (key === "guides") return this.reportGuides(generatedAt, smartInsights);
+      return this.localizeSmartReport(
+        await this.reportRefunds(query, generatedAt, smartInsights),
+      );
+    if (key === "guides")
+      return this.localizeSmartReport(
+        await this.reportGuides(generatedAt, smartInsights),
+      );
     if (key === "destinations")
       return this.reportDestinations(generatedAt, smartInsights);
     if (key === "payments")
       return this.reportPayments(generatedAt, smartInsights);
     if (key === "reviews")
-      return this.reportReviews(query, generatedAt, smartInsights);
+      return this.localizeSmartReport(
+        await this.reportReviews(query, generatedAt, smartInsights),
+      );
     if (key === "contacts")
-      return this.reportContacts(query, generatedAt, smartInsights);
+      return this.localizeSmartReport(
+        await this.reportContacts(query, generatedAt, smartInsights),
+      );
 
     return {
       type: key,

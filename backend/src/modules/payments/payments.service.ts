@@ -12,6 +12,7 @@ import { Prisma } from "@prisma/client";
 import { CheckoutPaymentDto } from "./dto/checkout-payment.dto";
 import { SepayWebhookDto } from "./dto/sepay-webhook.dto";
 import { RedisService } from "../../redis/redis.service";
+import { DepartureCapacityService } from "../../common/services/departure-capacity.service";
 
 type SupportedPaymentMethod = "bank_transfer";
 
@@ -66,6 +67,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly redisService: RedisService,
+    private readonly departureCapacity: DepartureCapacityService,
   ) {}
 
   private getHoldExpireAt() {
@@ -284,10 +286,11 @@ export class PaymentsService {
     });
 
     if (guestCount > 0) {
-      await tx.tourDeparture.update({
-        where: { id: booking.departureId },
-        data: { heldSlots: { decrement: guestCount } },
-      });
+      await this.departureCapacity.releaseHeldSlots(
+        tx,
+        booking.departureId,
+        guestCount,
+      );
     }
 
     await tx.payment.updateMany({
@@ -392,6 +395,196 @@ export class PaymentsService {
     return { departure, requestedSlots, normalizedEmail, normalizedPhone };
   }
 
+  private normalizeCheckoutGuests(dto: CheckoutPaymentDto) {
+    const guests = Array.isArray(dto.guests) ? dto.guests : [];
+    const expectedTotal =
+      Number(dto.adultCount || 0) + Number(dto.childCount || 0);
+
+    if (guests.length !== expectedTotal) {
+      throw new BadRequestException(
+        `So luong thong tin hanh khach (${guests.length}) phai bang tong so ve da chon (${expectedTotal}).`,
+      );
+    }
+
+    const adultGuests = guests.filter((guest) => guest.guestType === "adult");
+    const childGuests = guests.filter((guest) => guest.guestType === "child");
+
+    if (adultGuests.length !== Number(dto.adultCount || 0)) {
+      throw new BadRequestException(
+        `Vui long nhap dung ${dto.adultCount} thong tin nguoi lon.`,
+      );
+    }
+
+    if (childGuests.length !== Number(dto.childCount || 0)) {
+      throw new BadRequestException(
+        `Vui long nhap dung ${dto.childCount} thong tin tre em.`,
+      );
+    }
+
+    return guests.map((guest, index) => {
+      const fullName = String(guest.fullName || "").trim();
+      const idNumber = String(guest.idNumber || "").trim();
+      const gender = String(guest.gender || "").trim();
+
+      if (!fullName) {
+        throw new BadRequestException(
+          `Hanh khach so ${index + 1} chua co ho ten.`,
+        );
+      }
+
+      if (!idNumber) {
+        throw new BadRequestException(
+          `Hanh khach ${fullName} chua co CCCD, CMND hoac ho chieu.`,
+        );
+      }
+
+      if (!gender) {
+        throw new BadRequestException(
+          `Hanh khach ${fullName} chua chon gioi tinh.`,
+        );
+      }
+
+      if (!guest.dateOfBirth) {
+        throw new BadRequestException(
+          `Hanh khach ${fullName} chua co ngay sinh.`,
+        );
+      }
+
+      const dateOfBirth = new Date(guest.dateOfBirth);
+      if (Number.isNaN(dateOfBirth.getTime())) {
+        throw new BadRequestException(
+          `Ngay sinh cua hanh khach ${fullName} khong hop le.`,
+        );
+      }
+
+      return {
+        fullName,
+        dateOfBirth,
+        gender,
+        guestType: guest.guestType,
+        idNumber,
+      };
+    });
+  }
+
+  private async resolveCheckoutPickupPoint(
+    tx: Prisma.TransactionClient,
+    departure: any,
+    pickupPointId?: number,
+  ) {
+    if (!pickupPointId) return null;
+
+    const pickupId = BigInt(pickupPointId);
+
+    let pickup = await tx.tourPickupPoint.findFirst({
+      where: {
+        id: pickupId,
+        status: "active",
+        tourId: departure.tourId,
+        OR: [{ departureId: departure.id }, { departureId: null }],
+      },
+    });
+
+    if (!pickup) {
+      pickup = await tx.tourPickupPoint.findFirst({
+        where: {
+          id: pickupId,
+          status: "active",
+          tourId: departure.tourId,
+        },
+      });
+    }
+
+    if (!pickup) {
+      throw new BadRequestException(
+        "Diem don khong ton tai, da bi an hoac khong thuoc tour nay.",
+      );
+    }
+
+    return pickup;
+  }
+
+  private calculateCheckoutDiscount(voucher: any, originalAmount: number) {
+    if (!voucher) return 0;
+
+    if (voucher.discountType === "fixed") {
+      return Math.min(Number(voucher.discountValue || 0), originalAmount);
+    }
+
+    const raw = Math.round(
+      (originalAmount * Number(voucher.discountValue || 0)) / 100,
+    );
+    const max = voucher.maxDiscount == null ? raw : Number(voucher.maxDiscount);
+
+    return Math.min(raw, max, originalAmount);
+  }
+
+  private async resolveCheckoutVoucher(
+    tx: Prisma.TransactionClient,
+    dto: CheckoutPaymentDto,
+    userId: bigint | undefined,
+    originalAmount: number,
+  ) {
+    const code = dto.voucherCode?.trim().toUpperCase();
+    if (!code) return { voucher: null, discountAmount: 0 };
+
+    if (!userId) {
+      throw new BadRequestException("Ban can dang nhap de su dung voucher.");
+    }
+
+    const voucher = await tx.voucher.findUnique({ where: { code } });
+    if (!voucher || voucher.status !== "active") {
+      throw new BadRequestException(
+        "Voucher khong ton tai hoac da ngung hoat dong.",
+      );
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (
+      new Date(voucher.startDate).getTime() > today.getTime() ||
+      new Date(voucher.endDate).getTime() < today.getTime()
+    ) {
+      throw new BadRequestException(
+        "Voucher chua den han su dung hoac da het han.",
+      );
+    }
+
+    if (
+      Number(voucher.quota || 0) > 0 &&
+      Number(voucher.usedCount || 0) >= Number(voucher.quota)
+    ) {
+      throw new BadRequestException("Voucher da het luot su dung.");
+    }
+
+    if (originalAmount < Number(voucher.minOrderAmount || 0)) {
+      throw new BadRequestException(
+        "Don hang chua dat gia tri toi thieu de dung voucher.",
+      );
+    }
+
+    const userVoucher = await tx.userVoucher.findUnique({
+      where: {
+        userId_voucherId: {
+          userId,
+          voucherId: voucher.id,
+        },
+      },
+    });
+
+    if (!userVoucher || userVoucher.status !== "available") {
+      throw new BadRequestException(
+        "Voucher nay khong co trong tai khoan hoac da duoc su dung.",
+      );
+    }
+
+    return {
+      voucher,
+      discountAmount: this.calculateCheckoutDiscount(voucher, originalAmount),
+    };
+  }
+
   async checkout(dto: CheckoutPaymentDto, user?: CurrentUserLike) {
     const paymentMethod: SupportedPaymentMethod = "bank_transfer";
     this.validatePaymentMethod(paymentMethod);
@@ -415,6 +608,19 @@ export class PaymentsService {
           Number(departure.adultPrice) * Number(dto.adultCount) +
           Number(departure.childPrice) * Number(dto.childCount);
 
+        const { voucher, discountAmount } = await this.resolveCheckoutVoucher(
+          tx,
+          dto,
+          user?.userId,
+          originalAmount,
+        );
+        const finalAmount = Math.max(originalAmount - discountAmount, 0);
+        const pickup = await this.resolveCheckoutPickupPoint(
+          tx,
+          departure,
+          dto.pickupPointId,
+        );
+        const normalizedGuests = this.normalizeCheckoutGuests(dto);
         const holdExpiresAt = this.getHoldExpireAt();
 
         const initialBookingStatus = "pending_payment";
@@ -430,11 +636,19 @@ export class PaymentsService {
             userId: user?.userId || null,
             tourId: departure.tourId,
             departureId: departure.id,
+            voucherId: voucher?.id || null,
+            voucherCode:
+              voucher?.code || dto.voucherCode?.trim().toUpperCase() || null,
+            pickupPointId: pickup?.id || null,
+            pickupName: pickup?.name || null,
+            pickupAddress: pickup?.address || null,
+            pickupTime: pickup?.pickupTime || null,
+            pickupNote: pickup?.note || null,
             adultCount: Number(dto.adultCount),
             childCount: Number(dto.childCount),
             originalAmount,
-            discountAmount: 0,
-            finalAmount: originalAmount,
+            discountAmount,
+            finalAmount,
             bookingStatus: initialBookingStatus as any,
             holdExpiresAt,
             contactName: dto.contactName.trim(),
@@ -444,10 +658,14 @@ export class PaymentsService {
           },
         });
 
-        await tx.tourDeparture.update({
-          where: { id: departure.id },
-          data: { heldSlots: { increment: requestedSlots } },
+        await tx.bookingGuest.createMany({
+          data: normalizedGuests.map((guest) => ({
+            bookingId: booking.id,
+            ...guest,
+          })),
         });
+
+        await this.departureCapacity.holdSlots(tx, departure.id, requestedSlots);
 
         await tx.bookingStatusLog.create({
           data: {
@@ -785,15 +1003,24 @@ export class PaymentsService {
           await this.markVoucherUsedAfterPaid(tx, booking);
 
           if (totalGuests > 0) {
-            await tx.tourDeparture.update({
-              where: { id: booking.departureId },
-              data: {
-                ...(isHeldBooking
-                  ? { heldSlots: { decrement: totalGuests } }
-                  : {}),
-                bookedSlots: { increment: totalGuests },
-              },
-            });
+            if (isHeldBooking) {
+              await this.departureCapacity.convertHeldToBooked(
+                tx,
+                booking.departureId,
+                totalGuests,
+              );
+            } else {
+              await this.departureCapacity.holdSlots(
+                tx,
+                booking.departureId,
+                totalGuests,
+              );
+              await this.departureCapacity.convertHeldToBooked(
+                tx,
+                booking.departureId,
+                totalGuests,
+              );
+            }
           }
 
           await tx.bookingStatusLog.create({
@@ -827,12 +1054,11 @@ export class PaymentsService {
         });
 
         if (isHeldBooking && totalGuests > 0) {
-          await tx.tourDeparture.update({
-            where: { id: booking.departureId },
-            data: {
-              heldSlots: { decrement: totalGuests },
-            },
-          });
+          await this.departureCapacity.releaseHeldSlots(
+            tx,
+            booking.departureId,
+            totalGuests,
+          );
         }
 
         await tx.bookingStatusLog.create({
@@ -975,19 +1201,11 @@ export class PaymentsService {
 
         await this.markVoucherUsedAfterPaid(tx, payment.booking);
 
-        await tx.tourDeparture.update({
-          where: { id: payment.booking.departureId },
-          data: {
-            heldSlots: {
-              decrement:
-                payment.booking.adultCount + payment.booking.childCount,
-            },
-            bookedSlots: {
-              increment:
-                payment.booking.adultCount + payment.booking.childCount,
-            },
-          },
-        });
+        await this.departureCapacity.convertHeldToBooked(
+          tx,
+          payment.booking.departureId,
+          payment.booking.adultCount + payment.booking.childCount,
+        );
 
         await tx.bookingStatusLog.create({
           data: {

@@ -7,6 +7,8 @@ import { RagIndexService } from "./rag-index.service";
 import { ChatbotNluService } from "./chatbot-nlu.service";
 import { ChatbotConfidenceService } from "./chatbot-confidence.service";
 import { ChatbotToolsService } from "./chatbot-tools.service";
+import { ChatbotTemporalService } from "./chatbot-temporal.service";
+import { ChatbotRuleNluService } from "./chatbot-rule-nlu.service";
 import { LocationResolverService } from "./location-resolver.service";
 import { GuideChatbotService } from "./guide-chatbot.service";
 import { PrismaModule } from "../../prisma/prisma.module";
@@ -32,6 +34,8 @@ import { RecommendationsModule } from "../recommendations/recommendations.module
     ChatbotNluService,
     ChatbotConfidenceService,
     ChatbotToolsService,
+    ChatbotTemporalService,
+    ChatbotRuleNluService,
     LocationResolverService,
     GuideChatbotService,
   ],

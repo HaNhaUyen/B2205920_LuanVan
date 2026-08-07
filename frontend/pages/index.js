@@ -90,6 +90,31 @@ const heroCards = [
   },
 ];
 
+function getRecommendationPercent(tour) {
+  const raw =
+    tour?.recommendationScore ?? tour?.recommendation?.score ?? tour?.score;
+
+  if (raw === undefined || raw === null || raw === "") return -1;
+
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return -1;
+
+  return numeric <= 1 ? numeric * 100 : numeric;
+}
+
+function sortByRecommendationPercent(tours = []) {
+  return [...tours].sort((first, second) => {
+    const firstPercent = getRecommendationPercent(first);
+    const secondPercent = getRecommendationPercent(second);
+
+    if (secondPercent !== firstPercent) {
+      return secondPercent - firstPercent;
+    }
+
+    return Number(first?.id || 0) - Number(second?.id || 0);
+  });
+}
+
 export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [tours, setTours] = useState([]);
@@ -114,7 +139,9 @@ export default function HomePage() {
     Promise.all([
       apiFetch("/tours").catch(() => []),
       apiFetch("/destinations").catch(() => []),
-      apiFetch("/recommendations?limit=8&debug=1").catch(() => []),
+      apiFetch(`/recommendations?limit=8&debug=1&_=${Date.now()}`, {
+        cache: "no-store",
+      }).catch(() => []),
     ])
       .then(([tourData, destinationData, recommendationData]) => {
         if (!active) return;
@@ -148,10 +175,53 @@ export default function HomePage() {
     };
   }, [showToast]);
 
+  useEffect(() => {
+    const refreshRecommendations = async () => {
+      try {
+        const recommendationData = await apiFetch(
+          `/recommendations?limit=8&debug=1&_=${Date.now()}`,
+          { cache: "no-store" },
+        );
+
+        const rows = (
+          Array.isArray(recommendationData)
+            ? recommendationData
+            : recommendationData?.data ||
+              recommendationData?.items ||
+              recommendationData?.tours ||
+              []
+        ).map(normalizeTour);
+
+        if (rows.length) {
+          setRecommendedTours(rows);
+          setRecommendationStrategy(recommendationData?.strategy || "");
+        }
+      } catch (error) {
+        console.warn("Không thể làm mới danh sách gợi ý:", error);
+      }
+    };
+
+    const handleRefresh = () => refreshRecommendations();
+    window.addEventListener("focus", handleRefresh);
+    window.addEventListener("pageshow", handleRefresh);
+    window.addEventListener("travela:behavior-changed", handleRefresh);
+
+    return () => {
+      window.removeEventListener("focus", handleRefresh);
+      window.removeEventListener("pageshow", handleRefresh);
+      window.removeEventListener("travela:behavior-changed", handleRefresh);
+    };
+  }, []);
+
   const featuredTours = useMemo(() => tours.slice(0, 6), [tours]);
   const topDestinations = useMemo(
     () => destinations.slice(0, 8),
     [destinations],
+  );
+
+  const sortedRecommendedTours = useMemo(
+    () => sortByRecommendationPercent(recommendedTours),
+    [recommendedTours],
   );
 
   const onHeroSearch = (event) => {
@@ -572,12 +642,12 @@ export default function HomePage() {
             </Link>
           </div>
 
-          {recommendedTours.length ? (
+          {sortedRecommendedTours.length ? (
             <div
               className="card-grid travel-card-grid-3"
               style={{ display: "grid", gap: "24px" }}
             >
-              {recommendedTours.slice(0, 6).map((tour) => (
+              {sortedRecommendedTours.slice(0, 6).map((tour) => (
                 <TourCard key={tour.id} tour={tour} />
               ))}
             </div>

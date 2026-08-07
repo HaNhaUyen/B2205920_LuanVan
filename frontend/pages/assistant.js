@@ -99,7 +99,27 @@ function appPath(value) {
   return String(value).startsWith("/") ? value : `/${value}`;
 }
 
-function TourCard({ card, onAskMore, compact }) {
+function TourCard({ card, onAskMore, compact, cardIndex = 0 }) {
+  const departures = Array.isArray(card.departures)
+    ? card.departures.filter((item) => item?.departureId)
+    : [];
+  const hasMultipleDepartures = departures.length > 1;
+  const primaryDeparture = departures[0] || null;
+  const departureLabel = hasMultipleDepartures
+    ? `${departures.length} lịch gần nhất`
+    : formatDate(card.departureDate || primaryDeparture?.departureDate);
+  const handleBookTour = () => {
+    if (hasMultipleDepartures) {
+      onAskMore(`Chọn tour số ${cardIndex + 1}`);
+      return;
+    }
+
+    const departureId = card.departureId || primaryDeparture?.departureId;
+    onAskMore(
+      `Đặt tour này cho tôi ${departureId ? `lịch id ${departureId}` : ""}`,
+    );
+  };
+
   return (
     <div
       style={{
@@ -226,8 +246,33 @@ function TourCard({ card, onAskMore, compact }) {
             }}
           >
             <span style={{ color: "#64748b", fontSize: 12 }}>
-              Khởi hành: {formatDate(card.departureDate)}
+              Khởi hành: {departureLabel}
             </span>
+            {departures.length ? (
+              <div
+                style={{
+                  flexBasis: "100%",
+                  display: "grid",
+                  gap: 4,
+                  color: "#475569",
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                }}
+              >
+                <strong style={{ color: "#334155", fontSize: 12 }}>
+                  Lịch gần nhất
+                </strong>
+                {departures.slice(0, 3).map((departure, depIndex) => (
+                  <span key={`${card.tourId}-${departure.departureId}`}>
+                    {depIndex + 1}. {formatDate(departure.departureDate)}
+                    {departure.remainingSlots !== null &&
+                    departure.remainingSlots !== undefined
+                      ? `, còn ${Number(departure.remainingSlots)} chỗ`
+                      : ""}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
               <button
                 type="button"
@@ -246,11 +291,7 @@ function TourCard({ card, onAskMore, compact }) {
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  onAskMore(
-                    `Đặt tour này cho tôi ${card.departureId ? `lịch id ${card.departureId}` : ""}`,
-                  )
-                }
+                onClick={handleBookTour}
                 style={{
                   border: "none",
                   background: "linear-gradient(135deg, #f97316, #fb923c)",
@@ -1534,10 +1575,11 @@ export default function AssistantPage({ embed: embedProp = false }) {
 
                         {!isUser && (msg.cards || []).length ? (
                           <div style={{ display: "grid", gap: 10 }}>
-                            {msg.cards.map((card) => (
+                            {msg.cards.map((card, cardIndex) => (
                               <TourCard
                                 key={`${index}-${card.tourId}`}
                                 card={card}
+                                cardIndex={cardIndex}
                                 compact={embed}
                                 onAskMore={sendMessage}
                               />

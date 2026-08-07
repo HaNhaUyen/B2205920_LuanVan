@@ -170,6 +170,47 @@ export class GuidePortalService {
     };
   }
 
+  private async unavailableStatusMap(guideId: bigint, assignmentIds: bigint[]) {
+    if (!assignmentIds.length) return new Map<string, string>();
+
+    const requests = await this.prisma.guideAvailability.findMany({
+      where: {
+        guideId,
+        guideAssignmentId: { in: assignmentIds },
+        status: { in: ["pending", "active"] },
+        availabilityType: "unavailable",
+      },
+      select: {
+        guideAssignmentId: true,
+        status: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const map = new Map<string, string>();
+    for (const item of requests) {
+      if (!item.guideAssignmentId) continue;
+      const key = item.guideAssignmentId.toString();
+      if (!map.has(key)) {
+        map.set(
+          key,
+          item.status === "pending" ? "unavailable_pending" : "unavailable",
+        );
+      }
+    }
+    return map;
+  }
+
+  private mapAssignmentWithDisplayStatus(
+    item: any,
+    detail = false,
+    statusMap?: Map<string, string>,
+  ) {
+    const mapped = this.mapAssignment(item, detail);
+    const displayStatus = statusMap?.get(String(item.id));
+    return displayStatus ? { ...mapped, status: displayStatus } : mapped;
+  }
+
   private mapAssignment(item: any, detail = false) {
     const booking = item.booking;
     const tour = item.tour;
@@ -337,6 +378,11 @@ export class GuidePortalService {
       {},
     );
 
+    const unavailableMap = await this.unavailableStatusMap(
+      guide.id,
+      assignments.map((item: any) => item.id),
+    );
+
     return {
       guide: this.mapGuide(guide),
       stats: {
@@ -351,10 +397,18 @@ export class GuidePortalService {
         totalGuests,
         statusCounts,
       },
-      nextAssignment: upcoming[0] ? this.mapAssignment(upcoming[0]) : null,
+      nextAssignment: upcoming[0]
+        ? this.mapAssignmentWithDisplayStatus(
+            upcoming[0],
+            false,
+            unavailableMap,
+          )
+        : null,
       upcomingAssignments: upcoming
         .slice(0, 6)
-        .map((item: any) => this.mapAssignment(item)),
+        .map((item: any) =>
+          this.mapAssignmentWithDisplayStatus(item, false, unavailableMap),
+        ),
     };
   }
 
@@ -367,7 +421,6 @@ export class GuidePortalService {
     const guide = await this.getGuideByUser(user);
 
     const phone = dto.phone?.trim();
-    const email = dto.email?.trim().toLowerCase();
     const identityNumber = dto.identityNumber?.trim();
     const note = dto.note?.trim();
 
@@ -375,7 +428,6 @@ export class GuidePortalService {
       where: { id: guide.id },
       data: {
         ...(phone !== undefined ? { phone } : {}),
-        ...(email !== undefined ? { email } : {}),
         ...(identityNumber !== undefined ? { identityNumber } : {}),
         ...(note !== undefined ? { note } : {}),
       },
@@ -401,7 +453,6 @@ export class GuidePortalService {
           where: { id: guide.userId },
           data: {
             ...(phone !== undefined ? { phone } : {}),
-            ...(email !== undefined ? { email } : {}),
             ...(identityNumber !== undefined ? { identityNumber } : {}),
           },
         })
@@ -497,7 +548,14 @@ export class GuidePortalService {
       },
     });
 
-    return assignments.map((item: any) => this.mapAssignment(item));
+    const statusMap = await this.unavailableStatusMap(
+      guide.id,
+      assignments.map((item: any) => item.id),
+    );
+
+    return assignments.map((item: any) =>
+      this.mapAssignmentWithDisplayStatus(item, false, statusMap),
+    );
   }
 
   async getAssignmentDetail(user: CurrentUserLike, assignmentId: number) {
@@ -545,7 +603,10 @@ export class GuidePortalService {
       );
     }
 
-    return this.mapAssignment(assignment, true);
+    const statusMap = await this.unavailableStatusMap(guide.id, [
+      assignment.id,
+    ]);
+    return this.mapAssignmentWithDisplayStatus(assignment, true, statusMap);
   }
 
   async reportAssignmentUnavailable(

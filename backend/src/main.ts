@@ -4,6 +4,7 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import { join } from "path";
 
 import { AppModule } from "./app.module";
+import { PrismaExceptionFilter } from "./common/filters/prisma-exception.filter";
 import { BigIntInterceptor } from "./common/interceptors/bigint.interceptor";
 import { PrismaService } from "./prisma/prisma.service";
 
@@ -54,6 +55,7 @@ async function bootstrap(): Promise<void> {
   );
 
   app.useGlobalInterceptors(new BigIntInterceptor());
+  app.useGlobalFilters(new PrismaExceptionFilter());
 
   const prisma = app.get(PrismaService);
   await prisma.enableShutdownHooks(app);

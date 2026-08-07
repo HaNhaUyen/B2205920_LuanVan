@@ -21,7 +21,7 @@ const values = [
   },
   {
     title: "Tìm kiếm thông minh (AI)",
-    desc: "Kết hợp linh hoạt tìm kiếm bằng chữ, phân tích hình ảnh và nhận diện giọng nói để chốt tour nhanh chóng, trúng ý.",
+    desc: "Kết hợp linh hoạt tìm kiếm bằng chữ, phân tích hình ảnh để chốt tour nhanh chóng, trúng ý.",
     icon: (
       <svg
         width="28"
@@ -76,7 +76,7 @@ const values = [
 
 const flows = [
   "Khám phá các điểm đến hấp dẫn và các tour du lịch đa dạng qua danh mục được phân loại rõ ràng.",
-  "Sử dụng bộ lọc chi tiết hoặc trợ lý AI (giọng nói, hình ảnh) để chốt ngay tour đúng sở thích và ngân sách.",
+  "Sử dụng bộ lọc chi tiết hoặc trợ lý AI (hình ảnh) để chốt ngay tour đúng sở thích và ngân sách.",
   "Tiến hành đặt chỗ, thanh toán an toàn và nhận ngay vé điện tử cùng lịch trình chi tiết qua email.",
   "Xách ba lô lên và tận hưởng kỳ nghỉ tuyệt vời với sự hỗ trợ tận tâm từ đội ngũ Travela.",
 ];

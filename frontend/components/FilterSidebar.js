@@ -16,6 +16,7 @@ const typeOptions = ["group", "private"];
 
 export default function FilterSidebar({
   destinations,
+  pickupLocationOptions = [],
   query,
   onSubmit,
   onReset,
@@ -56,7 +57,8 @@ export default function FilterSidebar({
 
   if (query.featured === "1")
     chips.push(["featured", "Tour nổi bật", "Đang bật"]);
-  if (query.bestDeal === "1") chips.push(["bestDeal", "Giá tốt", "Đang bật"]);
+  if (query.favorite === "1")
+    chips.push(["favorite", "Tour được yêu thích", "Đang bật"]);
 
   return (
     <aside
@@ -297,13 +299,11 @@ export default function FilterSidebar({
               }}
             >
               <option value="">Tất cả nơi khởi hành</option>
-              {["Cần Thơ", "TP HCM", "Hà Nội", "Đà Nẵng", "Lâm Đồng"].map(
-                (item) => (
-                  <option key={item} value={item}>
-                    Xuất phát từ {item}
-                  </option>
-                ),
-              )}
+              {pickupLocationOptions.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -645,16 +645,16 @@ export default function FilterSidebar({
             >
               <input
                 type="checkbox"
-                name="bestDeal"
-                defaultChecked={query.bestDeal === "1"}
+                name="favorite"
+                defaultChecked={query.favorite === "1"}
                 style={{
                   width: "18px",
                   height: "18px",
-                  accentColor: "#f59e0b",
+                  accentColor: "#ec4899",
                 }}
               />
               <span style={{ fontSize: "0.95rem", color: "#334155" }}>
-                ⭐ Chỉ tour Giá tốt
+                💖 Chỉ tour Được yêu thích
               </span>
             </label>
           </div>

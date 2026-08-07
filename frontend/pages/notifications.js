@@ -1,10 +1,55 @@
 import { useRouter } from "next/router";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import Loading from "@/components/Loading";
 import { apiFetch } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
 import { getUser } from "@/lib/storage";
 import { useToast } from "@/components/ToastContext";
+
+function isLegacyGuideNotification(item) {
+  const title = String(item?.title || "").trim();
+  const type = String(item?.metadata?.type || "").trim();
+
+  /*
+   * Các thông báo HDV đã tạo trước bản sửa backend được INSERT bằng SQL NOW().
+   * MySQL trả chúng như chuỗi UTC dù giá trị thực tế đã là giờ Việt Nam.
+   * Chỉ giữ tương thích cho dữ liệu cũ chưa có metadata type.
+   */
+  return (
+    !type &&
+    [
+      "Đã có hướng dẫn viên phụ trách",
+      "Hướng dẫn viên đã được cập nhật",
+    ].includes(title)
+  );
+}
+
+function formatNotificationDateTime(value, item = null) {
+  if (!value) return "—";
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+
+  /*
+   * Chuẩn mới: timestamp được tạo bởi Prisma và được xem là thời điểm UTC thật.
+   * Giao diện luôn hiển thị theo múi giờ Việt Nam (UTC+7).
+   * Ví dụ 11:40Z -> 18:40 tại Việt Nam.
+   *
+   * Riêng dữ liệu HDV cũ tạo bằng SQL NOW() bị gắn nhãn UTC sai thì giữ nguyên
+   * phần giờ UTC để 18:31 cũ vẫn hiển thị 18:31, không thành 01:31 hôm sau.
+   */
+  const timeZone = isLegacyGuideNotification(item) ? "UTC" : "Asia/Ho_Chi_Minh";
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour12: false,
+    timeZone,
+  }).format(parsed);
+}
 
 export default function NotificationsPage() {
   const router = useRouter();
@@ -17,8 +62,7 @@ export default function NotificationsPage() {
     const data = await apiFetch("/notifications/me");
     setItems(data || []);
     const queryId = router.query?.notificationId;
-    const nextId =
-      queryId || data?.[0]?.id || null;
+    const nextId = queryId || data?.[0]?.id || null;
     setSelectedId(nextId ? String(nextId) : null);
   };
 
@@ -37,6 +81,12 @@ export default function NotificationsPage() {
     () => items.find((item) => String(item.id) === String(selectedId)) || null,
     [items, selectedId],
   );
+  const selectedActionUrl =
+    selected?.actionUrl || selected?.metadata?.actionUrl || null;
+  const selectedActionLabel =
+    selected?.actionLabel ||
+    selected?.metadata?.actionLabel ||
+    "Cập nhật tài khoản nhận hoàn";
 
   useEffect(() => {
     if (router.query?.notificationId) {
@@ -86,9 +136,18 @@ export default function NotificationsPage() {
             <div style={{ color: "#86efac", fontWeight: 700, marginBottom: 8 }}>
               Trung tâm thông báo
             </div>
-            <h1 style={{ margin: "0 0 8px", fontSize: "2rem" }}>Thông báo của bạn</h1>
-            <p style={{ margin: 0, color: "rgba(255,255,255,0.78)", maxWidth: 680 }}>
-              Khi bấm xem, thông báo sẽ được đánh dấu đã đọc và hiển thị mờ hơn để bạn dễ quản lý.
+            <h1 style={{ margin: "0 0 8px", fontSize: "2rem" }}>
+              Thông báo của bạn
+            </h1>
+            <p
+              style={{
+                margin: 0,
+                color: "rgba(255,255,255,0.78)",
+                maxWidth: 680,
+              }}
+            >
+              Khi bấm xem, thông báo sẽ được đánh dấu đã đọc và hiển thị mờ hơn
+              để bạn dễ quản lý.
             </p>
           </div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -121,7 +180,13 @@ export default function NotificationsPage() {
               overflowY: "auto",
             }}
           >
-            <div style={{ padding: "8px 6px 14px", color: "#64748b", fontWeight: 700 }}>
+            <div
+              style={{
+                padding: "8px 6px 14px",
+                color: "#64748b",
+                fontWeight: 700,
+              }}
+            >
               Danh sách thông báo
             </div>
             {items.length ? (
@@ -135,7 +200,9 @@ export default function NotificationsPage() {
                     style={{
                       width: "100%",
                       textAlign: "left",
-                      border: active ? "1px solid #bbf7d0" : "1px solid #f1f5f9",
+                      border: active
+                        ? "1px solid #bbf7d0"
+                        : "1px solid #f1f5f9",
                       background: active ? "#f0fdf4" : "#fff",
                       opacity: item.isRead ? 0.58 : 1,
                       borderRadius: 18,
@@ -146,21 +213,48 @@ export default function NotificationsPage() {
                       gap: 8,
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                      <strong style={{ color: "#0f172a", fontSize: 14 }}>{item.title}</strong>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                      }}
+                    >
+                      <strong style={{ color: "#0f172a", fontSize: 14 }}>
+                        {item.title}
+                      </strong>
                       {!item.isRead ? (
-                        <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+                        <span
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: "50%",
+                            background: "#22c55e",
+                            flexShrink: 0,
+                          }}
+                        />
                       ) : null}
                     </div>
-                    <span style={{ color: "#475569", lineHeight: 1.5, fontSize: 13 }}>
+                    <span
+                      style={{
+                        color: "#475569",
+                        lineHeight: 1.5,
+                        fontSize: 13,
+                      }}
+                    >
                       {item.message || item.content}
                     </span>
-                    <span style={{ color: "#94a3b8", fontSize: 12 }}>{formatDateTime(item.createdAt)}</span>
+                    <span style={{ color: "#94a3b8", fontSize: 12 }}>
+                      {formatNotificationDateTime(item.createdAt, item)}
+                    </span>
                   </button>
                 );
               })
             ) : (
-              <div style={{ padding: 16, color: "#64748b" }}>Hiện chưa có thông báo nào.</div>
+              <div style={{ padding: 16, color: "#64748b" }}>
+                Hiện chưa có thông báo nào.
+              </div>
             )}
           </aside>
 
@@ -176,30 +270,34 @@ export default function NotificationsPage() {
           >
             {selected ? (
               <>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    marginBottom: 14,
+                  }}
+                >
                   <div>
-                    <div style={{ color: selected.isRead ? "#94a3b8" : "#16a34a", fontWeight: 800, marginBottom: 8 }}>
+                    <div
+                      style={{
+                        color: selected.isRead ? "#94a3b8" : "#16a34a",
+                        fontWeight: 800,
+                        marginBottom: 8,
+                      }}
+                    >
                       {selected.isRead ? "Đã xem" : "Mới"}
                     </div>
-                    <h2 style={{ margin: 0, color: "#0f172a" }}>{selected.title}</h2>
+                    <h2 style={{ margin: 0, color: "#0f172a" }}>
+                      {selected.title}
+                    </h2>
                   </div>
-                  <span style={{ color: "#94a3b8", fontSize: 13 }}>{formatDateTime(selected.createdAt)}</span>
+                  <span style={{ color: "#94a3b8", fontSize: 13 }}>
+                    {formatNotificationDateTime(selected.createdAt, selected)}
+                  </span>
                 </div>
-                {selected.message ? (
-                  <div
-                    style={{
-                      padding: 14,
-                      borderRadius: 16,
-                      background: "#f8fafc",
-                      border: "1px solid #e2e8f0",
-                      color: "#334155",
-                      marginBottom: 16,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {selected.message}
-                  </div>
-                ) : null}
                 <div
                   style={{
                     whiteSpace: "pre-wrap",
@@ -210,9 +308,32 @@ export default function NotificationsPage() {
                 >
                   {selected.content}
                 </div>
+                {selectedActionUrl ? (
+                  <Link href={selectedActionUrl} legacyBehavior>
+                    <a
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginTop: 22,
+                        padding: "12px 18px",
+                        borderRadius: 999,
+                        background: "#16a34a",
+                        color: "#fff",
+                        fontWeight: 800,
+                        textDecoration: "none",
+                        boxShadow: "0 12px 24px rgba(22, 163, 74, 0.22)",
+                      }}
+                    >
+                      {selectedActionLabel}
+                    </a>
+                  </Link>
+                ) : null}
               </>
             ) : (
-              <div style={{ color: "#64748b" }}>Chọn một thông báo để xem chi tiết.</div>
+              <div style={{ color: "#64748b" }}>
+                Chọn một thông báo để xem chi tiết.
+              </div>
             )}
           </article>
         </div>

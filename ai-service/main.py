@@ -2,6 +2,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,6 +23,17 @@ app.add_middleware(
 
 app.include_router(ai_router)
 app.include_router(embeddings_router)
+
+
+@app.on_event("startup")
+def startup_preload_vision():
+    if os.getenv("IMAGE_SEARCH_PRELOAD_ON_STARTUP", "1").strip().lower() not in {"1", "true", "yes", "on"}:
+        return
+
+    status = vision_search_service.load(force_rebuild_cache=False)
+
+    if os.getenv("IMAGE_SEARCH_WARMUP", "1").strip().lower() in {"1", "true", "yes", "on"} and status.status == "ready":
+        vision_search_service.warmup()
 
 
 @app.get("/health")

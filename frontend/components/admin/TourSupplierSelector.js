@@ -159,7 +159,7 @@ export default function TourSupplierSelector({
               autoFocus
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
-              placeholder="Tìm tên, số điện thoại, tỉnh thành..."
+              placeholder="Tìm nhà cung cấp theo tên, SĐT, tỉnh thành..."
             />
           </div>
 
@@ -200,7 +200,7 @@ export default function TourSupplierSelector({
                 className="supplier-selector-manual"
                 onClick={chooseManual}
               >
-                + Nhập thông tin nhà cung cấp khác
+                + Nhập thông tin thủ công
               </button>
             )}
           </div>

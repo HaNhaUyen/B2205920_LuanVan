@@ -13,7 +13,12 @@
     "recommendations:evaluate:3": "ts-node src/scripts/evaluate-recommendations-3.ts",
     "seed:recommendations": "ts-node prisma/seed-recommendation-personas.ts",
     "recommendations:train": "ts-node src/scripts/train-recommendations.ts",
-    "recommendations:evaluate": "ts-node src/scripts/evaluate-recommendations-3.ts 10 scripts/recommendation_metrics_real.json"
+    "recommendations:evaluate": "ts-node src/scripts/evaluate-recommendations-3.ts 10 scripts/recommendation_metrics_real.json",
+    "test:validation:p0": "ts-node src/scripts/test-validation-p0.ts",
+    "precheck:validation:p0": "ts-node src/scripts/validation-p0-precheck.ts",
+    "test:chatbot:nlu": "ts-node src/scripts/test-chatbot-nlu.ts",
+    "test:chatbot:tour-query": "ts-node src/scripts/test-chatbot-deterministic-tour-query.ts",
+    "test:chatbot": "npm run test:chatbot:nlu && npm run test:chatbot:tour-query"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",

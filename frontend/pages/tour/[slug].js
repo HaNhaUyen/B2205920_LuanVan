@@ -5,6 +5,7 @@ import Loading from "@/components/Loading";
 import TourCard from "@/components/TourCard";
 import TourReviewSection from "@/components/reviews/TourReviewSection";
 import PaymentModal from "@/components/PaymentModal";
+import BookingWizardModal from "@/components/BookingWizardModal";
 import { apiFetch } from "@/lib/api";
 import { API_URL } from "@/lib/config";
 import { formatCurrency, formatDate, renderStars } from "@/lib/format";
@@ -13,7 +14,41 @@ import { normalizeTour, mapImageUrl, renderDeparturePreview } from "@/lib/tour";
 import { getUser, updateStoredUser } from "@/lib/storage";
 import { useToast } from "@/components/ToastContext";
 import { trackBehavior } from "@/lib/behavior";
-import { Heart } from "lucide-react";
+import {
+  Heart,
+  BadgeDollarSign,
+  Baby,
+  NotebookPen,
+  ChevronDown,
+  Info,
+} from "lucide-react";
+
+function normalizeDateInputValue(value) {
+  if (!value) return "";
+
+  const raw = String(value).trim();
+
+  // input[type="date"] chỉ nhận đúng định dạng YYYY-MM-DD.
+  const isoDate = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoDate) return isoDate[1];
+
+  // Hỗ trợ dữ liệu cũ dạng DD/MM/YYYY.
+  const viDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (viDate) {
+    const [, day, month, year] = viDate;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  return "";
+}
 
 function buildDefaultGuests(
   adultCount = 1,
@@ -34,10 +69,26 @@ function buildDefaultGuests(
       guestType: "adult",
       fullName: old?.fullName || (i === 0 ? currentUser?.fullName || "" : ""),
       dateOfBirth:
-        old?.dateOfBirth || (i === 0 ? currentUser?.birthDate || "" : ""),
-      gender: old?.gender || (i === 0 ? currentUser?.gender || "" : ""),
+        i === 0
+          ? normalizeDateInputValue(
+              currentUser?.birthDate ||
+                currentUser?.dateOfBirth ||
+                old?.dateOfBirth ||
+                "",
+            )
+          : normalizeDateInputValue(old?.dateOfBirth || ""),
+      gender:
+        i === 0
+          ? currentUser?.gender || old?.gender || ""
+          : old?.gender || "",
       idNumber:
-        old?.idNumber || (i === 0 ? currentUser?.identityNumber || "" : ""),
+        i === 0
+          ? currentUser?.identityNumber ||
+            currentUser?.idNumber ||
+            currentUser?.identity_number ||
+            old?.idNumber ||
+            ""
+          : old?.idNumber || "",
       savedTravelerId: i === 0 ? "" : old?.savedTravelerId || "",
       isAccountOwner: i === 0,
     });
@@ -51,7 +102,7 @@ function buildDefaultGuests(
       index: i,
       guestType: "child",
       fullName: old?.fullName || "",
-      dateOfBirth: old?.dateOfBirth || "",
+      dateOfBirth: normalizeDateInputValue(old?.dateOfBirth || ""),
       gender: old?.gender || "",
       idNumber: old?.idNumber || "",
       savedTravelerId: old?.savedTravelerId || "",
@@ -99,9 +150,9 @@ function normalizeSavedTraveler(traveler = {}) {
   return {
     id: traveler.id,
     fullName: traveler.fullName || traveler.full_name || "",
-    dateOfBirth: String(
+    dateOfBirth: normalizeDateInputValue(
       traveler.dateOfBirth || traveler.date_of_birth || "",
-    ).slice(0, 10),
+    ),
     gender: traveler.gender || "",
     guestType: traveler.guestType || traveler.guest_type || "adult",
     idNumber: traveler.idNumber || traveler.id_number || "",
@@ -216,6 +267,219 @@ function getTourCoverImage(media = [], coverUrl = "") {
   return getTourMediaUrl(coverImage, coverUrl);
 }
 
+const DEFAULT_EXCLUDED_ITEMS = [
+  "Chi phí cá nhân, đồ uống và các dịch vụ phát sinh ngoài chương trình.",
+];
+
+const DEFAULT_CHILD_POLICY_ITEMS = [
+  "Trẻ em dưới 5 tuổi được miễn phí theo chính sách của tour và ngủ chung với cha mẹ.",
+  "Trẻ em từ 5 đến dưới 10 tuổi áp dụng mức giá trẻ em, có suất ăn và ghế ngồi riêng.",
+  "Trẻ em từ 10 tuổi trở lên được tính giá như người lớn.",
+];
+
+const DEFAULT_NOTE_ITEMS = [
+  "Quý khách vui lòng có mặt tại điểm đón trước giờ khởi hành ít nhất 15 phút.",
+  "Vui lòng mang theo giấy tờ tùy thân hợp lệ trong suốt hành trình.",
+];
+
+function safeParsePolicyValue(value) {
+  if (value == null) return [];
+
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          return (
+            item.text || item.label || item.description || item.content || ""
+          );
+        }
+        return "";
+      })
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "object") {
+    return safeParsePolicyValue(
+      value.items ||
+        value.list ||
+        value.content ||
+        value.description ||
+        value.text,
+    );
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+
+  if ((raw.startsWith("[") || raw.startsWith("{")) && raw.length > 1) {
+    try {
+      return safeParsePolicyValue(JSON.parse(raw));
+    } catch (_) {
+      // Tiếp tục xử lý như chuỗi thường.
+    }
+  }
+
+  return raw
+    .split(/\r?\n|•|\u2022|\s+-\s+/)
+    .map((item) => item.replace(/^[-–—*+\d.)\s]+/, "").trim())
+    .filter(Boolean);
+}
+
+function getFirstPolicyValue(tour, keys = []) {
+  for (const key of keys) {
+    const direct = tour?.[key];
+    if (direct != null && direct !== "") return direct;
+
+    const metadata = tour?.metadata?.[key] ?? tour?.meta?.[key];
+    if (metadata != null && metadata !== "") return metadata;
+
+    const policy = tour?.policy?.[key] ?? tour?.policyJson?.[key];
+    if (policy != null && policy !== "") return policy;
+  }
+
+  return null;
+}
+
+function buildTourPolicyData(tour = {}) {
+  const excluded = safeParsePolicyValue(
+    getFirstPolicyValue(tour, [
+      "excludedServices",
+      "notIncluded",
+      "excluded",
+      "excludes",
+      "priceExcludes",
+      "tourExcludes",
+    ]),
+  );
+  const childPolicy = safeParsePolicyValue(
+    getFirstPolicyValue(tour, [
+      "childPolicy",
+      "childrenPolicy",
+      "childPricingPolicy",
+      "childRules",
+    ]),
+  );
+  const notes = safeParsePolicyValue(
+    getFirstPolicyValue(tour, [
+      "notes",
+      "tourNotes",
+      "importantNotes",
+      "itineraryNotes",
+      "terms",
+    ]),
+  );
+
+  return {
+    excluded: (excluded.length ? excluded : DEFAULT_EXCLUDED_ITEMS).slice(0, 1),
+    childPolicy: (childPolicy.length
+      ? childPolicy
+      : DEFAULT_CHILD_POLICY_ITEMS
+    ).slice(0, 3),
+    notes: (notes.length ? notes : DEFAULT_NOTE_ITEMS).slice(0, 2),
+  };
+}
+
+function BookingPolicyPreview({ tour }) {
+  const [expanded, setExpanded] = useState(false);
+  const policyData = buildTourPolicyData(tour);
+
+  const groups = [
+    {
+      icon: BadgeDollarSign,
+      title: "Chi phí chưa bao gồm",
+      items: policyData.excluded,
+      tone: "#fff7ed",
+      color: "#c2410c",
+    },
+    {
+      icon: Baby,
+      title: "Quy định vé trẻ em",
+      items: policyData.childPolicy,
+      tone: "#eff6ff",
+      color: "#1d4ed8",
+    },
+    {
+      icon: NotebookPen,
+      title: "Lưu ý trước chuyến đi",
+      items: policyData.notes,
+      tone: "#f5f3ff",
+      color: "#6d28d9",
+    },
+  ];
+
+  return (
+    <div className="booking-policy-preview">
+      <div className="booking-policy-preview__title">
+        <div>
+          <span>Thông tin cần biết</span>
+          <strong>Quy định trước khi đặt tour</strong>
+        </div>
+        <Info size={20} aria-hidden="true" />
+      </div>
+
+      <div className="booking-policy-preview__list">
+        {groups.map(({ icon: Icon, title, items, tone, color }) => (
+          <div className="booking-policy-preview__item" key={title}>
+            <span
+              className="booking-policy-preview__icon"
+              style={{ background: tone, color }}
+              aria-hidden="true"
+            >
+              <Icon size={18} />
+            </span>
+            <div>
+              <strong>{title}</strong>
+              <p>{items[0]}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {expanded ? (
+        <div className="booking-policy-preview__details">
+          {groups.map(({ icon: Icon, title, items, tone, color }) => (
+            <section
+              className="booking-policy-preview__detail-group"
+              key={`detail-${title}`}
+            >
+              <div className="booking-policy-preview__detail-title">
+                <span style={{ background: tone, color }}>
+                  <Icon size={17} />
+                </span>
+                <strong>{title}</strong>
+              </div>
+              <ul>
+                {items.map((item, index) => (
+                  <li key={`${title}-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        className="booking-policy-preview__link"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+      >
+        {expanded ? "Thu gọn quy định" : "Xem chi tiết quy định"}
+        <ChevronDown
+          size={17}
+          aria-hidden="true"
+          style={{
+            transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 0.2s ease",
+          }}
+        />
+      </button>
+    </div>
+  );
+}
+
 export default function TourDetailPage() {
   const router = useRouter();
   const { slug } = router.query;
@@ -226,8 +490,8 @@ export default function TourDetailPage() {
   const [reviews, setReviews] = useState([]);
   const [allTours, setAllTours] = useState([]);
   const [selectedImage, setSelectedImage] = useState("");
-  const [bookingResult, setBookingResult] = useState(null);
   const [paymentState, setPaymentState] = useState(null);
+  const [bookingModalOpen, setBookingModalOpen] = useState(false);
   const [preview, setPreview] = useState(null);
   const [submittingReview, setSubmittingReview] = useState(false);
   const [favorite, setFavorite] = useState(false);
@@ -242,6 +506,7 @@ export default function TourDetailPage() {
   const [savedTravelers, setSavedTravelers] = useState([]);
   const [selectedVoucherCode, setSelectedVoucherCode] = useState("");
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
+  const [accountUser, setAccountUser] = useState(() => getUser());
 
   useEffect(() => {
     if (!slug) return;
@@ -278,7 +543,8 @@ export default function TourDetailPage() {
         setSelectedDepartureId(firstBookableDeparture?.id || "");
         const initialPassengers = { adultCount: 2, childCount: 0 };
         setBookingPassengers(initialPassengers);
-        setBookingGuests(buildDefaultGuests(2, 0, getUser(), []));
+        // Chờ /auth/me để khởi tạo Người lớn 1 bằng hồ sơ mới nhất.
+        setBookingGuests(buildDefaultGuests(2, 0, null, []));
         setPreview(
           firstBookableDeparture
             ? renderDeparturePreview(
@@ -291,10 +557,13 @@ export default function TourDetailPage() {
         );
         setLoading(false);
 
-        const current = getUser();
-        if (current) {
-          const [favoriteItems, voucherItems, travelerItems] =
+        const storedCurrent = getUser();
+        if (storedCurrent) {
+          const [freshUser, favoriteItems, voucherItems, travelerItems] =
             await Promise.all([
+              apiFetch("/auth/me", { cache: "no-store" }).catch(
+                () => storedCurrent,
+              ),
               apiFetch(`/favorites/me?_=${Date.now()}`, {
                 cache: "no-store",
               }).catch(() => []),
@@ -302,6 +571,10 @@ export default function TourDetailPage() {
               apiFetch("/travel-companions").catch(() => []),
             ]);
           if (!active) return;
+
+          // Luôn ưu tiên hồ sơ mới nhất từ backend thay vì localStorage cũ.
+          setAccountUser(freshUser);
+          updateStoredUser(freshUser);
 
           setFavorite(isTourInFavorites(favoriteItems, rawTour.id));
           setMyVouchers(voucherItems || []);
@@ -311,21 +584,23 @@ export default function TourDetailPage() {
           );
           setSavedTravelers(normalizedTravelers);
 
-          // Người lớn 1 luôn là tài khoản đang đăng nhập.
-          // Không dùng hành khách đã lưu để ghi đè thông tin người đặt tour.
+          // Người lớn 1 luôn là chủ tài khoản và được tự điền từ hồ sơ.
           setBookingGuests(
             buildDefaultGuests(2, 0, {
-              fullName: current.fullName || "",
-              birthDate: current.birthDate || current.dateOfBirth || "",
-              gender: current.gender || "",
+              fullName: freshUser.fullName || "",
+              birthDate: normalizeDateInputValue(
+                freshUser.birthDate || freshUser.dateOfBirth || "",
+              ),
+              gender: freshUser.gender || "",
               identityNumber:
-                current.identityNumber ||
-                current.idNumber ||
-                current.identity_number ||
+                freshUser.identityNumber ||
+                freshUser.idNumber ||
+                freshUser.identity_number ||
                 "",
             }),
           );
         } else {
+          setAccountUser(null);
           setMyVouchers([]);
           setSavedTravelers([]);
           setSelectedVoucherCode("");
@@ -418,7 +693,7 @@ export default function TourDetailPage() {
     });
   }, [tour?.id]);
 
-  const currentUser = getUser();
+  const currentUser = accountUser || getUser();
 
   const selectedDeparture =
     (tour?.departures || []).find(
@@ -535,6 +810,50 @@ export default function TourDetailPage() {
     );
   };
 
+  const openBookingWizardWithFreshProfile = async () => {
+    if (!currentUser) {
+      showToast("Bạn cần đăng nhập trước khi đặt tour.", "error");
+      setTimeout(() => router.push("/login"), 300);
+      return;
+    }
+
+    try {
+      const freshUser = await apiFetch("/auth/me", {
+        cache: "no-store",
+      }).catch(() => currentUser);
+
+      setAccountUser(freshUser);
+      updateStoredUser(freshUser);
+
+      setBookingGuests((previous) =>
+        buildDefaultGuests(
+          bookingPassengers.adultCount,
+          bookingPassengers.childCount,
+          {
+            fullName: freshUser.fullName || "",
+            birthDate: normalizeDateInputValue(
+              freshUser.birthDate || freshUser.dateOfBirth || "",
+            ),
+            gender: freshUser.gender || "",
+            identityNumber:
+              freshUser.identityNumber ||
+              freshUser.idNumber ||
+              freshUser.identity_number ||
+              "",
+          },
+          previous,
+        ),
+      );
+
+      setBookingModalOpen(true);
+    } catch (error) {
+      showToast(
+        error?.message || "Không tải được hồ sơ để đặt tour.",
+        "error",
+      );
+    }
+  };
+
   const handleDepartureChange = (event) => {
     const depId = Number(event.target.value);
     setSelectedDepartureId(depId);
@@ -615,7 +934,7 @@ export default function TourDetailPage() {
               ...guest,
               savedTravelerId: travelerId,
               fullName: traveler.fullName,
-              dateOfBirth: traveler.dateOfBirth,
+              dateOfBirth: normalizeDateInputValue(traveler.dateOfBirth),
               gender: traveler.gender,
               idNumber: traveler.idNumber,
             }
@@ -776,7 +1095,13 @@ export default function TourDetailPage() {
       return;
     }
 
-    const missingGuest = payload.guests.find((guest) => !guest.fullName);
+    const missingGuest = payload.guests.find(
+      (guest) =>
+        !guest.fullName ||
+        !guest.idNumber ||
+        !guest.dateOfBirth ||
+        !guest.gender,
+    );
 
     if (missingGuest) {
       showToast("Vui lòng nhập họ tên cho tất cả hành khách.", "error");
@@ -801,7 +1126,6 @@ export default function TourDetailPage() {
       return;
     }
 
-    const action = event.nativeEvent?.submitter?.value || "hold";
     const paymentMethod = "bank_transfer";
 
     try {
@@ -813,43 +1137,23 @@ export default function TourDetailPage() {
        */
       await updateMissingBookingProfile(payload);
 
-      const booking = await apiFetch("/bookings", {
+      const checkout = await apiFetch("/payments/checkout", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          paymentMethod,
+        }),
       });
 
-      const bookingId = getBookingId(booking);
+      setPaymentState(getPaymentSession(checkout, checkout?.booking || null));
+      setBookingModalOpen(false);
 
-      if (!bookingId) {
-        console.log("Booking response không có id:", booking);
-        throw new Error("Không lấy được bookingId sau khi tạo đơn");
-      }
-
-      if (action === "pay_now") {
-        const checkout = await apiFetch("/payments/checkout", {
-          method: "POST",
-          body: JSON.stringify({
-            bookingId: String(bookingId),
-            paymentMethod,
-          }),
-        });
-
-        setBookingResult(null);
-        setPaymentState(getPaymentSession(checkout, booking));
-
-        showToast(
-          `Đã tạo mã QR thanh toán cho booking ${
-            booking.bookingCode || checkout.bookingCode || ""
-          }`,
-          "success",
-        );
-
-        return;
-      }
-
-      setBookingResult(booking);
-
-      showToast(`Giữ chỗ thành công với mã ${booking.bookingCode}`, "success");
+      showToast(
+        `Đã tạo mã QR thanh toán cho booking ${
+          checkout.bookingCode || checkout.booking?.bookingCode || ""
+        }`,
+        "success",
+      );
     } catch (error) {
       showToast(
         error?.message || "Không thể tạo booking. Vui lòng thử lại.",
@@ -867,17 +1171,29 @@ export default function TourDetailPage() {
   };
 
   const updateMissingBookingProfile = async (payload) => {
-    const storedUser = getUser();
+    const fallbackUser = accountUser || getUser();
 
-    if (!storedUser) {
+    if (!fallbackUser) {
       throw new Error("Bạn cần đăng nhập trước khi đặt tour.");
     }
+
+    // Lấy hồ sơ mới nhất để tránh ghi đè hoặc đánh giá thiếu field
+    // dựa trên localStorage cũ.
+    const storedUser = await apiFetch("/auth/me", {
+      cache: "no-store",
+    }).catch(() => fallbackUser);
 
     const accountOwnerGuest =
       bookingGuests.find((guest) => guest.isAccountOwner) || bookingGuests[0];
 
     const contactPhone = String(payload.contactPhone || "").trim();
     const identityNumber = String(accountOwnerGuest?.idNumber || "").trim();
+    const birthDate = normalizeDateInputValue(
+      accountOwnerGuest?.dateOfBirth || "",
+    );
+    const gender = String(accountOwnerGuest?.gender || "")
+      .trim()
+      .toLowerCase();
 
     const currentPhone = String(storedUser.phone || "").trim();
     const currentIdentityNumber = String(
@@ -886,21 +1202,36 @@ export default function TourDetailPage() {
         storedUser.identity_number ||
         "",
     ).trim();
+    const currentBirthDate = normalizeDateInputValue(
+      storedUser.birthDate || storedUser.dateOfBirth || "",
+    );
+    const currentGender = String(storedUser.gender || "")
+      .trim()
+      .toLowerCase();
 
     const updatePayload = {};
 
-    // Hồ sơ chưa có số điện thoại thì lấy số điện thoại đang nhập tại form đặt tour.
+    // Chỉ bổ sung field hồ sơ đang thiếu; tuyệt đối không tự ghi đè
+    // thông tin người dùng đã lưu trước đó.
     if (!currentPhone && contactPhone) {
       updatePayload.phone = contactPhone;
     }
 
-    // Hồ sơ chưa có CCCD thì lấy giấy tờ của Người lớn 1.
     if (!currentIdentityNumber && identityNumber) {
       updatePayload.identityNumber = identityNumber;
     }
 
-    // Hồ sơ đã đủ thông tin thì không cần gọi API cập nhật.
+    if (!currentBirthDate && birthDate) {
+      updatePayload.birthDate = birthDate;
+    }
+
+    if (!currentGender && ["male", "female", "other"].includes(gender)) {
+      updatePayload.gender = gender;
+    }
+
     if (!Object.keys(updatePayload).length) {
+      setAccountUser(storedUser);
+      updateStoredUser(storedUser);
       return storedUser;
     }
 
@@ -909,46 +1240,10 @@ export default function TourDetailPage() {
       body: JSON.stringify(updatePayload),
     });
 
+    setAccountUser(updatedUser);
     updateStoredUser(updatedUser);
 
     return updatedUser;
-  };
-
-  const handlePaymentInit = async (event) => {
-    event.preventDefault();
-
-    const bookingId = getBookingId(bookingResult);
-
-    if (!bookingId) {
-      console.log("bookingResult không có id:", bookingResult);
-      showToast(
-        "Không lấy được bookingId để thanh toán. Vui lòng giữ chỗ lại.",
-        "error",
-      );
-      return;
-    }
-
-    const paymentMethod = "bank_transfer";
-    try {
-      const checkout = await apiFetch("/payments/checkout", {
-        method: "POST",
-        body: JSON.stringify({
-          bookingId: String(bookingId),
-          paymentMethod,
-        }),
-      });
-
-      setPaymentState(getPaymentSession(checkout, bookingResult));
-      showToast(
-        "Đã tạo mã QR thanh toán. Vui lòng quét mã bằng điện thoại.",
-        "success",
-      );
-    } catch (error) {
-      showToast(error.message, "error");
-      if (error.message?.toLowerCase().includes("unauthorized")) {
-        setTimeout(() => router.push("/login"), 500);
-      }
-    }
   };
 
   const handlePaidFromQr = (result) => {
@@ -1203,6 +1498,129 @@ export default function TourDetailPage() {
             border: 4px solid #fff;
             border-radius: 50%;
             box-shadow: 0 0 0 2px #72b44b;
+          }
+
+          .booking-policy-preview {
+            margin-top: 18px;
+            padding: 20px;
+            border: 1px solid #e5ebf1;
+            border-radius: 20px;
+            background: #ffffff;
+            box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+          }
+          .booking-policy-preview__title {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #eef2f6;
+            color: #5a9d34;
+          }
+          .booking-policy-preview__title span {
+            display: block;
+            margin-bottom: 3px;
+            color: #8a97a8;
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+          }
+          .booking-policy-preview__title strong {
+            color: #172033;
+            font-size: 1rem;
+          }
+          .booking-policy-preview__list {
+            display: grid;
+            gap: 14px;
+            padding: 16px 0;
+          }
+          .booking-policy-preview__item {
+            display: flex;
+            align-items: flex-start;
+            gap: 11px;
+          }
+          .booking-policy-preview__icon {
+            display: grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            flex-shrink: 0;
+            border-radius: 11px;
+          }
+          .booking-policy-preview__item strong {
+            display: block;
+            margin-bottom: 3px;
+            color: #283548;
+            font-size: 0.88rem;
+          }
+          .booking-policy-preview__item p {
+            display: -webkit-box;
+            margin: 0;
+            overflow: hidden;
+            color: #6b778c;
+            font-size: 0.81rem;
+            line-height: 1.5;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+          }
+          .booking-policy-preview__details {
+            display: grid;
+            gap: 14px;
+            padding: 4px 0 16px;
+            border-top: 1px solid #eef2f6;
+          }
+          .booking-policy-preview__detail-group {
+            padding: 14px;
+            border: 1px solid #eef2f6;
+            border-radius: 14px;
+            background: #fbfdff;
+          }
+          .booking-policy-preview__detail-title {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            margin-bottom: 10px;
+            color: #283548;
+            font-size: 0.9rem;
+          }
+          .booking-policy-preview__detail-title span {
+            display: grid;
+            place-items: center;
+            width: 31px;
+            height: 31px;
+            flex-shrink: 0;
+            border-radius: 10px;
+          }
+          .booking-policy-preview__detail-group ul {
+            display: grid;
+            gap: 8px;
+            margin: 0;
+            padding-left: 18px;
+          }
+          .booking-policy-preview__detail-group li {
+            color: #64748b;
+            font-size: 0.82rem;
+            line-height: 1.55;
+          }
+          .booking-policy-preview__link {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            width: 100%;
+            padding: 13px 0 0;
+            border: 0;
+            border-top: 1px solid #eef2f6;
+            background: transparent;
+            color: #4f8f32;
+            font-family: inherit;
+            font-size: 0.88rem;
+            font-weight: 800;
+            cursor: pointer;
+          }
+          .booking-policy-preview__link:hover {
+            color: #386c20;
           }
         `,
         }}
@@ -1831,1080 +2249,125 @@ export default function TourDetailPage() {
 
           {/* CỘT PHẢI: Sticky Booking Widget */}
           <aside className="sticky-booking">
-            {bookingResult ? (
-              /* CARD THANH TOÁN (Hiện khi đã Giữ chỗ thành công) */
+            <div
+              style={{
+                background: "linear-gradient(180deg, #ffffff 0%, #f8fff4 100%)",
+                borderRadius: "24px",
+                padding: "26px",
+                boxShadow: "0 22px 50px rgba(15,23,42,0.10)",
+                border: "1px solid #e5f3df",
+                overflow: "hidden",
+              }}
+            >
               <div
                 style={{
-                  background: "#fff",
-                  borderRadius: "28px",
-                  padding: "32px",
-                  boxShadow: "0 20px 40px rgba(15,23,42,0.08)",
-                  border: "1px solid #f1f5f9",
+                  marginBottom: "18px",
+                  paddingBottom: "18px",
+                  borderBottom: "1px solid #dcebd6",
                 }}
               >
-                <div style={{ textAlign: "center", marginBottom: "24px" }}>
-                  <div
-                    style={{
-                      width: "64px",
-                      height: "64px",
-                      background: "#dcfce7",
-                      color: "#16a34a",
-                      borderRadius: "50%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 16px",
-                    }}
-                  >
-                    <svg
-                      width="32"
-                      height="32"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                      <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                    </svg>
-                  </div>
-                  <h2
-                    style={{
-                      fontSize: "1.6rem",
-                      color: "#0f172a",
-                      margin: "0 0 8px",
-                    }}
-                  >
-                    Giữ chỗ thành công
-                  </h2>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      padding: "6px 16px",
-                      background: "#f1f5f9",
-                      color: "#334155",
-                      borderRadius: "999px",
-                      fontWeight: 700,
-                      letterSpacing: "1px",
-                    }}
-                  >
-                    Mã: {bookingResult.bookingCode}
-                  </span>
-                </div>
-
-                <div
+                <span
                   style={{
-                    background: "#f8fafc",
-                    padding: "20px",
-                    borderRadius: "16px",
-                    marginBottom: "24px",
+                    color: "#64748b",
+                    fontSize: "0.9rem",
+                    display: "block",
+                    marginBottom: "4px",
                   }}
                 >
-                  <div
+                  Giá từ
+                </span>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: "8px",
+                  }}
+                >
+                  <strong
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      marginBottom: "12px",
+                      fontSize: "2rem",
+                      color: "#ff9f1a",
+                      lineHeight: 1,
                     }}
                   >
-                    <span style={{ color: "#64748b" }}>Tổng tiền</span>
-                    <strong style={{ color: "#0f172a", fontSize: "1.1rem" }}>
-                      {formatCurrency(bookingResult.finalAmount)}
-                    </strong>
-                  </div>
-                  <div
-                    style={{ display: "flex", justifyContent: "space-between" }}
-                  >
-                    <span style={{ color: "#64748b" }}>Trạng thái</span>
-                    <strong style={{ color: "#d97706" }}>Chờ thanh toán</strong>
-                  </div>
+                    {formatCurrency(tour.minPrice)}
+                  </strong>
+                  <span style={{ color: "#64748b" }}>/người</span>
                 </div>
+              </div>
 
-                <form
-                  onSubmit={handlePaymentInit}
-                  style={{ display: "grid", gap: "20px" }}
-                >
-                  <div>
-                    <input
-                      type="hidden"
-                      name="paymentMethod"
-                      value="bank_transfer"
-                    />
-
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          marginBottom: "12px",
-                          fontWeight: 600,
-                          color: "#1f2937",
-                        }}
-                      >
-                        Phương thức thanh toán
-                      </label>
-
-                      <div
-                        style={{
-                          padding: "16px",
-                          borderRadius: "14px",
-                          background: "#f8fafc",
-                          border: "1px solid #e2e8f0",
-                        }}
-                      >
-                        <strong style={{ display: "block", color: "#0f172a" }}>
-                          Chuyển khoản ngân hàng qua SePay / MBBank VietQR
-                        </strong>
-                        <p
-                          style={{
-                            margin: "6px 0 0",
-                            color: "#64748b",
-                            fontSize: "0.9rem",
-                            lineHeight: 1.5,
-                          }}
-                        >
-                          Travela hiện chỉ hỗ trợ thanh toán bằng mã QR ngân
-                          hàng. Sau khi bấm thanh toán, hệ thống sẽ tạo mã QR để
-                          bạn quét bằng app ngân hàng.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+              {(tour.departures || []).length ? (
+                <>
                   <button
-                    type="submit"
+                    type="button"
                     className="btn btn-primary"
+                    onClick={openBookingWizardWithFreshProfile}
                     style={{
                       padding: "16px",
                       borderRadius: "14px",
                       background: "linear-gradient(135deg, #72b44b, #5a9d34)",
                       color: "#fff",
                       border: "none",
-                      fontSize: "1.1rem",
-                      fontWeight: 700,
+                      fontSize: "1.05rem",
+                      fontWeight: 800,
                       width: "100%",
                       cursor: "pointer",
                       boxShadow: "0 8px 20px rgba(114, 180, 75, 0.3)",
                     }}
                   >
-                    Thanh toán ngay
+                    Đặt tour ngay
                   </button>
-                </form>
-              </div>
-            ) : (
-              /* CARD ĐẶT TOUR */
-              <div
-                style={{
-                  background: "#fff",
-                  borderRadius: "28px",
-                  padding: "32px",
-                  boxShadow: "0 20px 40px rgba(15,23,42,0.08)",
-                  border: "1px solid #f1f5f9",
-                }}
-              >
+                  <BookingWizardModal
+                    open={bookingModalOpen}
+                    onClose={() => setBookingModalOpen(false)}
+                    onSubmit={handleBooking}
+                    tour={tour}
+                    currentUser={currentUser}
+                    selectedDepartureId={selectedDepartureId}
+                    bookingPassengers={bookingPassengers}
+                    bookingGuests={bookingGuests}
+                    pickupOptions={pickupOptions}
+                    preview={preview}
+                    availableVouchers={availableVouchers}
+                    selectedVoucherCode={selectedVoucherCode}
+                    selectedVoucher={selectedVoucher}
+                    selectedVoucherDiscount={selectedVoucherDiscount}
+                    savedTravelers={savedTravelers}
+                    setSelectedVoucherCode={setSelectedVoucherCode}
+                    handleDepartureChange={handleDepartureChange}
+                    handlePassengerChange={handlePassengerChange}
+                    handleGuestChange={handleGuestChange}
+                    handleSavedTravelerSelect={handleSavedTravelerSelect}
+                    getAvailableSavedTravelers={getAvailableSavedTravelers}
+                    getDepartureRemainingSlots={getDepartureRemainingSlots}
+                    formatPickupTime={formatPickupTime}
+                    formatVoucherDiscount={formatVoucherDiscount}
+                    estimateVoucherDiscount={estimateVoucherDiscount}
+                  />
+                </>
+              ) : (
                 <div
                   style={{
-                    marginBottom: "24px",
-                    paddingBottom: "24px",
-                    borderBottom: "1px solid #e2e8f0",
+                    textAlign: "center",
+                    padding: "32px 20px",
+                    background: "#f8fafc",
+                    borderRadius: "16px",
                   }}
                 >
-                  <span
+                  <p
                     style={{
+                      margin: 0,
                       color: "#64748b",
-                      fontSize: "0.9rem",
-                      display: "block",
-                      marginBottom: "4px",
+                      fontSize: "1.05rem",
                     }}
                   >
-                    Giá từ
-                  </span>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "baseline",
-                      gap: "8px",
-                    }}
-                  >
-                    <strong
-                      style={{
-                        fontSize: "2rem",
-                        color: "#ff9f1a",
-                        lineHeight: 1,
-                      }}
-                    >
-                      {formatCurrency(tour.minPrice)}
-                    </strong>
-                    <span style={{ color: "#64748b" }}>/người</span>
-                  </div>
+                    Tour này hiện chưa có lịch khởi hành mở bán.
+                  </p>
                 </div>
+              )}
+            </div>
 
-                {(tour.departures || []).length ? (
-                  <form
-                    onSubmit={handleBooking}
-                    style={{ display: "grid", gap: "20px" }}
-                  >
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          marginBottom: "8px",
-                          fontWeight: 600,
-                          color: "#334155",
-                          fontSize: "0.95rem",
-                        }}
-                      >
-                        Lịch khởi hành
-                      </label>
-                      <select
-                        name="departureId"
-                        value={
-                          selectedDepartureId || tour.departures?.[0]?.id || ""
-                        }
-                        className="input-modern"
-                        onChange={handleDepartureChange}
-                      >
-                        {(tour.departures || []).map((item) => {
-                          const remaining = getDepartureRemainingSlots(item);
-                          const isSoldOut = remaining <= 0;
-
-                          return (
-                            <option
-                              key={item.id}
-                              value={item.id}
-                              disabled={isSoldOut}
-                            >
-                              {formatDate(item.departureDate)} ·{" "}
-                              {formatCurrency(item.adultPrice)} ·{" "}
-                              {isSoldOut ? "Hết chỗ" : `Còn ${remaining} chỗ`}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: "16px",
-                      }}
-                    >
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            marginBottom: "8px",
-                            fontWeight: 600,
-                            color: "#334155",
-                            fontSize: "0.95rem",
-                          }}
-                        >
-                          Người lớn
-                        </label>
-                        <input
-                          name="adultCount"
-                          type="number"
-                          min="1"
-                          value={bookingPassengers.adultCount}
-                          className="input-modern"
-                          onChange={handlePassengerChange("adultCount")}
-                        />
-                      </div>
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            marginBottom: "8px",
-                            fontWeight: 600,
-                            color: "#334155",
-                            fontSize: "0.95rem",
-                          }}
-                        >
-                          Trẻ em
-                        </label>
-                        <input
-                          name="childCount"
-                          type="number"
-                          min="0"
-                          value={bookingPassengers.childCount}
-                          className="input-modern"
-                          onChange={handlePassengerChange("childCount")}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          marginBottom: "8px",
-                          fontWeight: 600,
-                          color: "#334155",
-                          fontSize: "0.95rem",
-                        }}
-                      >
-                        Điểm đón
-                      </label>
-                      <select
-                        name="pickupPointId"
-                        className="input-modern"
-                        defaultValue=""
-                        required
-                      >
-                        <option value="">Chọn điểm đón phù hợp</option>
-                        {(pickupOptions || []).map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.province} · {item.name} ·{" "}
-                            {formatPickupTime(item.pickupTime)}
-                          </option>
-                        ))}
-                      </select>
-                      <p
-                        style={{
-                          margin: "6px 0 0",
-                          fontSize: "0.82rem",
-                          color: "#64748b",
-                        }}
-                      >
-                        Thông tin điểm đón sẽ được lưu vào booking và hiển thị
-                        trong email xác nhận.
-                      </p>
-                    </div>
-
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          marginBottom: "8px",
-                          fontWeight: 600,
-                          color: "#334155",
-                          fontSize: "0.95rem",
-                        }}
-                      >
-                        Họ tên liên hệ
-                      </label>
-                      <input
-                        name="contactName"
-                        defaultValue={currentUser?.fullName || ""}
-                        required
-                        className="input-modern"
-                        placeholder="VD: Nguyễn Văn A"
-                      />
-                    </div>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: "16px",
-                      }}
-                    >
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            marginBottom: "8px",
-                            fontWeight: 600,
-                            color: "#334155",
-                            fontSize: "0.95rem",
-                          }}
-                        >
-                          Email
-                        </label>
-                        <input
-                          name="contactEmail"
-                          type="email"
-                          defaultValue={currentUser?.email || ""}
-                          required
-                          className="input-modern"
-                          placeholder="Email"
-                        />
-                      </div>
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            marginBottom: "8px",
-                            fontWeight: 600,
-                            color: "#334155",
-                            fontSize: "0.95rem",
-                          }}
-                        >
-                          Điện thoại
-                        </label>
-                        <input
-                          name="contactPhone"
-                          defaultValue={currentUser?.phone || ""}
-                          required
-                          className="input-modern"
-                          placeholder="SĐT"
-                        />
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        padding: "16px",
-                        borderRadius: "18px",
-                        border: "1px solid #e2e8f0",
-                        background: "#f8fafc",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          alignItems: "center",
-                          marginBottom: "14px",
-                        }}
-                      >
-                        <div>
-                          <strong style={{ color: "#0f172a" }}>
-                            Thông tin hành khách
-                          </strong>
-                        </div>
-                        <span
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: "999px",
-                            background: "#ecfdf5",
-                            color: "#047857",
-                            fontWeight: 800,
-                            fontSize: "0.85rem",
-                          }}
-                        >
-                          {bookingGuests.length} khách
-                        </span>
-                      </div>
-
-                      <div style={{ display: "grid", gap: "14px" }}>
-                        {bookingGuests.map((guest, index) => (
-                          <div
-                            key={`${guest.guestType}-${guest.index}`}
-                            style={{
-                              padding: "14px",
-                              borderRadius: "16px",
-                              background: "#fff",
-                              border: "1px solid #e2e8f0",
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                marginBottom: "12px",
-                              }}
-                            >
-                              <strong style={{ color: "#334155" }}>
-                                {guest.guestType === "adult"
-                                  ? "Người lớn"
-                                  : "Trẻ em"}{" "}
-                                {guest.index + 1}
-                              </strong>
-                              <span
-                                style={{
-                                  color:
-                                    guest.guestType === "adult"
-                                      ? "#2563eb"
-                                      : "#d97706",
-                                  background:
-                                    guest.guestType === "adult"
-                                      ? "#eff6ff"
-                                      : "#fffbeb",
-                                  padding: "4px 8px",
-                                  borderRadius: "999px",
-                                  fontSize: "0.78rem",
-                                  fontWeight: 800,
-                                }}
-                              >
-                                {guest.guestType === "adult"
-                                  ? "adult"
-                                  : "child"}
-                              </span>
-                            </div>
-
-                            <div style={{ display: "grid", gap: "10px" }}>
-                              {!guest.isAccountOwner &&
-                                getAvailableSavedTravelers(guest, index)
-                                  .length > 0 && (
-                                  <select
-                                    className="input-modern"
-                                    value={guest.savedTravelerId || ""}
-                                    onChange={handleSavedTravelerSelect(index)}
-                                    aria-label={`Chọn hành khách đã lưu cho dòng ${index + 1}`}
-                                  >
-                                    <option value="">
-                                      Tự nhập thông tin hành khách
-                                    </option>
-                                    {getAvailableSavedTravelers(
-                                      guest,
-                                      index,
-                                    ).map((item) => (
-                                      <option key={item.id} value={item.id}>
-                                        {item.fullName}
-                                        {item.isDefault ? " (Mặc định)" : ""}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )}
-                              <input
-                                className="input-modern"
-                                value={guest.fullName}
-                                onChange={handleGuestChange(index, "fullName")}
-                                required
-                                placeholder="Họ tên hành khách"
-                              />
-                              <div
-                                style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "1fr 1fr",
-                                  gap: "10px",
-                                }}
-                              >
-                                <input
-                                  className="input-modern"
-                                  type="date"
-                                  value={guest.dateOfBirth}
-                                  onChange={handleGuestChange(
-                                    index,
-                                    "dateOfBirth",
-                                  )}
-                                />
-                                <select
-                                  className="input-modern"
-                                  value={guest.gender}
-                                  onChange={handleGuestChange(index, "gender")}
-                                >
-                                  <option value="">Giới tính</option>
-                                  <option value="male">Nam</option>
-                                  <option value="female">Nữ</option>
-                                  <option value="other">Khác</option>
-                                </select>
-                              </div>
-                              <input
-                                className="input-modern"
-                                value={guest.idNumber}
-                                onChange={handleGuestChange(index, "idNumber")}
-                                placeholder="CCCD/Hộ chiếu/Giấy tờ (nếu có)"
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          marginBottom: "8px",
-                          fontWeight: 600,
-                          color: "#334155",
-                          fontSize: "0.95rem",
-                        }}
-                      >
-                        Voucher của bạn
-                      </label>
-
-                      {currentUser ? (
-                        availableVouchers.length ? (
-                          <div
-                            style={{
-                              display: "grid",
-                              gap: "10px",
-                              maxHeight: "260px",
-                              overflowY: "auto",
-                              paddingRight: "4px",
-                            }}
-                          >
-                            <label
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "20px 1fr",
-                                gap: "12px",
-                                padding: "14px",
-                                borderRadius: "14px",
-                                border: !selectedVoucherCode
-                                  ? "2px solid #72b44b"
-                                  : "1px solid #e2e8f0",
-                                background: !selectedVoucherCode
-                                  ? "rgba(114,180,75,0.08)"
-                                  : "#fff",
-                                cursor: "pointer",
-                              }}
-                            >
-                              <input
-                                type="radio"
-                                name="voucherCode"
-                                value=""
-                                checked={!selectedVoucherCode}
-                                onChange={() => setSelectedVoucherCode("")}
-                                style={{
-                                  marginTop: "4px",
-                                  accentColor: "#72b44b",
-                                }}
-                              />
-                              <div>
-                                <strong style={{ color: "#0f172a" }}>
-                                  Không dùng voucher
-                                </strong>
-                                <p
-                                  style={{
-                                    margin: "4px 0 0",
-                                    color: "#64748b",
-                                    fontSize: "0.85rem",
-                                  }}
-                                >
-                                  Thanh toán theo giá gốc của tour.
-                                </p>
-                              </div>
-                            </label>
-
-                            {availableVouchers.map((voucher) => {
-                              const minOrder = Number(
-                                voucher.minOrderAmount || 0,
-                              );
-                              const notEnough =
-                                Number(preview?.total || 0) < minOrder;
-                              const discount = estimateVoucherDiscount(
-                                voucher,
-                                preview?.total,
-                              );
-                              const checked =
-                                String(selectedVoucherCode) ===
-                                String(voucher.code);
-
-                              return (
-                                <label
-                                  key={`${voucher.userVoucherId || voucher.id}-${voucher.code}`}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "20px 1fr",
-                                    gap: "12px",
-                                    padding: "14px",
-                                    borderRadius: "14px",
-                                    border: checked
-                                      ? "2px solid #72b44b"
-                                      : "1px solid #e2e8f0",
-                                    background: checked
-                                      ? "rgba(114,180,75,0.08)"
-                                      : notEnough
-                                        ? "#f8fafc"
-                                        : "#fff",
-                                    opacity: notEnough ? 0.65 : 1,
-                                    cursor: notEnough
-                                      ? "not-allowed"
-                                      : "pointer",
-                                  }}
-                                >
-                                  <input
-                                    type="radio"
-                                    name="voucherCode"
-                                    value={voucher.code}
-                                    checked={checked}
-                                    disabled={notEnough}
-                                    onChange={() =>
-                                      setSelectedVoucherCode(voucher.code)
-                                    }
-                                    style={{
-                                      marginTop: "4px",
-                                      accentColor: "#72b44b",
-                                    }}
-                                  />
-                                  <div>
-                                    <div
-                                      style={{
-                                        display: "flex",
-                                        justifyContent: "space-between",
-                                        gap: "12px",
-                                        alignItems: "flex-start",
-                                      }}
-                                    >
-                                      <div>
-                                        <strong
-                                          style={{
-                                            display: "block",
-                                            color: "#0f172a",
-                                            marginBottom: "4px",
-                                          }}
-                                        >
-                                          {voucher.code}
-                                        </strong>
-                                        <span
-                                          style={{
-                                            display: "block",
-                                            color: "#475569",
-                                            fontSize: "0.88rem",
-                                          }}
-                                        >
-                                          {voucher.name || "Voucher ưu đãi"}
-                                        </span>
-                                      </div>
-                                      <span
-                                        style={{
-                                          flexShrink: 0,
-                                          padding: "4px 8px",
-                                          borderRadius: "999px",
-                                          background: "#fff7ed",
-                                          color: "#ea580c",
-                                          fontWeight: 700,
-                                          fontSize: "0.8rem",
-                                        }}
-                                      >
-                                        {formatVoucherDiscount(voucher)}
-                                      </span>
-                                    </div>
-
-                                    <div
-                                      style={{
-                                        display: "flex",
-                                        gap: "8px",
-                                        flexWrap: "wrap",
-                                        marginTop: "8px",
-                                        color: "#64748b",
-                                        fontSize: "0.82rem",
-                                      }}
-                                    >
-                                      <span>
-                                        Đơn tối thiểu:{" "}
-                                        {formatCurrency(minOrder)}
-                                      </span>
-                                      {voucher.endDate ? (
-                                        <span>
-                                          HSD: {formatDate(voucher.endDate)}
-                                        </span>
-                                      ) : null}
-                                      {notEnough ? (
-                                        <span style={{ color: "#dc2626" }}>
-                                          Chưa đủ điều kiện
-                                        </span>
-                                      ) : discount > 0 ? (
-                                        <span style={{ color: "#16a34a" }}>
-                                          Dự kiến giảm{" "}
-                                          {formatCurrency(discount)}
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div
-                            style={{
-                              padding: "14px",
-                              borderRadius: "14px",
-                              background: "#f8fafc",
-                              border: "1px dashed #cbd5e1",
-                              color: "#64748b",
-                              fontSize: "0.9rem",
-                            }}
-                          >
-                            Tài khoản của bạn hiện chưa có voucher khả dụng.
-                          </div>
-                        )
-                      ) : (
-                        <div
-                          style={{
-                            padding: "14px",
-                            borderRadius: "14px",
-                            background: "#f8fafc",
-                            border: "1px dashed #cbd5e1",
-                            color: "#64748b",
-                            fontSize: "0.9rem",
-                          }}
-                        >
-                          Vui lòng đăng nhập để xem voucher của bạn.
-                        </div>
-                      )}
-
-                      {selectedVoucher ? (
-                        <div
-                          style={{
-                            marginTop: "10px",
-                            padding: "12px",
-                            borderRadius: "12px",
-                            background: "#ecfdf5",
-                            color: "#166534",
-                            fontSize: "0.9rem",
-                            fontWeight: 600,
-                          }}
-                        >
-                          Đã chọn {selectedVoucher.code}. Dự kiến giảm{" "}
-                          {formatCurrency(selectedVoucherDiscount)}.
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          marginBottom: "8px",
-                          fontWeight: 600,
-                          color: "#334155",
-                          fontSize: "0.95rem",
-                        }}
-                      >
-                        Ghi chú (Tùy chọn)
-                      </label>
-                      <textarea
-                        name="note"
-                        rows={2}
-                        className="input-modern"
-                        placeholder="Yêu cầu đặc biệt..."
-                      />
-                    </div>
-
-                    <div>
-                      <input
-                        type="hidden"
-                        name="paymentMethod"
-                        value="bank_transfer"
-                      />
-
-                      <label
-                        style={{
-                          display: "block",
-                          marginBottom: "12px",
-                          fontWeight: 600,
-                          color: "#334155",
-                          fontSize: "0.95rem",
-                        }}
-                      >
-                        Phương thức thanh toán
-                      </label>
-
-                      <div
-                        style={{
-                          padding: "14px",
-                          borderRadius: "14px",
-                          background: "#f8fafc",
-                          border: "1px solid #e2e8f0",
-                        }}
-                      >
-                        <strong style={{ display: "block", color: "#0f172a" }}>
-                          Chuyển khoản ngân hàng qua mã QR
-                        </strong>
-                        <p
-                          style={{
-                            margin: "6px 0 0",
-                            color: "#64748b",
-                            fontSize: "0.88rem",
-                            lineHeight: 1.5,
-                          }}
-                        >
-                          Sau khi tạo booking, Travela sẽ hiển thị mã QR
-                          SePay/VietQR. Bạn dùng app ngân hàng để quét mã và
-                          chuyển khoản đúng nội dung.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Khối Tạm tính */}
-                    {preview?.departure && (
-                      <div
-                        style={{
-                          background: "#f8fafc",
-                          padding: "16px",
-                          borderRadius: "16px",
-                          marginTop: "8px",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            marginBottom: "8px",
-                            fontSize: "0.95rem",
-                          }}
-                        >
-                          <span style={{ color: "#64748b" }}>Số người lớn</span>
-                          <strong style={{ color: "#1f2937" }}>
-                            {bookingPassengers.adultCount} người
-                          </strong>
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            marginBottom: "8px",
-                            fontSize: "0.95rem",
-                          }}
-                        >
-                          <span style={{ color: "#64748b" }}>Số trẻ em</span>
-                          <strong style={{ color: "#1f2937" }}>
-                            {bookingPassengers.childCount} trẻ
-                          </strong>
-                        </div>
-
-                        {preview.rows.map(([label, value]) => (
-                          <div
-                            key={label}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              marginBottom: "8px",
-                              fontSize: "0.95rem",
-                            }}
-                          >
-                            <span style={{ color: "#64748b" }}>{label}</span>
-                            <strong style={{ color: "#1f2937" }}>
-                              {label.includes("Ngày")
-                                ? formatDate(value)
-                                : value}
-                            </strong>
-                          </div>
-                        ))}
-
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            marginTop: "16px",
-                            paddingTop: "16px",
-                            borderTop: "1px dashed #cbd5e1",
-                          }}
-                        >
-                          <span style={{ color: "#0f172a", fontWeight: 600 }}>
-                            Tạm tính
-                          </span>
-                          <strong
-                            style={{ color: "#0f172a", fontSize: "1rem" }}
-                          >
-                            {formatCurrency(preview.total)}
-                          </strong>
-                        </div>
-
-                        {selectedVoucher && selectedVoucherDiscount > 0 ? (
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              marginTop: "8px",
-                            }}
-                          >
-                            <span style={{ color: "#16a34a", fontWeight: 600 }}>
-                              Voucher {selectedVoucher.code}
-                            </span>
-                            <strong
-                              style={{ color: "#16a34a", fontSize: "1rem" }}
-                            >
-                              -{formatCurrency(selectedVoucherDiscount)}
-                            </strong>
-                          </div>
-                        ) : null}
-
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            marginTop: "12px",
-                            paddingTop: "12px",
-                            borderTop: "1px solid #e2e8f0",
-                          }}
-                        >
-                          <span style={{ color: "#0f172a", fontWeight: 800 }}>
-                            Thành tiền
-                          </span>
-                          <strong
-                            style={{ color: "#ff9f1a", fontSize: "1.25rem" }}
-                          >
-                            {formatCurrency(
-                              Math.max(
-                                Number(preview.total || 0) -
-                                  Number(selectedVoucherDiscount || 0),
-                                0,
-                              ),
-                            )}
-                          </strong>
-                        </div>
-                      </div>
-                    )}
-
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: "12px",
-                        marginTop: "8px",
-                      }}
-                    >
-                      <button
-                        type="submit"
-                        value="hold"
-                        className="btn btn-primary"
-                        style={{
-                          padding: "16px",
-                          borderRadius: "14px",
-                          background: "#f8fafc",
-                          color: "#0f172a",
-                          border: "1px solid #cbd5e1",
-                          fontSize: "1rem",
-                          fontWeight: 700,
-                          width: "100%",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Giữ chỗ trước
-                      </button>
-                      <button
-                        type="submit"
-                        value="pay_now"
-                        className="btn btn-primary"
-                        style={{
-                          padding: "16px",
-                          borderRadius: "14px",
-                          background:
-                            "linear-gradient(135deg, #72b44b, #5a9d34)",
-                          color: "#fff",
-                          border: "none",
-                          fontSize: "1rem",
-                          fontWeight: 700,
-                          width: "100%",
-                          cursor: "pointer",
-                          boxShadow: "0 8px 20px rgba(114, 180, 75, 0.3)",
-                        }}
-                      >
-                        Thanh toán ngay
-                      </button>
-                    </div>
-                    <p
-                      style={{
-                        textAlign: "center",
-                        margin: 0,
-                        fontSize: "0.85rem",
-                        color: "#94a3b8",
-                      }}
-                    >
-                      Bạn có thể thanh toán ngay mà không cần bấm giữ chỗ trước.
-                      Nếu chọn giữ chỗ, hệ thống chỉ khóa tạm chỗ ngồi trong
-                      thời gian ngắn để chờ thanh toán.
-                    </p>
-                  </form>
-                ) : (
-                  <div
-                    style={{
-                      textAlign: "center",
-                      padding: "32px 20px",
-                      background: "#f8fafc",
-                      borderRadius: "16px",
-                    }}
-                  >
-                    <p
-                      style={{
-                        margin: 0,
-                        color: "#64748b",
-                        fontSize: "1.05rem",
-                      }}
-                    >
-                      Tour này hiện chưa có lịch khởi hành mở bán.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+            <BookingPolicyPreview tour={tour} />
           </aside>
         </div>
       </section>

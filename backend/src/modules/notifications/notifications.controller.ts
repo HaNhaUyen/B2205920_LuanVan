@@ -23,7 +23,7 @@ export class NotificationsController {
 
   @Get("notifications/me")
   myNotifications(
-    @CurrentUser() user: { userId: bigint; role: "admin" | "user" },
+    @CurrentUser() user: { userId: bigint; role: "admin" | "user" | "guide" },
     @Query("limit") limit?: string,
   ) {
     return this.notificationsService.listForUser(
@@ -35,7 +35,7 @@ export class NotificationsController {
 
   @Get("notifications/me/unread-count")
   myUnreadCount(
-    @CurrentUser() user: { userId: bigint; role: "admin" | "user" },
+    @CurrentUser() user: { userId: bigint; role: "admin" | "user" | "guide" },
   ) {
     return this.notificationsService.unreadCount(user.userId, user.role);
   }
@@ -43,7 +43,7 @@ export class NotificationsController {
   @Post("notifications/:id/read")
   markAsRead(
     @Param("id") id: string,
-    @CurrentUser() user: { userId: bigint; role: "admin" | "user" },
+    @CurrentUser() user: { userId: bigint; role: "admin" | "user" | "guide" },
   ) {
     return this.notificationsService.markAsRead(
       Number(id),

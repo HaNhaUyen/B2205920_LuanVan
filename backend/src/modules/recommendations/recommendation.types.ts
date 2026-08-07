@@ -43,6 +43,6 @@ export interface HybridScoredTour {
 export interface RecommendationResult {
   strategy: string;
   data: TourCandidate[];
-  debug?: RecommendationDebugScore[];
+  debug?: RecommendationDebugScore[] | Record<string, any>;
   weights?: Record<string, number>;
 }

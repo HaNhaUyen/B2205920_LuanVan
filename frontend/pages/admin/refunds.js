@@ -277,7 +277,7 @@ export default function AdminRefundsPage() {
           
           .console-table {
             width: 100%;
-            min-width: 1200px;
+            min-width: 1480px;
             border-collapse: collapse;
           }
           .console-table th {
@@ -303,6 +303,33 @@ export default function AdminRefundsPage() {
             line-height: 1.5;
             font-size: 0.9rem;
             color: #475569;
+          }
+
+          .policy-header {
+            min-width: 210px;
+            width: 210px;
+          }
+          .policy-cell {
+            min-width: 210px;
+            width: 210px;
+            vertical-align: top !important;
+            white-space: normal;
+          }
+          .policy-rate {
+            display: block;
+            margin-bottom: 6px;
+            color: #2563eb;
+            font-size: 1.18rem;
+            line-height: 1.2;
+            font-weight: 800;
+          }
+          .policy-label {
+            color: #64748b;
+            font-size: 0.92rem;
+            line-height: 1.55;
+            white-space: normal;
+            word-break: normal;
+            overflow-wrap: break-word;
           }
           .admin-note-header {
             min-width: 250px;
@@ -501,7 +528,7 @@ export default function AdminRefundsPage() {
                 <th>Lý do hủy</th>
                 <th>Tài khoản nhận hoàn</th>
                 <th>Số tiền hoàn</th>
-                <th>Chính sách</th>
+                <th className="policy-header">Chính sách</th>
                 <th>Trạng thái</th>
                 <th className="admin-note-header">Phản hồi Admin</th>
                 <th style={{ textAlign: "right" }}>Thao tác</th>
@@ -511,7 +538,7 @@ export default function AdminRefundsPage() {
               {data.items.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="8"
+                    colSpan="9"
                     style={{
                       textAlign: "center",
                       padding: "60px 20px",
@@ -621,11 +648,11 @@ export default function AdminRefundsPage() {
                         )}
                       </strong>
                     </td>
-                    <td>
-                      <strong style={{ color: "#2563eb" }}>
+                    <td className="policy-cell">
+                      <strong className="policy-rate">
                         {Number(r.refundRate || 0)}%
                       </strong>
-                      <div className="stat-text">
+                      <div className="policy-label">
                         {r.policyLabel || "Theo chính sách hệ thống"}
                       </div>
                     </td>

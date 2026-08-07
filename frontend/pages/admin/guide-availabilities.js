@@ -188,10 +188,6 @@ export default function AdminGuideAvailabilitiesPage() {
           <div>
             <span>ĐIỀU PHỐI HƯỚNG DẪN VIÊN</span>
             <h2>Yêu cầu không thể nhận tour</h2>
-            <p>
-              Với tour đã phân công, admin chọn HDV thay thế trực tiếp rồi
-              duyệt.
-            </p>
           </div>
           <div className="ga-hero-actions">
             <Link href="/admin/guides">
@@ -270,9 +266,10 @@ export default function AdminGuideAvailabilitiesPage() {
                       </div>
 
                       <div className="ga-time">
-                        <strong>{formatDateTime(item.startAt)}</strong>
+                        <strong>{formatDate(item.startAt)}</strong>
                         <span>→</span>
-                        <strong>{formatDateTime(item.endAt)}</strong>
+                        <strong>{formatDate(item.endAt)}</strong>
+                        <span>· Cả ngày</span>
                       </div>
 
                       <div className="ga-meta">
@@ -371,8 +368,8 @@ export default function AdminGuideAvailabilitiesPage() {
                 label="Loại yêu cầu"
                 value={TYPE_LABELS[selected.availabilityType]}
               />
-              <Info label="Bắt đầu" value={formatDateTime(selected.startAt)} />
-              <Info label="Kết thúc" value={formatDateTime(selected.endAt)} />
+              <Info label="Ngày bắt đầu" value={formatDate(selected.startAt)} />
+              <Info label="Ngày kết thúc" value={formatDate(selected.endAt)} />
               <Info
                 label="Lý do"
                 value={selected.reason || "Không nhập lý do"}

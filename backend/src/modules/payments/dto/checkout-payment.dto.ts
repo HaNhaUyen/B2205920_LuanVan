@@ -1,11 +1,36 @@
 import {
+  ArrayMinSize,
+  IsArray,
   IsEmail,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
+  ValidateNested,
 } from "class-validator";
+import { Type } from "class-transformer";
+
+export class CheckoutPaymentGuestDto {
+  @IsString()
+  @MaxLength(150)
+  fullName!: string;
+
+  @IsString()
+  dateOfBirth!: string;
+
+  @IsString()
+  @MaxLength(20)
+  gender!: string;
+
+  @IsIn(["adult", "child"])
+  guestType!: "adult" | "child";
+
+  @IsString()
+  @MaxLength(50)
+  idNumber!: string;
+}
 
 export class CheckoutPaymentDto {
   @IsInt()
@@ -39,6 +64,12 @@ export class CheckoutPaymentDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CheckoutPaymentGuestDto)
+  guests!: CheckoutPaymentGuestDto[];
 
   @IsOptional()
   @IsIn(["bank_transfer"])

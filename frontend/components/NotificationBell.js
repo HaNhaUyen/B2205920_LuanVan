@@ -4,10 +4,56 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastContext";
 import { apiFetch } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
 
 const POLLING_INTERVAL_MS = 5000;
 const RECENT_NOTIFICATION_LIMIT = 5;
+
+function isLegacyGuideNotification(item) {
+  const title = String(item?.title || "").trim();
+  const type = String(item?.metadata?.type || "").trim();
+
+  /*
+   * Các thông báo HDV đã tạo trước bản sửa backend được INSERT bằng SQL NOW().
+   * MySQL trả chúng như chuỗi UTC dù giá trị thực tế đã là giờ Việt Nam.
+   * Chỉ giữ tương thích cho dữ liệu cũ chưa có metadata type.
+   */
+  return (
+    !type &&
+    [
+      "Đã có hướng dẫn viên phụ trách",
+      "Hướng dẫn viên đã được cập nhật",
+      "Hồ sơ năng lực đã được duyệt",
+      "Hồ sơ năng lực bị từ chối",
+    ].includes(title)
+  );
+}
+
+function formatNotificationDateTime(value, item = null) {
+  if (!value) return "—";
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+
+  /*
+   * Chuẩn mới: timestamp được tạo bởi Prisma và được xem là thời điểm UTC thật.
+   * Giao diện luôn hiển thị theo múi giờ Việt Nam (UTC+7).
+   * Ví dụ 11:40Z -> 18:40 tại Việt Nam.
+   *
+   * Riêng dữ liệu HDV cũ tạo bằng SQL NOW() bị gắn nhãn UTC sai thì giữ nguyên
+   * phần giờ UTC để 18:31 cũ vẫn hiển thị 18:31, không thành 01:31 hôm sau.
+   */
+  const timeZone = isLegacyGuideNotification(item) ? "UTC" : "Asia/Ho_Chi_Minh";
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour12: false,
+    timeZone,
+  }).format(parsed);
+}
 
 function getNotificationListUrl(user) {
   return user?.role === "guide" ? "/guide?tab=notifications" : "/notifications";
@@ -451,7 +497,7 @@ export default function NotificationBell({ user }) {
                       fontSize: 12,
                     }}
                   >
-                    {formatDateTime(item.createdAt)}
+                    {formatNotificationDateTime(item.createdAt, item)}
                   </span>
                 </button>
               ))
@@ -466,19 +512,6 @@ export default function NotificationBell({ user }) {
                 Chưa có thông báo nào.
               </div>
             )}
-          </div>
-
-          <div
-            style={{
-              padding: "10px 14px",
-              borderTop: "1px solid #f1f5f9",
-              background: "#f8fafc",
-              color: "#64748b",
-              fontSize: 12,
-              textAlign: "center",
-            }}
-          >
-            Danh sách tự cập nhật mỗi 5 giây
           </div>
         </div>
       )}

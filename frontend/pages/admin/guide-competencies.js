@@ -34,6 +34,51 @@ const STATUS_LABELS = {
   rejected: "Đã từ chối",
 };
 
+function resolveEvidenceUrl(value) {
+  if (!value) return "";
+
+  const raw = String(value).trim();
+  if (!raw) return "";
+
+  // Link online đã đầy đủ thì giữ nguyên.
+  if (/^(https?:|blob:|data:)/i.test(raw)) return raw;
+  if (raw.startsWith("//")) return `https:${raw}`;
+
+  // Trường hợp HDV nhập dạng www.domain.com/...
+  if (/^www\./i.test(raw)) return `https://${raw}`;
+
+  /*
+   * NEXT_PUBLIC_API_URL của dự án thường là:
+   *   http://localhost:3001/api
+   * nhưng file upload được NestJS public tại:
+   *   http://localhost:3001/uploads/...
+   *
+   * Nếu dùng href="/uploads/..." trực tiếp, trình duyệt sẽ mở ở
+   * localhost:3000/uploads/... (frontend) nên bị 404.
+   */
+  const apiUrl = String(
+    process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api",
+  )
+    .trim()
+    .replace(/\/$/, "");
+
+  const assetBase = apiUrl.replace(/\/api$/i, "");
+  const cleanPath = raw.startsWith("/") ? raw : `/${raw}`;
+
+  return `${assetBase}${cleanPath}`;
+}
+
+function getEvidenceUrl(item) {
+  return resolveEvidenceUrl(
+    item?.documentUrl ||
+      item?.fileUrl ||
+      item?.evidenceUrl ||
+      item?.document_url ||
+      item?.file_url ||
+      "",
+  );
+}
+
 function GuideManagementTabs() {
   const tabs = [
     { href: "/admin/guides", label: "Tổng quan HDV" },
@@ -184,10 +229,6 @@ export default function AdminGuideCompetenciesPage() {
           <div>
             <span>QUẢN LÝ CHUYÊN MÔN</span>
             <h2>Hồ sơ năng lực chờ duyệt</h2>
-            <p>
-              Chỉ hồ sơ đã xác minh mới hiển thị trong hồ sơ chính và được dùng
-              để hỗ trợ phân công tour.
-            </p>
           </div>
           <div className="header-actions">
             <Link href="/admin/guides">Quay lại danh sách HDV</Link>
@@ -311,11 +352,11 @@ export default function AdminGuideCompetenciesPage() {
                       >
                         Xem chi tiết
                       </button>
-                      {item.documentUrl && (
+                      {getEvidenceUrl(item) && (
                         <a
-                          href={item.documentUrl}
+                          href={getEvidenceUrl(item)}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                         >
                           <ExternalLink size={15} /> Minh chứng
                         </a>
@@ -409,12 +450,12 @@ export default function AdminGuideCompetenciesPage() {
                 <p>{selected.note}</p>
               </div>
             )}
-            {selected.documentUrl ? (
+            {getEvidenceUrl(selected) ? (
               <a
                 className="evidence-link"
-                href={selected.documentUrl}
+                href={getEvidenceUrl(selected)}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
               >
                 <FileCheck2 size={17} /> Mở minh chứng{" "}
                 <ExternalLink size={15} />

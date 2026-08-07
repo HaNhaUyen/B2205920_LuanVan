@@ -16,6 +16,7 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { OptionalJwtAuthGuard } from "../../common/guards/optional-jwt-auth.guard";
 import { CheckoutPaymentDto } from "./dto/checkout-payment.dto";
 import { SepayWebhookDto } from "./dto/sepay-webhook.dto";
+import { IdempotencyService } from "../../common/services/idempotency.service";
 
 type PaymentMethod = "momo" | "vnpay" | "card" | "bank_transfer" | "cash";
 
@@ -28,7 +29,10 @@ type CheckoutOrBookingBody = Partial<CheckoutPaymentDto> & {
 
 @Controller("payments")
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {}
+  constructor(
+    private readonly paymentsService: PaymentsService,
+    private readonly idempotency: IdempotencyService,
+  ) {}
 
   @UseGuards(OptionalJwtAuthGuard)
   @Post("checkout")
@@ -36,6 +40,7 @@ export class PaymentsController {
     @Body() dto: CheckoutOrBookingBody,
     @CurrentUser()
     user?: { userId: bigint; email: string; role: "admin" | "user" },
+    @Headers("idempotency-key") idempotencyKey?: string,
   ) {
     const bookingId = dto.bookingId ?? dto.booking_id;
     const paymentMethod =
@@ -49,13 +54,21 @@ export class PaymentsController {
       );
     }
 
-    return this.paymentsService.checkout(
-      {
-        ...dto,
-        paymentMethod,
-      } as CheckoutPaymentDto,
-      user,
-    );
+    const checkoutDto = {
+      ...dto,
+      paymentMethod,
+    } as CheckoutPaymentDto;
+
+    return this.idempotency.run({
+      userId: user?.userId,
+      key: idempotencyKey,
+      operation: "payments.checkout",
+      payload: checkoutDto,
+      resourceType: "payment",
+      resourceIdSelector: (response: any) =>
+        response?.payment?.id || response?.paymentId || response?.id,
+      handler: () => this.paymentsService.checkout(checkoutDto, user),
+    });
   }
 
   @UseGuards(JwtAuthGuard)

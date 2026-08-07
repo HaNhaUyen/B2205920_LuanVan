@@ -10,8 +10,12 @@ import { CreateBookingDto } from "./dto/create-booking.dto";
 import { AdminUpsertBookingDto } from "./dto/admin-upsert-booking.dto";
 import { UpdateBookingDto } from "./dto/update-booking.dto";
 import { UpdateBookingStatusDto } from "./dto/update-booking-status.dto";
+import { CancelDepartureDto } from "./dto/cancel-departure.dto";
+import { CancelBookingByAdminDto } from "./dto/cancel-booking-by-admin.dto";
 import { RedisService } from "../../redis/redis.service";
 import { EmailService } from "../../common/services/email.service";
+import { ACTION_SCORE } from "../recommendations/recommendation.utils";
+import { DepartureCapacityService } from "../../common/services/departure-capacity.service";
 
 @Injectable()
 export class BookingsService {
@@ -19,6 +23,7 @@ export class BookingsService {
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
     private readonly emailService: EmailService,
+    private readonly departureCapacity: DepartureCapacityService,
   ) {}
 
   private normalizeUserId(value: any): bigint | undefined {
@@ -91,6 +96,506 @@ export class BookingsService {
       (payment: any) =>
         String(payment?.paymentStatus || "").toLowerCase() === "paid",
     );
+  }
+
+  private isPaidOrConfirmedForRefund(booking: any) {
+    const bookingStatus = String(booking?.bookingStatus || "").toLowerCase();
+    const payments = Array.isArray(booking?.payments) ? booking.payments : [];
+    const latestPayment = payments[0] || null;
+    const paymentStatus = String(
+      latestPayment?.paymentStatus || "",
+    ).toLowerCase();
+
+    return (
+      bookingStatus === "confirmed" ||
+      paymentStatus === "paid" ||
+      paymentStatus === "waiting_confirmation"
+    );
+  }
+
+  private isFinalBookingStatus(status: any) {
+    return [
+      "cancelled",
+      "cancelled_by_customer",
+      "cancelled_by_operator",
+      "expired",
+      "completed",
+    ].includes(String(status || "").toLowerCase());
+  }
+
+  private formatMoney(value: any) {
+    return `${this.toMoney(value).toLocaleString("vi-VN")} đ`;
+  }
+
+  private hasRefundBankInfo(user: any) {
+    return Boolean(
+      user?.refundBankName?.trim() &&
+      user?.refundAccountNo?.trim() &&
+      user?.refundAccountName?.trim(),
+    );
+  }
+
+  private buildCancellationMessage(input: {
+    booking: any;
+    reason: string;
+    customerMessage?: string;
+    paid: boolean;
+    refundAmount: number;
+    hasRefundBankInfo: boolean;
+  }) {
+    const bookingCode =
+      input.booking?.bookingCode || String(input.booking?.id || "");
+    const customMessage = input.customerMessage?.trim();
+    const defaultBase = `Travela rất tiếc phải thông báo booking ${bookingCode} của quý khách đã bị hủy do ${input.reason}.`;
+    const base =
+      customMessage && customMessage.includes(bookingCode)
+        ? customMessage
+        : customMessage
+          ? `${customMessage} Booking ${bookingCode} của quý khách đã bị hủy do ${input.reason}.`
+          : defaultBase;
+
+    if (!input.paid) {
+      return `${base} Booking chưa thanh toán nên không phát sinh hoàn tiền.`;
+    }
+
+    const refundText = `Booking được áp dụng hoàn 100% số tiền thực thanh toán là ${this.formatMoney(
+      input.refundAmount,
+    )}.`;
+
+    if (input.hasRefundBankInfo) {
+      return `${base} ${refundText} Hồ sơ hoàn tiền đã được tạo và đang chờ Travela xử lý.`;
+    }
+
+    return `${base} ${refundText} Hiện hồ sơ của quý khách chưa có đầy đủ tài khoản nhận hoàn tiền. Vui lòng cập nhật tại Hồ sơ cá nhân → Tài khoản nhận hoàn tiền để Travela tiếp tục xử lý.`;
+  }
+
+  private refundBankMetadata(refundRequest: any, hasRefundBankInfo: boolean) {
+    if (hasRefundBankInfo) return undefined;
+    return {
+      actionUrl: "/profile?tab=info&section=refund-bank",
+      actionLabel: "Cập nhật tài khoản nhận hoàn",
+      refundRequestId: refundRequest ? String(refundRequest.id) : null,
+    };
+  }
+
+  private async setRefundBankInfoStatus(
+    tx: any,
+    refundRequestId: bigint,
+    status: "missing" | "completed",
+  ) {
+    try {
+      await tx.$executeRawUnsafe(
+        "UPDATE refund_requests SET bank_info_status = ? WHERE id = ?",
+        status,
+        refundRequestId.toString(),
+      );
+    } catch {
+      // Cột bank_info_status chỉ được cập nhật khi schema/DB có hỗ trợ.
+    }
+  }
+
+  private buildOperatorCancellationNotice(
+    booking: any,
+    reason: string,
+    refundCreated: boolean,
+  ) {
+    const tourName = booking?.tour?.name || "tour của quý khách";
+    const departureDate = booking?.departure?.departureDate
+      ? new Date(booking.departure.departureDate).toLocaleDateString("vi-VN")
+      : "đang cập nhật";
+
+    if (refundCreated) {
+      return (
+        `Lịch khởi hành tour '${tourName}' ngày ${departureDate} đã bị Travela hủy do ${reason}. ` +
+        `Booking ${booking.bookingCode} của quý khách đã được hủy. ` +
+        "Hệ thống đã tạo yêu cầu hoàn 100% số tiền thực thanh toán và đang chờ xử lý."
+      );
+    }
+
+    return (
+      `Lịch khởi hành tour '${tourName}' ngày ${departureDate} đã bị Travela hủy do ${reason}. ` +
+      `Booking ${booking.bookingCode} đã được hủy và không phát sinh hoàn tiền do chưa thanh toán.`
+    );
+  }
+
+  private async resolveDepartureGuide(
+    tx: Prisma.TransactionClient,
+    departureId: bigint,
+  ) {
+    const tripOperation = await tx.tripOperation.findUnique({
+      where: { departureId },
+      include: { guide: true },
+    });
+
+    if (tripOperation?.guide) {
+      return {
+        guide: tripOperation.guide,
+        source: "trip_operation",
+        tripOperation,
+      };
+    }
+
+    const legacyAssignment = await tx.guideAssignment.findFirst({
+      where: {
+        booking: {
+          departureId,
+        },
+        status: {
+          in: [
+            "assigned",
+            "accepted",
+            "confirmed",
+            "in_progress",
+            "issue",
+          ] as any,
+        },
+      },
+      include: {
+        guide: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return {
+      guide: legacyAssignment?.guide || null,
+      source: legacyAssignment ? "guide_assignment" : null,
+      tripOperation,
+    };
+  }
+
+  private async reanchorLegacyGuideAssignmentAfterBookingCancellation(
+    tx: Prisma.TransactionClient,
+    booking: any,
+  ) {
+    /*
+     * guide_assignments là dữ liệu tương thích cũ và đang trỏ vào một
+     * booking đại diện của departure. Nếu đúng booking đại diện bị hủy,
+     * chuyển assignment sang một booking còn hoạt động của cùng departure
+     * để Guide Portal không hiển thị một booking đã bị hủy.
+     *
+     * TripOperation vẫn là nguồn chính xác ở cấp departure.
+     */
+    const replacementBooking = await tx.booking.findFirst({
+      where: {
+        departureId: booking.departureId,
+        id: {
+          not: booking.id,
+        },
+        bookingStatus: {
+          in: ["pending_payment", "waiting_confirmation", "confirmed"] as any,
+        },
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!replacementBooking) {
+      return {
+        reanchored: false,
+        replacementBookingId: null,
+      };
+    }
+
+    const result = await tx.guideAssignment.updateMany({
+      where: {
+        bookingId: booking.id,
+        status: {
+          in: [
+            "assigned",
+            "accepted",
+            "confirmed",
+            "in_progress",
+            "issue",
+          ] as any,
+        },
+      },
+      data: {
+        bookingId: replacementBooking.id,
+        note:
+          `Booking đại diện ${booking.bookingCode} đã bị hủy. ` +
+          "Hệ thống tự chuyển phân công sang booking còn hoạt động cùng lịch khởi hành.",
+      },
+    });
+
+    return {
+      reanchored: Number(result?.count || 0) > 0,
+      replacementBookingId: String(replacementBooking.id),
+    };
+  }
+
+  private async notifyGuideBookingCancelled(
+    tx: Prisma.TransactionClient,
+    input: {
+      booking: any;
+      reason: string;
+      changedBy?: bigint | null;
+      cancelledBy: "operator" | "customer";
+    },
+  ) {
+    const guideContext = await this.resolveDepartureGuide(
+      tx,
+      input.booking.departureId,
+    );
+
+    const guide = guideContext.guide;
+
+    if (!guide?.userId) {
+      return {
+        notified: false,
+        guideId: guide?.id ? String(guide.id) : null,
+        guideUserId: null,
+        remainingBookings: 0,
+        remainingGuests: 0,
+      };
+    }
+
+    const remainingBookings = await tx.booking.findMany({
+      where: {
+        departureId: input.booking.departureId,
+        id: {
+          not: input.booking.id,
+        },
+        bookingStatus: {
+          in: ["pending_payment", "waiting_confirmation", "confirmed"] as any,
+        },
+      },
+      select: {
+        id: true,
+        adultCount: true,
+        childCount: true,
+      },
+    });
+
+    const remainingGuests = remainingBookings.reduce(
+      (sum: number, booking: any) =>
+        sum + Number(booking.adultCount || 0) + Number(booking.childCount || 0),
+      0,
+    );
+
+    const tourName = input.booking.tour?.name || "tour Travela";
+    const departureDate = input.booking.departure?.departureDate
+      ? new Date(input.booking.departure.departureDate).toLocaleDateString(
+          "vi-VN",
+        )
+      : "đang cập nhật";
+
+    const cancelledByText =
+      input.cancelledBy === "operator" ? "Travela đã hủy" : "Khách hàng đã hủy";
+
+    await tx.notification.create({
+      data: {
+        title: `Cập nhật danh sách khách - ${tourName}`,
+        message:
+          `${cancelledByText} booking ${input.booking.bookingCode}. ` +
+          "Danh sách đoàn đã được cập nhật.",
+        content:
+          `${cancelledByText} booking ${input.booking.bookingCode} của tour ` +
+          `${tourName}, khởi hành ngày ${departureDate}.\n` +
+          `Lý do: ${input.reason}.\n\n` +
+          `Lịch khởi hành vẫn đang được giữ. Hiện còn ` +
+          `${remainingBookings.length} booking, ${remainingGuests} khách đang hoạt động.\n` +
+          "Vui lòng kiểm tra lại danh sách hành khách trong Điều hành chuyến đi.",
+        targetRole: "guide" as any,
+        targetUserId: guide.userId,
+        isPublished: true,
+        createdBy: input.changedBy || null,
+        metadata: {
+          type: "booking_cancelled",
+          bookingId: String(input.booking.id),
+          bookingCode: input.booking.bookingCode,
+          departureId: String(input.booking.departureId),
+          guideId: String(guide.id),
+          remainingBookings: remainingBookings.length,
+          remainingGuests,
+        } as any,
+      },
+    });
+
+    return {
+      notified: true,
+      guideId: String(guide.id),
+      guideUserId: String(guide.userId),
+      remainingBookings: remainingBookings.length,
+      remainingGuests,
+    };
+  }
+
+  private async cancelDepartureGuideOperation(
+    tx: Prisma.TransactionClient,
+    input: {
+      departure: any;
+      reason: string;
+      adminId: bigint;
+    },
+  ) {
+    const activeAssignmentStatuses = [
+      "assigned",
+      "accepted",
+      "confirmed",
+      "in_progress",
+      "issue",
+    ];
+
+    const tripOperation = await tx.tripOperation.findUnique({
+      where: {
+        departureId: input.departure.id,
+      },
+      include: {
+        guide: true,
+      },
+    });
+
+    const assignments = await tx.guideAssignment.findMany({
+      where: {
+        booking: {
+          departureId: input.departure.id,
+        },
+        status: {
+          in: activeAssignmentStatuses as any,
+        },
+      },
+      include: {
+        guide: true,
+      },
+    });
+
+    const assignmentIds = assignments.map((item: any) => item.id);
+
+    if (assignmentIds.length) {
+      await tx.guideAssignment.updateMany({
+        where: {
+          id: {
+            in: assignmentIds,
+          },
+        },
+        data: {
+          status: "cancelled",
+          note: `Lịch khởi hành đã bị Travela hủy. Lý do: ${input.reason}`,
+        },
+      });
+
+      /*
+       * Yêu cầu lịch bận gắn với assignment không còn ý nghĩa khi cả chuyến
+       * đã bị hủy, nên đóng các yêu cầu pending/active liên quan.
+       */
+      await tx.guideAvailability.updateMany({
+        where: {
+          guideAssignmentId: {
+            in: assignmentIds,
+          },
+          status: {
+            in: ["pending", "active"],
+          },
+        },
+        data: {
+          status: "cancelled",
+        },
+      });
+    }
+
+    if (tripOperation) {
+      await tx.tripOperation.update({
+        where: {
+          id: tripOperation.id,
+        },
+        data: {
+          operationStatus: "cancelled",
+        },
+      });
+    }
+
+    /*
+     * Dữ liệu cũ có thể có nhiều assignment guide khác nhau.
+     * Dùng Map theo userId để một HDV chỉ nhận một thông báo.
+     */
+    const guideByUserId = new Map<string, any>();
+
+    if (tripOperation?.guide?.userId) {
+      guideByUserId.set(
+        String(tripOperation.guide.userId),
+        tripOperation.guide,
+      );
+    }
+
+    for (const assignment of assignments) {
+      if (assignment.guide?.userId) {
+        guideByUserId.set(String(assignment.guide.userId), assignment.guide);
+      }
+    }
+
+    const tourName = input.departure.tour?.name || "tour Travela";
+    const departureDate = input.departure.departureDate
+      ? new Date(input.departure.departureDate).toLocaleDateString("vi-VN")
+      : "đang cập nhật";
+
+    let notificationsCreated = 0;
+
+    for (const guide of guideByUserId.values()) {
+      await tx.notification.create({
+        data: {
+          title: `Travela đã hủy chuyến - ${tourName}`,
+          message: `Lịch khởi hành ${departureDate} của tour ${tourName} đã bị hủy.`,
+          content:
+            `Travela thông báo lịch khởi hành tour ${tourName} ngày ` +
+            `${departureDate} đã bị hủy.\n` +
+            `Lý do: ${input.reason}.\n\n` +
+            "Phân công hướng dẫn viên và điều hành chuyến đã được đóng. " +
+            "Bạn không cần tiếp tục chuẩn bị cho chuyến này.",
+          targetRole: "guide" as any,
+          targetUserId: guide.userId,
+          isPublished: true,
+          createdBy: input.adminId,
+          metadata: {
+            type: "departure_cancelled",
+            departureId: String(input.departure.id),
+            guideId: String(guide.id),
+          } as any,
+        },
+      });
+      notificationsCreated += 1;
+    }
+
+    return {
+      guideNotificationsCreated: notificationsCreated,
+      guideAssignmentsCancelled: assignmentIds.length,
+      tripOperationCancelled: Boolean(tripOperation),
+    };
+  }
+
+  private buildDepartureEmailHtml(input: {
+    booking: any;
+    reason: string;
+    customerMessage: string;
+    refundAmount: number;
+    refundCreated: boolean;
+  }) {
+    const tourName = input.booking?.tour?.name || "tour Travela";
+    const departureDate = input.booking?.departure?.departureDate
+      ? new Date(input.booking.departure.departureDate).toLocaleDateString(
+          "vi-VN",
+        )
+      : "đang cập nhật";
+
+    return `
+      <div style="font-family:Arial,sans-serif;line-height:1.65;color:#0f172a">
+        <h2>Thông báo hủy lịch khởi hành tour ${tourName}</h2>
+        <p>${input.customerMessage}</p>
+        <p><strong>Mã booking:</strong> ${input.booking.bookingCode}</p>
+        <p><strong>Ngày khởi hành:</strong> ${departureDate}</p>
+        <p><strong>Lý do hủy:</strong> ${input.reason}</p>
+        <p><strong>Tỷ lệ hoàn:</strong> ${input.refundCreated ? "100%" : "Không phát sinh hoàn tiền"}</p>
+        <p><strong>Số tiền dự kiến hoàn:</strong> ${Number(input.refundAmount || 0).toLocaleString("vi-VN")} đ</p>
+        <p><strong>Trạng thái:</strong> ${input.refundCreated ? "Đang chờ xử lý hoàn tiền" : "Booking chưa thanh toán"}</p>
+        <p>Quý khách có thể theo dõi tại Hồ sơ &gt; Hủy vé &amp; hoàn tiền.</p>
+        <p style="color:#64748b;font-size:13px">Email này được gửi tự động từ hệ thống Travela.</p>
+      </div>
+    `;
   }
 
   private hasTripEnded(booking: any) {
@@ -847,28 +1352,43 @@ export class BookingsService {
 
     if (oldCat === newCat) return;
 
-    const data: Record<string, any> = {};
+    if (oldCat === "held" && newCat === "booked") {
+      await this.departureCapacity.convertHeldToBooked(
+        tx,
+        departureId,
+        guestCount,
+      );
+      return;
+    }
 
     if (oldCat === "held") {
-      data.heldSlots = { decrement: guestCount };
+      await this.departureCapacity.releaseHeldSlots(
+        tx,
+        departureId,
+        guestCount,
+      );
     }
 
     if (oldCat === "booked") {
-      data.bookedSlots = { decrement: guestCount };
+      await this.departureCapacity.releaseBookedSlots(
+        tx,
+        departureId,
+        guestCount,
+      );
     }
 
     if (newCat === "held") {
-      data.heldSlots = { increment: guestCount };
+      await this.departureCapacity.holdSlots(tx, departureId, guestCount);
     }
 
     if (newCat === "booked") {
-      data.bookedSlots = { increment: guestCount };
+      await this.departureCapacity.holdSlots(tx, departureId, guestCount);
+      await this.departureCapacity.convertHeldToBooked(
+        tx,
+        departureId,
+        guestCount,
+      );
     }
-
-    await tx.tourDeparture.update({
-      where: { id: departureId },
-      data,
-    });
   }
 
   private assertStatusTransition(oldStatus: string, newStatus: string) {
@@ -1067,10 +1587,11 @@ export class BookingsService {
           })),
         });
 
-        await tx.tourDeparture.update({
-          where: { id: departure.id },
-          data: { heldSlots: { increment: requestedSlots } },
-        });
+        await this.departureCapacity.holdSlots(
+          tx,
+          departure.id,
+          requestedSlots,
+        );
 
         await tx.bookingStatusLog.create({
           data: {
@@ -1088,10 +1609,11 @@ export class BookingsService {
               userId,
               tourId: booking.tourId,
               action: "booking",
-              score: 8,
+              score: ACTION_SCORE.booking,
               keyword: null,
               meta: {
-                source: "booking_create",
+                source: "real",
+                eventSource: "booking_create",
                 bookingId: booking.id.toString(),
                 bookingCode: booking.bookingCode,
                 departureId: booking.departureId.toString(),
@@ -1176,12 +1698,7 @@ export class BookingsService {
         }),
       });
 
-      await tx.tourDeparture.update({
-        where: { id: departure.id },
-        data: {
-          heldSlots: { increment: requestedSlots },
-        },
-      });
+      await this.departureCapacity.holdSlots(tx, departure.id, requestedSlots);
 
       await tx.bookingStatusLog.create({
         data: {
@@ -1367,10 +1884,29 @@ export class BookingsService {
         },
       });
 
+      const guideNotification = await this.notifyGuideBookingCancelled(tx, {
+        booking: {
+          ...booking,
+          tour: updated.tour,
+          departure: updated.departure,
+        },
+        reason: "Khách hàng hủy booking chưa thanh toán",
+        changedBy: userId,
+        cancelledBy: "customer",
+      });
+
+      const assignmentReanchor =
+        await this.reanchorLegacyGuideAssignmentAfterBookingCancellation(
+          tx,
+          booking,
+        );
+
       return {
         success: true,
         message: "Đã xóa/hủy booking chưa thanh toán.",
         booking: updated,
+        guideNotification,
+        assignmentReanchor,
       };
     });
   }
@@ -1909,6 +2445,8 @@ export class BookingsService {
     status?: string;
     paymentStatus?: string;
     tourId?: string;
+    departureId?: string;
+    departureDate?: string;
     destinationId?: string;
     departureFrom?: string;
     departureTo?: string;
@@ -1950,6 +2488,9 @@ export class BookingsService {
 
     if (query.status) where.bookingStatus = query.status;
     if (query.tourId) where.tourId = BigInt(query.tourId);
+    if (query.departureId) {
+      where.departureId = BigInt(query.departureId);
+    }
 
     if (query.destinationId) {
       where.tour = { is: { destinationId: BigInt(query.destinationId) } };
@@ -1958,10 +2499,30 @@ export class BookingsService {
     const departureDateFilter: any = {};
     const from = this.toDateStart(query.departureFrom);
     const to = this.toDateEnd(query.departureTo);
+    const exactDepartureDate = this.toDateStart(query.departureDate);
+    if (!query.departureId && exactDepartureDate) {
+      const nextDay = new Date(exactDepartureDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      where.departure = {
+        is: {
+          ...(where.departure?.is || {}),
+          departureDate: { gte: exactDepartureDate, lt: nextDay },
+        },
+      };
+    }
     if (from) departureDateFilter.gte = from;
     if (to) departureDateFilter.lte = to;
-    if (Object.keys(departureDateFilter).length) {
-      where.departure = { is: { departureDate: departureDateFilter } };
+    if (
+      !query.departureId &&
+      !exactDepartureDate &&
+      Object.keys(departureDateFilter).length
+    ) {
+      where.departure = {
+        is: {
+          ...(where.departure?.is || {}),
+          departureDate: departureDateFilter,
+        },
+      };
     }
 
     if (query.paymentStatus) {
@@ -1998,7 +2559,11 @@ export class BookingsService {
         take: 1,
         orderBy: { createdAt: "desc" as const },
       },
-      refundRequests: { where: { status: "pending" as any }, take: 1 },
+      refundRequests: {
+        where: { status: { in: ["pending", "approved"] as any } },
+        take: 1,
+        orderBy: { createdAt: "desc" as const },
+      },
     };
 
     const requiresResolvedGuideFilter = ["assigned", "unassigned"].includes(
@@ -2050,9 +2615,14 @@ export class BookingsService {
       );
     }
 
+    const departureSummary = query.departureId
+      ? await this.buildDepartureBookingSummary(BigInt(query.departureId))
+      : null;
+
     return {
       items,
       intelligence: this.buildAdminIntelligence(items),
+      departureSummary,
       pagination: {
         page,
         pageSize,
@@ -2071,7 +2641,13 @@ export class BookingsService {
     if (!existing) throw new NotFoundException("Không tìm thấy booking.");
 
     if (
-      ["completed", "cancelled", "expired"].includes(existing.bookingStatus)
+      [
+        "completed",
+        "cancelled",
+        "cancelled_by_customer",
+        "cancelled_by_operator",
+        "expired",
+      ].includes(existing.bookingStatus)
     ) {
       throw new BadRequestException(
         "Booking đã ở trạng thái cuối, không thể sửa điểm đón.",
@@ -2290,21 +2866,19 @@ export class BookingsService {
       const category = this.calcStatusCategory(booking.bookingStatus);
 
       if (category === "held") {
-        await tx.tourDeparture.update({
-          where: { id: booking.departureId },
-          data: {
-            heldSlots: { decrement: guestCount },
-          },
-        });
+        await this.departureCapacity.releaseHeldSlots(
+          tx,
+          booking.departureId,
+          guestCount,
+        );
       }
 
       if (category === "booked") {
-        await tx.tourDeparture.update({
-          where: { id: booking.departureId },
-          data: {
-            bookedSlots: { decrement: guestCount },
-          },
-        });
+        await this.departureCapacity.releaseBookedSlots(
+          tx,
+          booking.departureId,
+          guestCount,
+        );
       }
 
       await tx.bookingStatusLog.create({
@@ -3048,6 +3622,651 @@ export class BookingsService {
           ? "Booking đã thanh toán/đã xác nhận"
           : "Booking chưa đủ tín hiệu thanh toán",
       ],
+    };
+  }
+
+  private async buildDepartureBookingSummary(departureId: bigint) {
+    const departure = await this.prisma.tourDeparture.findUnique({
+      where: { id: departureId },
+      include: {
+        tour: { include: { destination: true } },
+        bookings: {
+          include: {
+            payments: { orderBy: { createdAt: "desc" }, take: 1 },
+            refundRequests: {
+              where: { status: { in: ["pending", "approved"] as any } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!departure) return null;
+
+    const activeBookings = (departure.bookings || []).filter(
+      (booking: any) => !this.isFinalBookingStatus(booking.bookingStatus),
+    );
+    const allBookings = departure.bookings || [];
+    const paidBookings = allBookings.filter((booking: any) =>
+      this.isPaidOrConfirmedForRefund(booking),
+    );
+    const unpaidBookings = allBookings.filter(
+      (booking: any) => !this.isPaidOrConfirmedForRefund(booking),
+    );
+    const totalGuests = allBookings.reduce(
+      (sum: number, booking: any) =>
+        sum + Number(booking.adultCount || 0) + Number(booking.childCount || 0),
+      0,
+    );
+    const totalPaidAmount = paidBookings.reduce(
+      (sum: number, booking: any) => sum + this.toMoney(booking.finalAmount),
+      0,
+    );
+    const refundableBookings = paidBookings.filter(
+      (booking: any) =>
+        !(booking.refundRequests || []).some((refund: any) =>
+          ["pending", "approved"].includes(String(refund.status)),
+        ),
+    );
+    const estimatedRefundAmount = refundableBookings.reduce(
+      (sum: number, booking: any) => sum + this.toMoney(booking.finalAmount),
+      0,
+    );
+    const today = this.startOfDay();
+    const departureDate = new Date(departure.departureDate);
+    departureDate.setHours(0, 0, 0, 0);
+    const canCancel =
+      !["cancelled", "completed", "departed"].includes(
+        String(departure.status),
+      ) && departureDate.getTime() >= today.getTime();
+
+    return {
+      id: String(departure.id),
+      tourId: String(departure.tourId),
+      tourName: departure.tour?.name,
+      destinationName: departure.tour?.destination?.name,
+      departureDate: departure.departureDate,
+      endDate: departure.endDate,
+      status: departure.status,
+      totalSlots: departure.totalSlots,
+      bookedSlots: departure.bookedSlots,
+      heldSlots: departure.heldSlots,
+      totalBookings: allBookings.length,
+      activeBookings: activeBookings.length,
+      totalGuests,
+      paidBookings: paidBookings.length,
+      unpaidBookings: unpaidBookings.length,
+      totalPaidAmount,
+      estimatedRefundAmount,
+      canCancel,
+    };
+  }
+
+  async adminDepartureSummary(departureId: bigint) {
+    const summary = await this.buildDepartureBookingSummary(departureId);
+    if (!summary) {
+      throw new NotFoundException("Không tìm thấy lịch khởi hành.");
+    }
+    return summary;
+  }
+
+  async adminCancelBooking(
+    bookingId: bigint,
+    dto: CancelBookingByAdminDto,
+    adminId: bigint,
+  ) {
+    const reason = String(dto.reason || "").trim();
+    const customerMessage = String(dto.customerMessage || "").trim();
+    if (!reason || !customerMessage) {
+      throw new BadRequestException(
+        "Vui lòng nhập đầy đủ lý do hủy và nội dung thông báo khách hàng.",
+      );
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const booking = await tx.booking.findUnique({
+        where: { id: bookingId },
+        include: {
+          user: true,
+          tour: true,
+          departure: true,
+          payments: { orderBy: { createdAt: "desc" } },
+          refundRequests: true,
+        },
+      });
+
+      if (!booking) {
+        throw new NotFoundException("Không tìm thấy booking.");
+      }
+
+      if (this.isFinalBookingStatus(booking.bookingStatus)) {
+        throw new BadRequestException(
+          "Booking đã hủy, hết hạn hoặc hoàn thành.",
+        );
+      }
+
+      if (
+        ["cancelled", "completed", "departed"].includes(
+          String(booking.departure?.status),
+        )
+      ) {
+        throw new BadRequestException(
+          "Lịch khởi hành đã hủy, đã bắt đầu hoặc hoàn thành.",
+        );
+      }
+
+      const departureAt = booking.departure?.departureDate
+        ? new Date(booking.departure.departureDate)
+        : null;
+      if (
+        !departureAt ||
+        Number.isNaN(departureAt.getTime()) ||
+        departureAt.getTime() <= Date.now()
+      ) {
+        throw new BadRequestException(
+          "Tour đã bắt đầu hoặc đã qua thời điểm khởi hành.",
+        );
+      }
+
+      const alreadyHasOpenRefund = (booking.refundRequests || []).some(
+        (refund: any) =>
+          ["pending", "approved"].includes(String(refund.status)),
+      );
+      if (alreadyHasOpenRefund) {
+        throw new BadRequestException(
+          "Booking đã có hồ sơ hoàn tiền đang chờ hoặc đã duyệt.",
+        );
+      }
+
+      const oldStatus = booking.bookingStatus;
+      const paid = this.isPaidOrConfirmedForRefund(booking);
+      const refundRate = 100;
+
+      /*
+       * Khi admin hủy riêng một booking, booking phải ngừng chiếm chỗ NGAY
+       * tại thời điểm hủy. Không chờ đến bước duyệt/chuyển khoản hoàn tiền.
+       *
+       * Điều này tách đúng hai nghiệp vụ:
+       * - hủy booking => trả slot;
+       * - duyệt hoàn tiền => chỉ xử lý tiền, không trả slot lần thứ hai.
+       */
+      const guestCount =
+        Number(booking.adultCount || 0) + Number(booking.childCount || 0);
+
+      if (guestCount > 0) {
+        await this.adjustDepartureSlots(
+          tx,
+          booking.departureId,
+          guestCount,
+          oldStatus,
+          "cancelled_by_operator",
+        );
+      }
+      const hasRefundBankInfo = this.hasRefundBankInfo(booking.user);
+      const actualPaidAmount = this.toMoney(booking.finalAmount);
+      const refundAmount = paid
+        ? Math.round((actualPaidAmount * refundRate) / 100)
+        : 0;
+
+      const updatedBooking = await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          bookingStatus: "cancelled_by_operator" as any,
+          holdExpiresAt: null,
+        },
+        include: {
+          user: true,
+          tour: true,
+          departure: true,
+          payments: { orderBy: { createdAt: "desc" } },
+          refundRequests: true,
+        },
+      });
+
+      let refundRequest: any = null;
+      if (paid && refundAmount > 0) {
+        refundRequest = await tx.refundRequest.create({
+          data: {
+            bookingId: booking.id,
+            activeKey: `booking:${booking.id.toString()}`,
+            userId: booking.userId,
+            reason,
+            refundAmount,
+            status: "pending" as any,
+            refundBankName: booking.user?.refundBankName || null,
+            refundAccountNo: booking.user?.refundAccountNo || null,
+            refundAccountName: booking.user?.refundAccountName || null,
+            adminNote:
+              "Yêu cầu hoàn tiền tự động do Travela hủy riêng booking.",
+          },
+        });
+
+        await tx.$executeRawUnsafe(
+          `
+            UPDATE refund_requests
+            SET
+              refund_rate = ?,
+              policy_code = ?,
+              policy_label = ?
+            WHERE id = ?
+          `,
+          refundRate,
+          "operator_cancelled_booking",
+          "Travela hủy booking - hoàn 100%",
+          refundRequest.id.toString(),
+        );
+
+        await this.setRefundBankInfoStatus(
+          tx,
+          refundRequest.id,
+          hasRefundBankInfo ? "completed" : "missing",
+        );
+      }
+
+      const finalMessage = this.buildCancellationMessage({
+        booking,
+        reason,
+        customerMessage,
+        paid,
+        refundAmount,
+        hasRefundBankInfo,
+      });
+
+      if (booking.userId) {
+        await tx.notification.create({
+          data: {
+            title: "Travela đã hủy booking",
+            message: finalMessage.slice(0, 480),
+            content: finalMessage,
+            targetRole: "user" as any,
+            targetUserId: booking.userId,
+            isPublished: true,
+            metadata: this.refundBankMetadata(refundRequest, hasRefundBankInfo),
+            createdBy: adminId,
+          },
+        });
+      }
+
+      await tx.bookingStatusLog.create({
+        data: {
+          bookingId: booking.id,
+          actionType: "operator_cancel_booking",
+          oldStatus,
+          newStatus: "cancelled_by_operator",
+          changedByUserId: adminId,
+          source: "admin",
+          reason,
+          note: `[SLOTS_RELEASED] ${finalMessage}`,
+        },
+      });
+
+      const guideNotification = await this.notifyGuideBookingCancelled(tx, {
+        booking,
+        reason,
+        changedBy: adminId,
+        cancelledBy: "operator",
+      });
+
+      const assignmentReanchor =
+        await this.reanchorLegacyGuideAssignmentAfterBookingCancellation(
+          tx,
+          booking,
+        );
+
+      await tx.auditLog.create({
+        data: {
+          actorUserId: adminId,
+          action: "operator_cancel_booking",
+          entityType: "Booking",
+          entityId: String(booking.id),
+          oldData: { bookingStatus: oldStatus },
+          newData: {
+            bookingStatus: "cancelled_by_operator",
+            reasonType: dto.reasonType,
+            reason,
+            customerMessage: finalMessage,
+            refundRequestId: refundRequest ? String(refundRequest.id) : null,
+            refundAmount,
+          },
+        },
+      });
+
+      return {
+        booking: updatedBooking,
+        refundRequest,
+        refundRequestCreated: Boolean(refundRequest),
+        refundAmount,
+        guideNotification,
+        assignmentReanchor,
+      };
+    });
+
+    return {
+      success: true,
+      message: result.refundRequestCreated
+        ? "Đã hủy booking và tạo yêu cầu hoàn tiền."
+        : "Đã hủy booking, không phát sinh hồ sơ hoàn tiền.",
+      bookingId: String(result.booking.id),
+      bookingStatus: result.booking.bookingStatus,
+      refundRequestCreated: result.refundRequestCreated,
+      refundRequestId: result.refundRequest
+        ? String(result.refundRequest.id)
+        : null,
+      refundAmount: result.refundAmount,
+      guideNotified: Boolean(result.guideNotification?.notified),
+      guideNotification: result.guideNotification,
+      assignmentReanchor: result.assignmentReanchor,
+    };
+  }
+
+  async adminCancelDeparture(
+    departureId: bigint,
+    dto: CancelDepartureDto,
+    adminId: bigint,
+  ) {
+    const reason = String(dto.reason || "").trim();
+    const customerMessage = String(dto.customerMessage || "").trim();
+    if (!reason || !customerMessage) {
+      throw new BadRequestException(
+        "Vui lòng nhập đầy đủ lý do hủy và nội dung thông báo khách hàng.",
+      );
+    }
+
+    const transactionResult = await this.prisma.$transaction(async (tx) => {
+      const departure = await tx.tourDeparture.findUnique({
+        where: { id: departureId },
+        include: {
+          tour: { include: { destination: true } },
+          bookings: {
+            include: {
+              user: true,
+              tour: true,
+              departure: true,
+              payments: { orderBy: { createdAt: "desc" } },
+              refundRequests: true,
+            },
+          },
+        },
+      });
+
+      if (!departure) {
+        throw new NotFoundException("Không tìm thấy lịch khởi hành.");
+      }
+      if (String(departure.status) === "cancelled") {
+        throw new BadRequestException("Lịch khởi hành này đã bị hủy trước đó.");
+      }
+      if (["completed", "departed"].includes(String(departure.status))) {
+        throw new BadRequestException(
+          "Không thể hủy lịch đã khởi hành hoặc đã hoàn thành.",
+        );
+      }
+
+      await tx.tourDeparture.update({
+        where: { id: departure.id },
+        data: { status: "cancelled" as any },
+      });
+
+      let cancelledBookings = 0;
+      let refundRequestsCreated = 0;
+      let unpaidBookings = 0;
+      let notificationsCreated = 0;
+      let totalRefundAmount = 0;
+      const emailQueue: any[] = [];
+
+      for (const booking of departure.bookings || []) {
+        if (
+          [
+            "cancelled_by_customer",
+            "cancelled_by_operator",
+            "expired",
+            "completed",
+          ].includes(String(booking.bookingStatus))
+        ) {
+          continue;
+        }
+
+        const hasApprovedRefund = (booking.refundRequests || []).some(
+          (refund: any) => String(refund.status) === "approved",
+        );
+        if (hasApprovedRefund) continue;
+
+        const oldStatus = booking.bookingStatus;
+        const updatedBooking = await tx.booking.update({
+          where: { id: booking.id },
+          data: {
+            bookingStatus: "cancelled_by_operator" as any,
+            holdExpiresAt: null,
+          },
+          include: {
+            user: true,
+            tour: true,
+            departure: true,
+            payments: { orderBy: { createdAt: "desc" } },
+            refundRequests: true,
+          },
+        });
+        cancelledBookings += 1;
+
+        await this.adjustDepartureSlots(
+          tx,
+          booking.departureId,
+          Number(booking.adultCount || 0) + Number(booking.childCount || 0),
+          oldStatus,
+          "cancelled_by_operator",
+        );
+
+        const existingOpenRefund = (booking.refundRequests || []).find(
+          (refund: any) =>
+            ["pending", "approved"].includes(String(refund.status)),
+        );
+        const alreadyHasOpenRefund = Boolean(existingOpenRefund);
+        const paid = this.isPaidOrConfirmedForRefund(booking);
+        const hasRefundBankInfo = this.hasRefundBankInfo(booking.user);
+        const shouldCreateRefund = paid && !alreadyHasOpenRefund;
+        const refundAmount = paid ? this.toMoney(booking.finalAmount) : 0;
+        let refund: any = existingOpenRefund || null;
+
+        if (shouldCreateRefund && refundAmount > 0) {
+          refund = await tx.refundRequest.create({
+            data: {
+              bookingId: booking.id,
+              activeKey: `booking:${booking.id.toString()}`,
+              userId: booking.userId,
+              reason,
+              refundAmount,
+              status: "pending" as any,
+              refundBankName: booking.user?.refundBankName || null,
+              refundAccountNo: booking.user?.refundAccountNo || null,
+              refundAccountName: booking.user?.refundAccountName || null,
+              adminNote:
+                "Yêu cầu hoàn tiền tự động do Travela hủy toàn bộ lịch khởi hành.",
+            },
+          });
+
+          await tx.$executeRawUnsafe(
+            `
+              UPDATE refund_requests
+              SET
+                refund_rate = ?,
+                policy_code = ?,
+                policy_label = ?
+              WHERE id = ?
+            `,
+            100,
+            "operator_cancelled_departure",
+            "Tour bị hủy bởi Travela – hoàn 100%",
+            refund.id.toString(),
+          );
+
+          await this.setRefundBankInfoStatus(
+            tx,
+            refund.id,
+            hasRefundBankInfo ? "completed" : "missing",
+          );
+
+          refundRequestsCreated += 1;
+          totalRefundAmount += refundAmount;
+        } else if (!paid) {
+          unpaidBookings += 1;
+        }
+
+        const notice = this.buildCancellationMessage({
+          booking: updatedBooking,
+          reason,
+          customerMessage,
+          paid,
+          refundAmount,
+          hasRefundBankInfo,
+        });
+
+        if (booking.userId) {
+          await tx.notification.create({
+            data: {
+              title: "Travela đã hủy lịch khởi hành",
+              message: notice.slice(0, 480),
+              content: notice,
+              targetRole: "user" as any,
+              targetUserId: booking.userId,
+              isPublished: true,
+              metadata: this.refundBankMetadata(refund, hasRefundBankInfo),
+              createdBy: adminId,
+            },
+          });
+          notificationsCreated += 1;
+        }
+
+        await tx.bookingStatusLog.create({
+          data: {
+            bookingId: booking.id,
+            actionType: "operator_cancel_departure",
+            oldStatus,
+            newStatus: "cancelled_by_operator",
+            changedByUserId: adminId,
+            source: "admin",
+            reason,
+            note: notice,
+          },
+        });
+
+        if (booking.contactEmail) {
+          emailQueue.push({
+            to: booking.contactEmail,
+            bookingCode: booking.bookingCode,
+            subject: `Thông báo hủy lịch khởi hành tour ${departure.tour?.name || ""}`,
+            html: this.buildDepartureEmailHtml({
+              booking: updatedBooking,
+              reason,
+              customerMessage: notice,
+              refundAmount,
+              refundCreated: shouldCreateRefund && refundAmount > 0,
+            }),
+          });
+        }
+      }
+
+      const guideCancellation = await this.cancelDepartureGuideOperation(tx, {
+        departure,
+        reason,
+        adminId,
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorUserId: adminId,
+          action: "operator_cancel_departure",
+          entityType: "TourDeparture",
+          entityId: String(departure.id),
+          oldData: {
+            status: departure.status,
+          },
+          newData: {
+            status: "cancelled",
+            reasonType: dto.reasonType,
+            reason,
+            customerMessage,
+            affectedBookings: departure.bookings?.length || 0,
+            cancelledBookings,
+            refundRequestsCreated,
+            totalRefundAmount,
+            guideAssignmentsCancelled:
+              guideCancellation.guideAssignmentsCancelled,
+            guideNotificationsCreated:
+              guideCancellation.guideNotificationsCreated,
+            tripOperationCancelled: guideCancellation.tripOperationCancelled,
+          },
+        },
+      });
+
+      return {
+        departure: {
+          id: String(departure.id),
+          status: "cancelled",
+        },
+        tour: {
+          id: String(departure.tourId),
+          name: departure.tour?.name,
+        },
+        emailQueue,
+        summary: {
+          affectedBookings: departure.bookings?.length || 0,
+          cancelledBookings,
+          refundRequestsCreated,
+          unpaidBookings,
+          totalRefundAmount,
+          notificationsCreated,
+          guideAssignmentsCancelled:
+            guideCancellation.guideAssignmentsCancelled,
+          guideNotificationsCreated:
+            guideCancellation.guideNotificationsCreated,
+          tripOperationCancelled: guideCancellation.tripOperationCancelled,
+        },
+      };
+    });
+
+    let emailsSent = 0;
+    const emailErrors: string[] = [];
+    for (const item of transactionResult.emailQueue) {
+      try {
+        await this.emailService.sendMail({
+          to: item.to,
+          subject: item.subject,
+          html: item.html,
+        });
+        emailsSent += 1;
+      } catch (error: any) {
+        emailErrors.push(
+          `${item.bookingCode}: ${error?.message || "Không gửi được email"}`,
+        );
+      }
+    }
+
+    const emailsFailed = emailErrors.length;
+    await this.prisma.auditLog
+      .create({
+        data: {
+          actorUserId: adminId,
+          action: "operator_cancel_departure_email_result",
+          entityType: "TourDeparture",
+          entityId: String(departureId),
+          newData: {
+            emailsSent,
+            emailsFailed,
+            errors: emailErrors,
+          },
+        },
+      })
+      .catch(() => null);
+
+    return {
+      success: true,
+      message: "Đã hủy lịch khởi hành và tạo yêu cầu hoàn tiền.",
+      departure: transactionResult.departure,
+      summary: {
+        ...transactionResult.summary,
+        emailsSent,
+        emailsFailed,
+      },
+      emailErrors,
     };
   }
 

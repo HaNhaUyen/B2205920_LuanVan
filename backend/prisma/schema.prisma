@@ -14,8 +14,12 @@ model User {
   phone                                                                   String?                   @unique(map: "phone") @db.VarChar(20)
   identityNumber                                                          String?                   @unique(map: "identity_number") @map("identity_number") @db.VarChar(30)
   birthDate                                                               DateTime?                 @map("birth_date") @db.Date
+  gender                                                                  String?                   @db.VarChar(20)
   dietaryNotes                                                            String?                   @map("dietary_notes") @db.Text
   healthNotes                                                             String?                   @map("health_notes") @db.Text
+  refundBankName                                                          String?                   @map("refund_bank_name") @db.VarChar(100)
+  refundAccountNo                                                         String?                   @map("refund_account_no") @db.VarChar(50)
+  refundAccountName                                                       String?                   @map("refund_account_name") @db.VarChar(150)
   passwordHash                                                            String?                   @map("password_hash") @db.VarChar(255)
   googleId                                                                String?                   @unique(map: "google_id") @map("google_id") @db.VarChar(255)
   authProvider                                                            String                    @default("local") @map("auth_provider") @db.VarChar(30)
@@ -76,36 +80,34 @@ model User {
 }
 
 model Destination {
-  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  name        String   @db.VarChar(150)
-  province    String   @db.VarChar(100)
-  country     String   @default("Vietnam") @db.VarChar(100)
-  description String?  @db.Text
-  coverImage  String?  @map("cover_image") @db.VarChar(500)
-  status      String   @default("active") @db.VarChar(20)
-  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt   DateTime @default(now()) @map("updated_at") @db.DateTime(0)
-
-  tours     Tour[]
-  landmarks DestinationLandmark[]
+  id          BigInt                @id @default(autoincrement()) @db.UnsignedBigInt
+  name        String                @db.VarChar(150)
+  province    String                @db.VarChar(100)
+  country     String                @default("Vietnam") @db.VarChar(100)
+  description String?               @db.Text
+  coverImage  String?               @map("cover_image") @db.VarChar(500)
+  status      String                @default("active") @db.VarChar(20)
+  createdAt   DateTime              @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt   DateTime              @default(now()) @map("updated_at") @db.DateTime(0)
+  landmarks   DestinationLandmark[]
+  tours       Tour[]
 
   @@map("destinations")
 }
 
 model DestinationLandmark {
-  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  destinationId  BigInt   @map("destination_id") @db.UnsignedBigInt
-  name           String   @db.VarChar(180)
-  normalizedName String   @map("normalized_name") @db.VarChar(180)
+  id             BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  destinationId  BigInt      @map("destination_id") @db.UnsignedBigInt
+  name           String      @db.VarChar(180)
+  normalizedName String      @map("normalized_name") @db.VarChar(180)
   aliases        Json?
-  description    String?  @db.Text
-  latitude       Decimal? @db.Decimal(10, 7)
-  longitude      Decimal? @db.Decimal(10, 7)
-  status         String   @default("active") @db.VarChar(20)
-  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt      DateTime @default(now()) @map("updated_at") @db.DateTime(0)
-
-  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "destination_landmarks_ibfk_1")
+  description    String?     @db.Text
+  latitude       Decimal?    @db.Decimal(10, 7)
+  longitude      Decimal?    @db.Decimal(10, 7)
+  status         String      @default("active") @db.VarChar(20)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt      DateTime    @default(now()) @map("updated_at") @db.DateTime(0)
+  destination    Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "destination_landmarks_ibfk_1")
 
   @@unique([destinationId, normalizedName], map: "uk_destination_landmark")
   @@index([normalizedName], map: "idx_destination_landmark_normalized")
@@ -332,6 +334,7 @@ model Booking {
   incidentTickets           IncidentTicket[]
   payments                  Payment[]
   refundRequests            RefundRequest[]
+  revenue_adjustments       revenue_adjustments[]
   reviews                   Review[]
   broadcastRecipients       TripBroadcastRecipient[]
 
@@ -387,6 +390,24 @@ model Payment {
 
   @@index([bookingId], map: "booking_id")
   @@map("payments")
+}
+
+model IdempotencyRequest {
+  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  userId         BigInt?   @map("user_id") @db.UnsignedBigInt
+  key            String    @db.VarChar(120)
+  operation      String    @db.VarChar(80)
+  requestHash    String?   @map("request_hash") @db.VarChar(128)
+  responseStatus Int?      @map("response_status")
+  responseBody   Json?     @map("response_body")
+  resourceType   String?   @map("resource_type") @db.VarChar(80)
+  resourceId     BigInt?   @map("resource_id") @db.UnsignedBigInt
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  expiresAt      DateTime? @map("expires_at") @db.DateTime(0)
+
+  @@unique([userId, key, operation], map: "uk_idempotency_user_key_operation")
+  @@index([expiresAt], map: "idx_idempotency_expires")
+  @@map("idempotency_requests")
 }
 
 model BookingStatusLog {
@@ -526,6 +547,7 @@ model Notification {
   targetRole    NotificationTargetRole @default(user) @map("target_role")
   targetUserId  BigInt?                @map("target_user_id") @db.UnsignedBigInt
   isPublished   Boolean?               @default(true) @map("is_published")
+  metadata      Json?
   createdBy     BigInt?                @map("created_by") @db.UnsignedBigInt
   createdAt     DateTime?              @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt     DateTime?              @default(now()) @map("updated_at") @db.DateTime(0)
@@ -638,24 +660,32 @@ model UserVoucher {
 }
 
 model RefundRequest {
-  id                                       BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
-  bookingId                                BigInt       @map("booking_id") @db.UnsignedBigInt
-  userId                                   BigInt?      @map("user_id") @db.UnsignedBigInt
-  reason                                   String       @db.Text
-  refundAmount                             Decimal?     @map("refund_amount") @db.Decimal(12, 2)
-  refundBankName                           String?      @map("refund_bank_name") @db.VarChar(100)
-  refundAccountNo                          String?      @map("refund_account_no") @db.VarChar(50)
-  refundAccountName                        String?      @map("refund_account_name") @db.VarChar(150)
-  refundQrUrl                              String?      @map("refund_qr_url") @db.VarChar(500)
-  status                                   RefundStatus @default(pending)
-  adminNote                                String?      @map("admin_note") @db.Text
-  reviewedBy                               BigInt?      @map("reviewed_by") @db.UnsignedBigInt
-  reviewedAt                               DateTime?    @map("reviewed_at") @db.DateTime(0)
-  createdAt                                DateTime     @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                                DateTime     @default(now()) @map("updated_at") @db.DateTime(0)
-  booking                                  Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "refund_requests_ibfk_1")
-  user                                     User?        @relation(fields: [userId], references: [id], onUpdate: NoAction, map: "refund_requests_ibfk_2")
-  users_refund_requests_reviewed_byTousers User?        @relation("refund_requests_reviewed_byTousers", fields: [reviewedBy], references: [id], onUpdate: NoAction, map: "refund_requests_ibfk_3")
+  id                                       BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  bookingId                                BigInt               @map("booking_id") @db.UnsignedBigInt
+  activeKey                                String?              @unique(map: "uk_refund_active_key") @map("active_key") @db.VarChar(80)
+  userId                                   BigInt?              @map("user_id") @db.UnsignedBigInt
+  reason                                   String               @db.Text
+  refundAmount                             Decimal?             @map("refund_amount") @db.Decimal(12, 2)
+  refund_rate                              Decimal?             @db.Decimal(5, 2)
+  policy_code                              String?              @db.VarChar(80)
+  policy_label                             String?              @db.VarChar(500)
+  days_before_departure                    Decimal?             @db.Decimal(10, 4)
+  hours_after_payment                      Decimal?             @db.Decimal(10, 4)
+  refundBankName                           String?              @map("refund_bank_name") @db.VarChar(100)
+  refundAccountNo                          String?              @map("refund_account_no") @db.VarChar(50)
+  refundAccountName                        String?              @map("refund_account_name") @db.VarChar(150)
+  bankInfoStatus                           String?              @map("bank_info_status") @db.VarChar(30)
+  status                                   RefundStatus         @default(pending)
+  adminNote                                String?              @map("admin_note") @db.Text
+  reviewedBy                               BigInt?              @map("reviewed_by") @db.UnsignedBigInt
+  reviewedAt                               DateTime?            @map("reviewed_at") @db.DateTime(0)
+  refunded_at                              DateTime?            @db.DateTime(0)
+  createdAt                                DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                                DateTime             @default(now()) @map("updated_at") @db.DateTime(0)
+  booking                                  Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "refund_requests_ibfk_1")
+  user                                     User?                @relation(fields: [userId], references: [id], onUpdate: NoAction, map: "refund_requests_ibfk_2")
+  users_refund_requests_reviewed_byTousers User?                @relation("refund_requests_reviewed_byTousers", fields: [reviewedBy], references: [id], onUpdate: NoAction, map: "refund_requests_ibfk_3")
+  revenue_adjustments                      revenue_adjustments?
 
   @@index([refundAccountNo])
   @@index([bookingId], map: "booking_id")
@@ -1608,6 +1638,40 @@ model trip_operations_backup_before_reseed {
   @@ignore
 }
 
+model revenue_adjustments {
+  id                BigInt                              @id @default(autoincrement()) @db.UnsignedBigInt
+  booking_id        BigInt                              @db.UnsignedBigInt
+  refund_request_id BigInt                              @unique(map: "uk_revenue_adjustment_refund") @db.UnsignedBigInt
+  adjustment_type   revenue_adjustments_adjustment_type @default(refund)
+  amount            Decimal                             @db.Decimal(12, 2)
+  occurred_at       DateTime                            @db.DateTime(0)
+  note              String?                             @db.Text
+  created_at        DateTime                            @default(now()) @db.DateTime(0)
+  bookings          Booking                             @relation(fields: [booking_id], references: [id], onDelete: Cascade, map: "fk_revenue_adjustment_booking")
+  refund_requests   RefundRequest                       @relation(fields: [refund_request_id], references: [id], onDelete: Cascade, map: "fk_revenue_adjustment_refund")
+
+  @@index([booking_id], map: "idx_revenue_adjustment_booking")
+  @@index([occurred_at], map: "idx_revenue_adjustment_occurred_at")
+}
+
+model system_holidays {
+  id           BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  holiday_date DateTime               @unique(map: "uk_system_holidays_date") @db.Date
+  holiday_name String                 @db.VarChar(255)
+  status       system_holidays_status @default(active)
+  created_at   DateTime               @default(now()) @db.DateTime(0)
+  updated_at   DateTime               @default(now()) @db.DateTime(0)
+}
+
+model timezone_alter_errors {
+  id            BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  table_name    String   @db.VarChar(255)
+  column_name   String   @db.VarChar(100)
+  error_code    Int?
+  error_message String?  @db.Text
+  created_at    DateTime @default(now()) @db.DateTime(0)
+}
+
 enum Role {
   admin
   user
@@ -1663,6 +1727,8 @@ enum BookingStatus {
   waiting_confirmation
   confirmed
   cancelled
+  cancelled_by_customer
+  cancelled_by_operator
   expired
   completed
 }
@@ -1839,4 +1905,14 @@ enum trip_operations_backup_before_reseed_operation_status {
 enum vouchers_discount_type {
   percent
   fixed
+}
+
+enum revenue_adjustments_adjustment_type {
+  refund
+  manual
+}
+
+enum system_holidays_status {
+  active
+  inactive
 }

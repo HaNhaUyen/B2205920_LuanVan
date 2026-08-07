@@ -6267,3 +6267,566 @@ html.dark-mode .recommendation-reason-box strong {
 html.dark-mode .recommendation-reason-box li {
   color: #dbeafe !important;
 }
+
+/* =========================================================
+   PROFILE + HEADER POLISH 2026-08-07
+   Scoped overrides for the user profile and account area.
+   Keeps existing functions intact while making light/dark modes consistent.
+   ========================================================= */
+
+/* Header account cluster */
+.app-user-actions {
+  padding: 4px;
+  border-radius: 999px;
+}
+
+.app-user-pill {
+  min-height: 46px;
+  padding: 4px 12px 4px 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(248, 250, 252, 0.92);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.app-user-pill:hover {
+  transform: translateY(-1px);
+  border-color: rgba(37, 99, 235, 0.2);
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.app-user-avatar {
+  flex: 0 0 38px;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.07);
+}
+
+.app-user-meta {
+  display: grid;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.app-user-name {
+  display: block;
+  max-width: 145px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #1e293b;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.app-user-tier {
+  display: block;
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.app-logout-btn {
+  min-height: 42px;
+  border: 1px solid rgba(15, 23, 42, 0.07) !important;
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.app-logout-btn:hover {
+  transform: translateY(-1px);
+  background: #fff7ed !important;
+  color: #c2410c !important;
+  border-color: #fed7aa !important;
+}
+
+/* Profile light mode polish */
+.profile-page {
+  --profile-bg: #f5f7fb;
+  --profile-card: #ffffff;
+  --profile-card-soft: #f8fafc;
+  --profile-card-soft-2: #f8fbff;
+  --profile-text: #0f172a;
+  --profile-muted: #64748b;
+  --profile-border: #e2e8f0;
+  --profile-input: #ffffff;
+  --profile-input-border: #cbd5e1;
+  --profile-blue: #2563eb;
+  --profile-shadow: 0 16px 38px rgba(15, 23, 42, 0.06);
+  background: var(--profile-bg) !important;
+  color: var(--profile-text);
+}
+
+.profile-page .profile-sidebar-card,
+.profile-page .profile-card {
+  background: var(--profile-card) !important;
+  border-color: var(--profile-border) !important;
+  box-shadow: var(--profile-shadow) !important;
+}
+
+.profile-page .profile-sidebar-card {
+  border-radius: 22px !important;
+}
+
+.profile-page .profile-menu-btn {
+  position: relative;
+  min-height: 48px;
+}
+
+.profile-page .profile-menu-btn.active {
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.profile-page .profile-soft-section,
+.profile-page .profile-traveler-card {
+  border-color: var(--profile-border) !important;
+}
+
+.profile-page input,
+.profile-page select,
+.profile-page textarea {
+  color: var(--profile-text);
+}
+
+.profile-page input::placeholder,
+.profile-page textarea::placeholder {
+  color: #94a3b8;
+}
+
+.profile-security-card {
+  border-radius: 24px !important;
+}
+
+.profile-security-form-pane {
+  min-width: 0;
+}
+
+/* Dark profile: one coherent palette instead of mixed white/black surfaces */
+html.dark-mode .profile-page {
+  --profile-bg: #0b1220;
+  --profile-card: #111a2b;
+  --profile-card-soft: #162033;
+  --profile-card-soft-2: #132038;
+  --profile-text: #f1f5f9;
+  --profile-muted: #9fb0c8;
+  --profile-border: rgba(148, 163, 184, 0.16);
+  --profile-input: #0c1525;
+  --profile-input-border: rgba(148, 163, 184, 0.24);
+  --profile-blue: #7eb6ff;
+  --profile-shadow: 0 22px 54px rgba(0, 0, 0, 0.24);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(37, 99, 235, 0.09), transparent 30%),
+    radial-gradient(circle at 92% 10%, rgba(20, 184, 166, 0.07), transparent 28%),
+    linear-gradient(180deg, #0a1220 0%, #0d1727 100%) !important;
+  color: var(--profile-text) !important;
+}
+
+html.dark-mode .profile-page .profile-sidebar-card,
+html.dark-mode .profile-page .profile-card {
+  background: linear-gradient(180deg, #111b2d 0%, #0f1929 100%) !important;
+  color: var(--profile-text) !important;
+  border: 1px solid var(--profile-border) !important;
+  box-shadow: var(--profile-shadow) !important;
+}
+
+html.dark-mode .profile-page .profile-sidebar-card h2,
+html.dark-mode .profile-page .profile-card h1,
+html.dark-mode .profile-page .profile-card h2,
+html.dark-mode .profile-page .profile-card h3,
+html.dark-mode .profile-page .profile-card h4,
+html.dark-mode .profile-page .profile-card strong,
+html.dark-mode .profile-page label {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .profile-page .profile-sidebar-card > p,
+html.dark-mode .profile-page .profile-card p,
+html.dark-mode .profile-page .profile-card small,
+html.dark-mode .profile-page .profile-card .muted {
+  color: var(--profile-muted) !important;
+}
+
+html.dark-mode .profile-page .profile-menu-btn {
+  color: #b8c6db !important;
+  background: transparent !important;
+}
+
+html.dark-mode .profile-page .profile-menu-btn:hover {
+  background: rgba(148, 163, 184, 0.08) !important;
+  color: #f8fafc !important;
+}
+
+html.dark-mode .profile-page .profile-menu-btn.active {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.22), rgba(59, 130, 246, 0.1)) !important;
+  color: #a9ccff !important;
+  box-shadow: inset 3px 0 0 #60a5fa;
+}
+
+html.dark-mode .profile-page input,
+html.dark-mode .profile-page select,
+html.dark-mode .profile-page textarea {
+  background: var(--profile-input) !important;
+  color: #f8fafc !important;
+  border-color: var(--profile-input-border) !important;
+  box-shadow: none !important;
+}
+
+html.dark-mode .profile-page input:focus,
+html.dark-mode .profile-page select:focus,
+html.dark-mode .profile-page textarea:focus {
+  border-color: rgba(96, 165, 250, 0.75) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14) !important;
+}
+
+html.dark-mode .profile-page input::placeholder,
+html.dark-mode .profile-page textarea::placeholder {
+  color: #70829c !important;
+}
+
+html.dark-mode .profile-page input:disabled,
+html.dark-mode .profile-page input[readonly] {
+  background: #172235 !important;
+  color: #a9b8ce !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark-mode .profile-page .profile-soft-section {
+  background: linear-gradient(180deg, #152033, #121c2d) !important;
+  border-color: var(--profile-border) !important;
+}
+
+html.dark-mode .profile-page .profile-refund-bank-section svg {
+  color: #5eead4 !important;
+}
+
+html.dark-mode .profile-page .profile-support-section {
+  background: linear-gradient(180deg, rgba(30, 64, 175, 0.12), #121c2d) !important;
+}
+
+html.dark-mode .profile-page table {
+  background: transparent !important;
+}
+
+html.dark-mode .profile-page table th {
+  background: #162135 !important;
+  color: #9fb0c8 !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+html.dark-mode .profile-page table td {
+  color: #dbe7f7 !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+html.dark-mode .profile-page table td strong,
+html.dark-mode .profile-page table td div {
+  color: inherit;
+}
+
+html.dark-mode .profile-page .profile-traveler-card {
+  background: #121d2f !important;
+  border-color: var(--profile-border) !important;
+  box-shadow: none !important;
+}
+
+html.dark-mode .profile-page .profile-traveler-card.is-default {
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.13), #121d2f) !important;
+  border-color: rgba(96, 165, 250, 0.28) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16) !important;
+}
+
+html.dark-mode .profile-page .profile-security-card {
+  background: #101a2a !important;
+}
+
+html.dark-mode .profile-page .profile-security-intro {
+  background:
+    radial-gradient(circle at 12% 12%, rgba(96, 165, 250, 0.18), transparent 30%),
+    linear-gradient(145deg, #142443 0%, #1c3c78 58%, #2455a5 100%) !important;
+}
+
+html.dark-mode .profile-page .profile-security-intro h2,
+html.dark-mode .profile-page .profile-security-intro p,
+html.dark-mode .profile-page .profile-security-intro div {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .profile-page .profile-security-form-pane {
+  background: #111b2d !important;
+}
+
+html.dark-mode .profile-page .profile-security-form-pane > div > p {
+  color: #7eb6ff !important;
+}
+
+html.dark-mode .profile-page .profile-security-form-pane form input {
+  background: #0b1423 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark-mode .profile-refund-overlay {
+  background: rgba(2, 6, 23, 0.72) !important;
+}
+
+html.dark-mode .profile-refund-modal {
+  background: #111b2d !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  color: #f8fafc !important;
+}
+
+html.dark-mode .profile-refund-modal > div,
+html.dark-mode .profile-refund-modal form > div {
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark-mode .profile-refund-modal button[aria-label="Đóng form hoàn tiền"] {
+  background: #1a263a !important;
+  color: #cbd5e1 !important;
+}
+
+/* Header dark mode: clean account pill, no boxed-looking name */
+html.dark-mode .app-brand strong {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .app-nav-link {
+  color: #b8c6da !important;
+}
+
+html.dark-mode .app-nav-link.active {
+  color: #d8ffe9 !important;
+  background: rgba(34, 197, 94, 0.13) !important;
+  border-color: rgba(74, 222, 128, 0.22) !important;
+  box-shadow: none !important;
+}
+
+html.dark-mode .app-user-pill {
+  background: rgba(30, 41, 59, 0.72) !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.15) !important;
+}
+
+html.dark-mode .app-user-pill:hover {
+  background: rgba(39, 52, 73, 0.9) !important;
+  border-color: rgba(96, 165, 250, 0.25) !important;
+}
+
+html.dark-mode .app-user-name {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .app-user-tier {
+  color: #8fa3bf !important;
+}
+
+html.dark-mode .app-user-avatar {
+  border-color: rgba(148, 163, 184, 0.22) !important;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.08) !important;
+}
+
+html.dark-mode .app-logout-btn {
+  background: rgba(30, 41, 59, 0.72) !important;
+  color: #cbd5e1 !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+html.dark-mode .app-logout-btn:hover {
+  background: rgba(127, 29, 29, 0.28) !important;
+  color: #fecaca !important;
+  border-color: rgba(248, 113, 113, 0.3) !important;
+}
+
+@media (max-width: 980px) {
+  .app-user-tier {
+    display: none;
+  }
+  .app-user-name {
+    max-width: 110px;
+  }
+}
+
+@media (max-width: 760px) {
+  .profile-page {
+    padding-top: 24px !important;
+  }
+
+  .profile-page > div {
+    width: calc(100% - 24px) !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .profile-page .profile-sidebar-card {
+    position: static !important;
+  }
+
+  .profile-page form {
+    grid-template-columns: 1fr !important;
+  }
+
+  .profile-security-card > div {
+    grid-template-columns: 1fr !important;
+  }
+
+  .app-user-pill {
+    padding-right: 5px;
+  }
+
+  .app-user-meta,
+  .app-logout-btn {
+    display: none !important;
+  }
+}
+
+
+/* ===== Profile dark polish v2: voucher cards, traveler action bar, Vietnamese member tier ===== */
+
+/* Header user chip: compact, polished, readable */
+.app-user-profile-link {
+  min-height: 46px;
+}
+
+.app-user-meta {
+  min-width: 0;
+}
+
+.app-user-name {
+  line-height: 1.15;
+}
+
+.app-user-tier {
+  line-height: 1.15;
+}
+
+/* Voucher cards - light mode */
+.profile-page .profile-voucher-card {
+  min-height: 188px;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+  border: 1px solid #dbe4f0 !important;
+  border-radius: 18px !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.profile-page .profile-voucher-card:hover {
+  transform: translateY(-2px);
+  border-color: #bfdbfe !important;
+  box-shadow: 0 16px 34px rgba(37, 99, 235, 0.09);
+}
+
+.profile-page .profile-voucher-code {
+  background: linear-gradient(135deg, #2563eb, #3b82f6) !important;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+.profile-page .profile-voucher-title {
+  color: var(--profile-text) !important;
+}
+
+.profile-page .profile-voucher-description {
+  color: var(--profile-muted) !important;
+  min-height: 42px;
+  line-height: 1.55;
+}
+
+.profile-page .profile-voucher-footer {
+  border-top-color: #d7e0ec !important;
+}
+
+.profile-page .profile-traveler-action-bar {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0),
+      rgba(255, 255, 255, 0.94) 34%,
+      #ffffff 58%
+    ) !important;
+  border-top-color: #e5eaf1 !important;
+}
+
+/* Dark mode: vouchers should belong to the dark profile, not look like white paper blocks */
+html.dark-mode .profile-page .profile-voucher-card {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.11), transparent 35%),
+    linear-gradient(180deg, #162238 0%, #111b2d 100%) !important;
+  border: 1px solid rgba(125, 157, 199, 0.22) !important;
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.025) !important;
+}
+
+html.dark-mode .profile-page .profile-voucher-card:hover {
+  border-color: rgba(96, 165, 250, 0.5) !important;
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.26),
+    0 0 0 1px rgba(59, 130, 246, 0.08) !important;
+}
+
+html.dark-mode .profile-page .profile-voucher-code {
+  background: linear-gradient(135deg, #3478f6, #2563eb) !important;
+  color: #ffffff !important;
+  border-color: rgba(147, 197, 253, 0.28) !important;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.28) !important;
+}
+
+html.dark-mode .profile-page .profile-voucher-title,
+html.dark-mode .profile-page .profile-voucher-card strong {
+  color: #f8fbff !important;
+}
+
+html.dark-mode .profile-page .profile-voucher-description,
+html.dark-mode .profile-page .profile-voucher-card p {
+  color: #a9bbd3 !important;
+}
+
+html.dark-mode .profile-page .profile-voucher-footer {
+  border-top-color: rgba(148, 163, 184, 0.20) !important;
+}
+
+html.dark-mode .profile-page .profile-voucher-footer p {
+  color: #8fa6c2 !important;
+}
+
+html.dark-mode .profile-page .profile-voucher-footer strong {
+  color: #f8fbff !important;
+}
+
+/* Keep discount value warm/red while preserving the remaining strong text */
+html.dark-mode .profile-page .profile-voucher-footer > div:first-child strong {
+  color: #fb7185 !important;
+}
+
+/* Remove the glaring white strip below the traveler form */
+html.dark-mode .profile-page .profile-traveler-action-bar {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(17, 26, 43, 0),
+      rgba(17, 26, 43, 0.94) 34%,
+      #111a2b 58%
+    ) !important;
+  border-top: 1px solid rgba(148, 163, 184, 0.14) !important;
+}
+
+/* Header user pill: make the sub-label Vietnamese and visually quieter */
+html.dark-mode .app-user-tier {
+  color: #9fb0c8 !important;
+}
+
+html:not(.dark-mode) .app-user-tier {
+  color: #64748b !important;
+}

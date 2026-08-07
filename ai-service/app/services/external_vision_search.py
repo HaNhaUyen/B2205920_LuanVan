@@ -12,6 +12,10 @@ import requests
 from PIL import Image
 
 
+REQUEST_SESSION = requests.Session()
+MAX_EXTERNAL_IMAGE_SIDE = int(os.getenv("EXTERNAL_VISION_MAX_IMAGE_SIDE", "1024"))
+
+
 TRAVEL_IMAGE_TYPES = {
     "travel_landscape",
     "building_landmark",
@@ -56,7 +60,12 @@ def _image_to_data_url(
 ) -> str:
     buffer = io.BytesIO()
 
-    image.convert("RGB").save(
+    image = image.convert("RGB")
+    if MAX_EXTERNAL_IMAGE_SIDE > 0 and max(image.size) > MAX_EXTERNAL_IMAGE_SIDE:
+        image = image.copy()
+        image.thumbnail((MAX_EXTERNAL_IMAGE_SIDE, MAX_EXTERNAL_IMAGE_SIDE), Image.Resampling.LANCZOS)
+
+    image.save(
         buffer,
         format="JPEG",
         quality=88,
@@ -354,13 +363,15 @@ def _request_json_with_retry(
 
     attempts.append(payload_short)
 
+    max_retries = max(0, int(os.getenv("EXTERNAL_VISION_MAX_RETRIES", "0")))
+    attempts = attempts[: max(1, min(len(attempts), 1 + max_retries))]
     errors: list[str] = []
 
     for index, current_payload in enumerate(
         attempts,
     ):
         try:
-            response = requests.post(
+            response = REQUEST_SESSION.post(
                 url,
                 headers=headers,
                 json=current_payload,
@@ -434,8 +445,8 @@ def _request_vision(
         5,
         int(
             os.getenv(
-                "VISION_REQUEST_TIMEOUT_SECONDS",
-                "35",
+                "EXTERNAL_VISION_TIMEOUT_SECONDS",
+                os.getenv("VISION_REQUEST_TIMEOUT_SECONDS", "8"),
             ),
         ),
     )

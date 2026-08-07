@@ -240,6 +240,22 @@ function canCancelBooking(booking) {
   return bookingStatus === "pending_payment" && !hasProtectedPayment;
 }
 
+function getBookingStatusLabel(status) {
+  const labels = {
+    pending_payment: "Chờ thanh toán",
+    waiting_confirmation: "Chờ xác nhận",
+    confirmed: "Đã xác nhận",
+    completed: "Đã hoàn thành",
+    cancelled: "Đã hủy",
+    expired: "Đã hết hạn",
+    failed: "Thất bại",
+    refunded: "Đã hoàn tiền",
+  };
+
+  const key = String(status || "").toLowerCase();
+  return labels[key] || "Chưa xác định";
+}
+
 function BookingStatusBadge({ status }) {
   const color = getStatusColor(status);
 
@@ -256,7 +272,7 @@ function BookingStatusBadge({ status }) {
         fontWeight: 800,
       }}
     >
-      {mapLabel(status)}
+      {getBookingStatusLabel(status)}
     </span>
   );
 }

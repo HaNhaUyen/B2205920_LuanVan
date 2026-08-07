@@ -15,6 +15,12 @@ export class TransportItemDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   supplierId?: number;
 
   @IsString()

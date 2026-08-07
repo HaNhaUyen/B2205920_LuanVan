@@ -22,6 +22,93 @@ function htmlEscape(value = "") {
   );
 }
 
+function normalizeDigits(value: unknown) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function normalizeEmail(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function validateGuideProfileInput(
+  dto: any,
+  options: { requirePassword?: boolean } = {},
+) {
+  const fullName = String(dto.fullName || "").trim();
+  const phone = normalizeDigits(dto.phone);
+  const email = normalizeEmail(dto.email);
+  const identityNumber = normalizeDigits(dto.identityNumber);
+  const languages = String(dto.languages || "").trim();
+  const experienceYears = Number(dto.experienceYears);
+  const password = String(dto.password || "");
+
+  if (!fullName) {
+    throw new BadRequestException("Vui lòng nhập họ tên HDV.");
+  }
+  if (fullName.length < 2 || fullName.length > 120) {
+    throw new BadRequestException("Họ tên HDV phải từ 2 đến 120 ký tự.");
+  }
+
+  if (!phone) {
+    throw new BadRequestException("Vui lòng nhập số điện thoại HDV.");
+  }
+  if (!/^0\d{9}$/.test(phone)) {
+    throw new BadRequestException(
+      "Số điện thoại phải gồm đúng 10 chữ số và bắt đầu bằng 0.",
+    );
+  }
+
+  if (!email) {
+    throw new BadRequestException(
+      "Vui lòng nhập email. Email này đồng thời là tài khoản đăng nhập của HDV.",
+    );
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new BadRequestException("Email hướng dẫn viên không hợp lệ.");
+  }
+
+  if (!identityNumber) {
+    throw new BadRequestException("Vui lòng nhập số CCCD của HDV.");
+  }
+  if (!/^\d{12}$/.test(identityNumber)) {
+    throw new BadRequestException("Số CCCD phải gồm đúng 12 chữ số.");
+  }
+
+  if (!languages) {
+    throw new BadRequestException("Vui lòng nhập ngôn ngữ của HDV.");
+  }
+
+  if (
+    !Number.isInteger(experienceYears) ||
+    experienceYears < 0 ||
+    experienceYears > 60
+  ) {
+    throw new BadRequestException(
+      "Số năm kinh nghiệm phải là số nguyên từ 0 đến 60.",
+    );
+  }
+
+  if (options.requirePassword && !password) {
+    throw new BadRequestException("Vui lòng nhập mật khẩu đăng nhập cho HDV.");
+  }
+  if (password && password.length < 6) {
+    throw new BadRequestException("Mật khẩu HDV cần tối thiểu 6 ký tự.");
+  }
+
+  return {
+    fullName,
+    phone,
+    email,
+    identityNumber,
+    languages,
+    experienceYears,
+    password,
+    note: String(dto.note || "").trim() || null,
+  };
+}
+
 @Injectable()
 export class GuidesService {
   constructor(
@@ -120,90 +207,68 @@ export class GuidesService {
   }
 
   async create(dto: any) {
-    const fullName = String(dto.fullName || "").trim();
-    const phone = String(dto.phone || "").trim();
-    const email = String(dto.email || "")
-      .trim()
-      .toLowerCase();
-    const createAccount = Boolean(dto.createAccount || dto.password);
-
-    if (!fullName) {
-      throw new BadRequestException("Vui lòng nhập họ tên HDV.");
-    }
-
-    if (!phone) {
-      throw new BadRequestException("Vui lòng nhập số điện thoại HDV.");
-    }
-
-    if (createAccount && !email) {
-      throw new BadRequestException(
-        "Cần email để tạo tài khoản đăng nhập cho hướng dẫn viên.",
-      );
-    }
+    const input = validateGuideProfileInput(dto, { requirePassword: true });
 
     return this.prisma.$transaction(async (tx) => {
-      let userId = dto.userId ? BigInt(dto.userId) : null;
+      const [
+        existingUser,
+        existingGuideEmail,
+        existingGuidePhone,
+        existingGuideIdentity,
+      ] = await Promise.all([
+        tx.user.findUnique({ where: { email: input.email } }),
+        tx.guide.findFirst({ where: { email: input.email } }),
+        tx.guide.findFirst({ where: { phone: input.phone } }),
+        tx.guide.findFirst({ where: { identityNumber: input.identityNumber } }),
+      ]);
 
-      if (createAccount) {
-        const existed = await tx.user.findUnique({
-          where: { email },
-        });
-
-        if (existed && existed.role !== "guide") {
-          throw new BadRequestException(
-            "Email này đã thuộc tài khoản khách/admin, không thể dùng cho HDV.",
-          );
-        }
-
-        if (existed) {
-          userId = existed.id;
-
-          await tx.user.update({
-            where: { id: existed.id },
-            data: {
-              role: "guide",
-              status: "active",
-            },
-          });
-        } else {
-          const password = String(dto.password || "123456");
-
-          if (password.length < 6) {
-            throw new BadRequestException(
-              "Mật khẩu HDV cần tối thiểu 6 ký tự.",
-            );
-          }
-
-          const passwordHash = await bcrypt.hash(password, 10);
-
-          const user = await tx.user.create({
-            data: {
-              fullName,
-              email,
-              phone: phone || undefined,
-              identityNumber: dto.identityNumber || undefined,
-              passwordHash,
-              role: "guide",
-              status: "active",
-              authProvider: "local",
-            },
-          });
-
-          userId = user.id;
-        }
+      if (existingUser) {
+        throw new BadRequestException(
+          "Email này đã được dùng làm tài khoản đăng nhập. Vui lòng dùng email khác.",
+        );
       }
+      if (existingGuideEmail) {
+        throw new BadRequestException(
+          "Email này đã thuộc một hướng dẫn viên khác.",
+        );
+      }
+      if (existingGuidePhone) {
+        throw new BadRequestException(
+          "Số điện thoại này đã thuộc một hướng dẫn viên khác.",
+        );
+      }
+      if (existingGuideIdentity) {
+        throw new BadRequestException(
+          "Số CCCD này đã thuộc một hướng dẫn viên khác.",
+        );
+      }
+
+      const user = await tx.user.create({
+        data: {
+          fullName: input.fullName,
+          email: input.email,
+          phone: input.phone,
+          identityNumber: input.identityNumber,
+          passwordHash: await bcrypt.hash(input.password, 10),
+          role: "guide",
+          status: "active",
+          authProvider: "local",
+        },
+      });
 
       return tx.guide.create({
         data: {
-          userId,
-          fullName,
-          phone,
-          email: email || null,
-          identityNumber: dto.identityNumber || null,
-          languages: dto.languages || null,
-          experienceYears: Number(dto.experienceYears || 0),
-          status: dto.status || "active",
-          note: dto.note || null,
+          userId: user.id,
+          fullName: input.fullName,
+          phone: input.phone,
+          email: input.email,
+          identityNumber: input.identityNumber,
+          languages: input.languages,
+          experienceYears: input.experienceYears,
+          // HDV mới luôn hoạt động; trạng thái quản lý bằng nút Khóa/Mở khóa.
+          status: "active",
+          // Ghi chú chuyên môn là trường duy nhất có thể bỏ trống.
+          note: input.note,
         },
         include: {
           userAccount: true,
@@ -215,125 +280,118 @@ export class GuidesService {
   async update(id: bigint, dto: any) {
     const guide = await this.prisma.guide.findUnique({
       where: { id },
+      include: { userAccount: true },
     });
 
     if (!guide) {
       throw new NotFoundException("Không tìm thấy hướng dẫn viên.");
     }
 
-    const fullName =
-      dto.fullName == null ? undefined : String(dto.fullName).trim();
-    const phone = dto.phone == null ? undefined : String(dto.phone).trim();
-    const email =
-      dto.email == null ? undefined : String(dto.email).trim().toLowerCase();
+    const merged = {
+      fullName: dto.fullName ?? guide.fullName,
+      phone: dto.phone ?? guide.phone,
+      email: dto.email ?? guide.email,
+      identityNumber: dto.identityNumber ?? guide.identityNumber,
+      languages: dto.languages ?? guide.languages,
+      experienceYears: dto.experienceYears ?? guide.experienceYears,
+      password: dto.password || "",
+      note: dto.note === undefined ? guide.note : dto.note,
+    };
+
+    const input = validateGuideProfileInput(merged, { requirePassword: false });
 
     return this.prisma.$transaction(async (tx) => {
-      let userId =
-        dto.userId === undefined
-          ? guide.userId
-          : dto.userId
-            ? BigInt(dto.userId)
-            : null;
+      const [sameEmailUser, sameGuideEmail, sameGuidePhone, sameGuideIdentity] =
+        await Promise.all([
+          tx.user.findUnique({ where: { email: input.email } }),
+          tx.guide.findFirst({ where: { email: input.email, NOT: { id } } }),
+          tx.guide.findFirst({ where: { phone: input.phone, NOT: { id } } }),
+          tx.guide.findFirst({
+            where: { identityNumber: input.identityNumber, NOT: { id } },
+          }),
+        ]);
 
-      if (dto.createAccount || dto.password) {
-        const accountEmail = email || guide.email;
-
-        if (!accountEmail) {
-          throw new BadRequestException(
-            "Cần email để tạo tài khoản đăng nhập cho hướng dẫn viên.",
-          );
-        }
-
-        const existed = await tx.user.findUnique({
-          where: { email: accountEmail },
-        });
-
-        if (
-          existed &&
-          existed.id !== guide.userId &&
-          existed.role !== "guide"
-        ) {
-          throw new BadRequestException(
-            "Email này đã thuộc tài khoản khách/admin, không thể dùng cho HDV.",
-          );
-        }
-
-        if (existed) {
-          userId = existed.id;
-
-          await tx.user.update({
-            where: { id: existed.id },
-            data: {
-              role: "guide",
-              status: "active",
-            },
-          });
-        } else {
-          const password = String(dto.password || "123456");
-
-          if (password.length < 6) {
-            throw new BadRequestException(
-              "Mật khẩu HDV cần tối thiểu 6 ký tự.",
-            );
-          }
-
-          const user = await tx.user.create({
-            data: {
-              fullName: fullName || guide.fullName,
-              email: accountEmail,
-              phone: phone || guide.phone || undefined,
-              identityNumber:
-                dto.identityNumber || guide.identityNumber || undefined,
-              passwordHash: await bcrypt.hash(password, 10),
-              role: "guide",
-              status: "active",
-              authProvider: "local",
-            },
-          });
-
-          userId = user.id;
-        }
+      if (
+        sameEmailUser &&
+        (!guide.userId || sameEmailUser.id !== guide.userId)
+      ) {
+        throw new BadRequestException(
+          "Email này đã được dùng làm tài khoản đăng nhập khác.",
+        );
+      }
+      if (sameGuideEmail) {
+        throw new BadRequestException(
+          "Email này đã thuộc một hướng dẫn viên khác.",
+        );
+      }
+      if (sameGuidePhone) {
+        throw new BadRequestException(
+          "Số điện thoại này đã thuộc một hướng dẫn viên khác.",
+        );
+      }
+      if (sameGuideIdentity) {
+        throw new BadRequestException(
+          "Số CCCD này đã thuộc một hướng dẫn viên khác.",
+        );
       }
 
-      const updated = await tx.guide.update({
+      let userId = guide.userId;
+
+      if (userId) {
+        const userData: any = {
+          fullName: input.fullName,
+          email: input.email,
+          phone: input.phone,
+          identityNumber: input.identityNumber,
+          role: "guide",
+        };
+        if (input.password) {
+          userData.passwordHash = await bcrypt.hash(input.password, 10);
+        }
+
+        await tx.user.update({
+          where: { id: userId },
+          data: userData,
+        });
+      } else {
+        if (!input.password) {
+          throw new BadRequestException(
+            "HDV này chưa có tài khoản đăng nhập. Vui lòng nhập mật khẩu để tạo tài khoản.",
+          );
+        }
+
+        const user = await tx.user.create({
+          data: {
+            fullName: input.fullName,
+            email: input.email,
+            phone: input.phone,
+            identityNumber: input.identityNumber,
+            passwordHash: await bcrypt.hash(input.password, 10),
+            role: "guide",
+            status: "active",
+            authProvider: "local",
+          },
+        });
+        userId = user.id;
+      }
+
+      return tx.guide.update({
         where: { id },
         data: {
           userId,
-          fullName,
-          phone,
-          email,
-          identityNumber:
-            dto.identityNumber === undefined
-              ? undefined
-              : dto.identityNumber || null,
-          languages:
-            dto.languages === undefined ? undefined : dto.languages || null,
-          status: dto.status === undefined ? undefined : dto.status,
-          note: dto.note === undefined ? undefined : dto.note || null,
-          experienceYears:
-            dto.experienceYears == null
-              ? undefined
-              : Number(dto.experienceYears),
+          fullName: input.fullName,
+          phone: input.phone,
+          email: input.email,
+          identityNumber: input.identityNumber,
+          languages: input.languages,
+          experienceYears: input.experienceYears,
+          // Không cho form hồ sơ sửa trạng thái; dùng nút Khóa/Mở khóa riêng.
+          note: input.note,
         },
         include: {
           userAccount: true,
         },
       });
-
-      if (updated.userId) {
-        await tx.user
-          .update({
-            where: { id: updated.userId },
-            data: {
-              fullName: updated.fullName,
-              phone: updated.phone || undefined,
-              avatarUrl: undefined,
-            },
-          })
-          .catch(() => null);
-      }
-
-      return updated;
     });
   }
 
@@ -969,33 +1027,77 @@ export class GuidesService {
         });
       }
 
+      if (previousGuide?.userId && previousGuide.id !== guide.id) {
+        await tx.notification.create({
+          data: {
+            title: "Phân công tour của bạn đã được thay đổi",
+            message: `Bạn không còn phụ trách tour ${departure.tour.name}.`,
+            content:
+              `Travela đã thay đổi hướng dẫn viên phụ trách tour ` +
+              `${departure.tour.name}, khởi hành ngày ` +
+              `${new Date(departure.departureDate).toLocaleDateString("vi-VN")}. ` +
+              `Hướng dẫn viên mới: ${guide.fullName}.` +
+              (dto.note ? ` Ghi chú: ${dto.note}` : ""),
+            targetRole: "guide",
+            targetUserId: previousGuide.userId,
+            isPublished: true,
+            createdBy: adminUserId,
+          },
+        });
+      }
+
       if (guide.userId) {
-        await tx.$executeRawUnsafe(
-          `INSERT INTO notifications(title,message,content,target_role,target_user_id,is_published,created_by,created_at,updated_at)
-           VALUES (?,?,?,?,?,1,?,NOW(),NOW())`,
-          "Bạn có lịch tour mới",
-          `${departure.tour.name} đã được phân công cho bạn.`,
-          `Bạn được phân công phụ trách tour ${departure.tour.name}, khởi hành ngày ${new Date(departure.departureDate).toLocaleDateString("vi-VN")}.`,
-          "user",
-          guide.userId,
-          adminUserId,
-        );
+        await tx.notification.create({
+          data: {
+            title: previousGuide
+              ? "Bạn được phân công thay thế cho một tour"
+              : "Bạn có lịch tour mới",
+            message: `${departure.tour.name} đã được phân công cho bạn.`,
+            content:
+              `Bạn được phân công phụ trách tour ${departure.tour.name}, ` +
+              `khởi hành ngày ${new Date(
+                departure.departureDate,
+              ).toLocaleDateString("vi-VN")}.` +
+              (previousGuide
+                ? ` Bạn thay thế HDV ${previousGuide.fullName}.`
+                : "") +
+              (dto.note ? ` Ghi chú: ${dto.note}` : ""),
+            targetRole: "guide",
+            targetUserId: guide.userId,
+            isPublished: true,
+            createdBy: adminUserId,
+          },
+        });
       }
 
       for (const booking of departure.bookings) {
         if (!booking.userId) continue;
-        await tx.$executeRawUnsafe(
-          `INSERT INTO notifications(title,message,content,target_role,target_user_id,is_published,created_by,created_at,updated_at)
-           VALUES (?,?,?,?,?,1,?,NOW(),NOW())`,
-          previousGuide
-            ? "Hướng dẫn viên đã được cập nhật"
-            : "Đã có hướng dẫn viên phụ trách",
-          `Booking ${booking.bookingCode} đã có hướng dẫn viên ${guide.fullName}.`,
-          `Travela thông báo hướng dẫn viên phụ trách tour ${departure.tour.name} là ${guide.fullName}${guide.phone ? `, số điện thoại ${guide.phone}` : ""}.`,
-          "user",
-          booking.userId,
-          adminUserId,
-        );
+
+        /*
+         * Không dùng INSERT ... NOW() cho notifications nữa.
+         * Prisma sẽ tạo timestamp cùng chuẩn với các thông báo hủy booking,
+         * phản hồi đánh giá, hoàn tiền... để frontend chỉ cần đổi sang giờ VN.
+         */
+        await tx.notification.create({
+          data: {
+            title: previousGuide
+              ? "Hướng dẫn viên đã được cập nhật"
+              : "Đã có hướng dẫn viên phụ trách",
+            message: `Booking ${booking.bookingCode} đã có hướng dẫn viên ${guide.fullName}.`,
+            content: `Travela thông báo hướng dẫn viên phụ trách tour ${departure.tour.name} là ${guide.fullName}${guide.phone ? `, số điện thoại ${guide.phone}` : ""}.`,
+            targetRole: "user" as any,
+            targetUserId: booking.userId,
+            isPublished: true,
+            createdBy: adminUserId,
+            metadata: {
+              type: previousGuide ? "guide_changed" : "guide_assigned",
+              bookingId: String(booking.id),
+              bookingCode: booking.bookingCode,
+              departureId: String(departure.id),
+              guideId: String(guide.id),
+            } as any,
+          },
+        });
       }
 
       return assignment;

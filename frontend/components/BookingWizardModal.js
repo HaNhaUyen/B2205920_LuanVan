@@ -1,0 +1,1384 @@
+import { useEffect, useMemo, useState } from "react";
+import { formatCurrency, formatDate } from "@/lib/format";
+
+const steps = [
+  ["schedule", "Lịch trình", "Lịch, số khách và điểm đón"],
+  ["contact", "Liên hệ", "Thông tin người đặt tour"],
+  ["guests", "Hành khách", "Thông tin chi tiết từng vé"],
+  ["voucher", "Thanh toán", "Ưu đãi và tổng chi phí"],
+  ["confirm", "Xác nhận", "Kiểm tra trước khi thanh toán"],
+];
+
+const inputStyle = {
+  width: "100%",
+  padding: "14px 16px",
+  borderRadius: 12,
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#0f172a",
+  fontSize: "0.95rem",
+  transition: "all 0.2s ease",
+  outline: "none",
+  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+};
+
+function Field({ label, required, error, children }) {
+  return (
+    <label
+      style={{
+        display: "grid",
+        gap: 6,
+        color: "#334155",
+        fontWeight: 600,
+        fontSize: "0.9rem",
+      }}
+    >
+      <span>
+        {label} {required ? <b style={{ color: "#ef4444" }}>*</b> : null}
+      </span>
+      {children}
+      {error ? (
+        <small
+          style={{
+            color: "#ef4444",
+            fontWeight: 500,
+            fontSize: "0.8rem",
+            marginTop: 2,
+          }}
+        >
+          {error}
+        </small>
+      ) : null}
+    </label>
+  );
+}
+
+function Stepper({ label, value, min, onChange }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "12px 16px",
+        background: "#f8fafc",
+        borderRadius: 12,
+        border: "1px solid #e2e8f0",
+      }}
+    >
+      <span style={{ color: "#0f172a", fontWeight: 600 }}>{label}</span>
+      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={() => onChange(Math.max(min, value - 1))}
+          style={stepBtn}
+        >
+          -
+        </button>
+        <div
+          style={{
+            minWidth: 28,
+            textAlign: "center",
+            fontWeight: 700,
+            color: "#0f172a",
+            fontSize: "1.1rem",
+          }}
+        >
+          {value}
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange(value + 1)}
+          style={stepBtn}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const stepBtn = {
+  width: 36,
+  height: 36,
+  borderRadius: "50%",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#475569",
+  fontSize: 18,
+  fontWeight: 600,
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+};
+
+function isGuestDone(guest) {
+  return Boolean(
+    guest?.fullName && guest?.dateOfBirth && guest?.gender && guest?.idNumber,
+  );
+}
+
+export default function BookingWizardModal({
+  open,
+  onClose,
+  onSubmit,
+  tour,
+  currentUser,
+  selectedDepartureId,
+  bookingPassengers,
+  bookingGuests,
+  pickupOptions,
+  preview,
+  availableVouchers,
+  selectedVoucherCode,
+  selectedVoucher,
+  selectedVoucherDiscount,
+  savedTravelers,
+  setSelectedVoucherCode,
+  handleDepartureChange,
+  handlePassengerChange,
+  handleGuestChange,
+  handleSavedTravelerSelect,
+  getAvailableSavedTravelers,
+  getDepartureRemainingSlots,
+  formatPickupTime,
+  formatVoucherDiscount,
+  estimateVoucherDiscount,
+}) {
+  const [step, setStep] = useState(0);
+  const [pickupPointId, setPickupPointId] = useState("");
+  const [contact, setContact] = useState({
+    contactName: currentUser?.fullName || "",
+    contactEmail: currentUser?.email || "",
+    contactPhone: currentUser?.phone || "",
+    note: "",
+  });
+  const [confirmed, setConfirmed] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  // Mỗi lần mở wizard, đồng bộ thông tin liên hệ mới nhất từ hồ sơ.
+  // Điều này tránh việc modal giữ dữ liệu cũ từ localStorage hoặc lần mở trước.
+  useEffect(() => {
+    if (!open) return;
+
+    setContact((prev) => ({
+      contactName: currentUser?.fullName || prev.contactName || "",
+      contactEmail: currentUser?.email || prev.contactEmail || "",
+      contactPhone: currentUser?.phone || prev.contactPhone || "",
+      note: prev.note || "",
+    }));
+  }, [open, currentUser?.fullName, currentUser?.email, currentUser?.phone]);
+
+  const selectedDeparture = useMemo(
+    () =>
+      (tour?.departures || []).find(
+        (item) =>
+          String(item.id) ===
+          String(selectedDepartureId || tour?.departures?.[0]?.id),
+      ),
+    [tour, selectedDepartureId],
+  );
+  const remainingSlots = getDepartureRemainingSlots(selectedDeparture || {});
+  const totalGuests =
+    Number(bookingPassengers.adultCount || 0) +
+    Number(bookingPassengers.childCount || 0);
+  const finalAmount = Math.max(
+    Number(preview?.total || 0) - Number(selectedVoucherDiscount || 0),
+    0,
+  );
+
+  if (!open) return null;
+
+  const setPassenger = (field, value) =>
+    handlePassengerChange(field)({ target: { value } });
+
+  const validateCurrent = () => {
+    const next = {};
+    if (step === 0) {
+      if (!selectedDeparture) next.departure = "Vui lòng chọn lịch khởi hành.";
+      if (pickupOptions.length > 0 && !pickupPointId)
+        next.pickup = "Vui lòng chọn điểm đón.";
+      if (bookingPassengers.adultCount < 1)
+        next.adult = "Cần ít nhất 1 người lớn.";
+      if (totalGuests > remainingSlots)
+        next.slots = "Số khách vượt quá số chỗ còn lại.";
+    }
+    if (step === 1) {
+      if (!contact.contactName.trim())
+        next.contactName = "Vui lòng nhập họ tên.";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.contactEmail))
+        next.contactEmail = "Email không hợp lệ.";
+      if (!/^[0-9+\-\s]{8,20}$/.test(contact.contactPhone))
+        next.contactPhone = "Số điện thoại không hợp lệ.";
+    }
+    if (step === 2) {
+      const ids = new Set();
+      bookingGuests.forEach((guest, index) => {
+        if (!isGuestDone(guest))
+          next[`guest-${index}`] =
+            "Vui lòng điền đủ họ tên, ngày sinh, giới tính và số giấy tờ.";
+        const id = String(guest.idNumber || "").trim();
+        if (id && ids.has(id))
+          next[`guest-id-${index}`] =
+            "Số giấy tờ bị trùng với hành khách khác.";
+        if (id) ids.add(id);
+      });
+    }
+    if (step === 4 && !confirmed)
+      next.confirmed = "Bạn cần xác nhận thông tin trước khi thanh toán.";
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const nextStep = () =>
+    validateCurrent() &&
+    setStep((value) => Math.min(value + 1, steps.length - 1));
+  const previousStep = () => setStep((value) => Math.max(value - 1, 0));
+
+  return (
+    <div onClick={onClose} style={overlay}>
+      <form
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          if (!validateCurrent()) {
+            event.preventDefault();
+            return;
+          }
+          onSubmit(event);
+        }}
+        style={shell}
+      >
+        <input
+          type="hidden"
+          name="departureId"
+          value={selectedDepartureId || tour?.departures?.[0]?.id || ""}
+        />
+        <input
+          type="hidden"
+          name="adultCount"
+          value={bookingPassengers.adultCount}
+        />
+        <input
+          type="hidden"
+          name="childCount"
+          value={bookingPassengers.childCount}
+        />
+        <input type="hidden" name="pickupPointId" value={pickupPointId} />
+        <input
+          type="hidden"
+          name="voucherCode"
+          value={selectedVoucherCode || ""}
+        />
+        {Object.entries(contact).map(([name, value]) => (
+          <input key={name} type="hidden" name={name} value={value} />
+        ))}
+
+        <header style={header}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 16,
+                background: "#ecfdf5",
+                color: "#10b981",
+                display: "grid",
+                placeItems: "center",
+                flexShrink: 0,
+                fontSize: 22,
+              }}
+              aria-hidden="true"
+            >
+              ✈
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginBottom: 6,
+                }}
+              >
+                <strong
+                  style={{
+                    color: "#059669",
+                    textTransform: "uppercase",
+                    fontSize: 11,
+                    letterSpacing: "0.75px",
+                    fontWeight: 800,
+                  }}
+                >
+                  Đặt tour trực tuyến
+                </strong>
+              </div>
+
+              <h2
+                style={{
+                  margin: 0,
+                  color: "#0f172a",
+                  fontSize: "1.55rem",
+                  fontWeight: 800,
+                  lineHeight: 1.25,
+                }}
+              >
+                Hoàn tất thủ tục đặt tour
+              </h2>
+
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  color: "#64748b",
+                  fontSize: "0.9rem",
+                  lineHeight: 1.5,
+                }}
+              >
+                Chỗ được giữ tự động trong 15 phút sau khi tạo mã thanh toán.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng cửa sổ đặt tour"
+            style={closeBtn}
+          >
+            ✕
+          </button>
+        </header>
+
+        <nav style={progress}>
+          {steps.map(([key, title], index) => {
+            const done = index < step;
+            const active = index === step;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => index < step && setStep(index)}
+                style={{ ...stepPill, opacity: done || active ? 1 : 0.6 }}
+              >
+                <span
+                  style={{
+                    ...stepDot,
+                    background: done
+                      ? "#10b981"
+                      : active
+                        ? "#10b981"
+                        : "#e2e8f0",
+                    color: done || active ? "#fff" : "#64748b",
+                  }}
+                >
+                  {done ? "✓" : index + 1}
+                </span>
+                <span
+                  style={{
+                    fontWeight: active ? 700 : 600,
+                    color: active ? "#0f172a" : "#475569",
+                  }}
+                >
+                  {title}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <main style={body}>
+          <div style={contentWrapper}>
+            <section style={mainContent}>
+              <div style={{ marginBottom: 24 }}>
+                <h3 style={title}>{steps[step][1]}</h3>
+                <p style={desc}>{steps[step][2]}</p>
+              </div>
+
+              {step === 0 && (
+                <div style={{ display: "grid", gap: 24 }}>
+                  <div style={grid2}>
+                    <Field
+                      label="Lịch khởi hành"
+                      required
+                      error={errors.departure}
+                    >
+                      <select
+                        style={inputStyle}
+                        value={
+                          selectedDepartureId || tour?.departures?.[0]?.id || ""
+                        }
+                        onChange={handleDepartureChange}
+                      >
+                        {(tour.departures || []).map((item) => (
+                          <option
+                            key={item.id}
+                            value={item.id}
+                            disabled={getDepartureRemainingSlots(item) <= 0}
+                          >
+                            {formatDate(item.departureDate)} -{" "}
+                            {formatCurrency(item.adultPrice)} - còn{" "}
+                            {getDepartureRemainingSlots(item)} chỗ
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field
+                      label="Điểm đón"
+                      required={pickupOptions.length > 0}
+                      error={errors.pickup}
+                    >
+                      <select
+                        style={inputStyle}
+                        value={pickupPointId}
+                        onChange={(event) =>
+                          setPickupPointId(event.target.value)
+                        }
+                      >
+                        <option value="">Chọn điểm đón</option>
+                        {pickupOptions.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.province} - {item.name} -{" "}
+                            {formatPickupTime(item.pickupTime)}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+
+                  <div style={grid2}>
+                    <Stepper
+                      label="Người lớn"
+                      value={bookingPassengers.adultCount}
+                      min={1}
+                      onChange={(value) => setPassenger("adultCount", value)}
+                    />
+                    <Stepper
+                      label="Trẻ em"
+                      value={bookingPassengers.childCount}
+                      min={0}
+                      onChange={(value) => setPassenger("childCount", value)}
+                    />
+                  </div>
+
+                  {errors.slots ? (
+                    <div
+                      style={{
+                        padding: 12,
+                        background: "#fef2f2",
+                        color: "#b91c1c",
+                        borderRadius: 8,
+                        fontSize: "0.9rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      ⚠ {errors.slots}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {step === 1 && (
+                <div style={{ display: "grid", gap: 20 }}>
+                  <div style={grid2}>
+                    <Field
+                      label="Họ và tên"
+                      required
+                      error={errors.contactName}
+                    >
+                      <input
+                        style={inputStyle}
+                        placeholder="Vd: Nguyễn Văn A"
+                        value={contact.contactName}
+                        onChange={(e) =>
+                          setContact({
+                            ...contact,
+                            contactName: e.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field
+                      label="Số điện thoại"
+                      required
+                      error={errors.contactPhone}
+                    >
+                      <input
+                        style={inputStyle}
+                        placeholder="Vd: 0901234567"
+                        value={contact.contactPhone}
+                        onChange={(e) =>
+                          setContact({
+                            ...contact,
+                            contactPhone: e.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <Field
+                    label="Email xác nhận"
+                    required
+                    error={errors.contactEmail}
+                  >
+                    <input
+                      style={inputStyle}
+                      type="email"
+                      placeholder="Địa chỉ email nhận vé"
+                      value={contact.contactEmail}
+                      onChange={(e) =>
+                        setContact({ ...contact, contactEmail: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Yêu cầu đặc biệt (không bắt buộc)">
+                    <textarea
+                      style={{ ...inputStyle, resize: "vertical" }}
+                      rows={3}
+                      placeholder="Ghi chú về dị ứng thức ăn, yêu cầu hỗ trợ..."
+                      value={contact.note}
+                      onChange={(e) =>
+                        setContact({ ...contact, note: e.target.value })
+                      }
+                    />
+                  </Field>
+                </div>
+              )}
+
+              {step === 2 && (
+                <div style={{ display: "grid", gap: 16 }}>
+                  {bookingGuests.map((guest, index) => (
+                    <details
+                      key={`${guest.guestType}-${guest.index}`}
+                      open={index === 0 || !isGuestDone(guest)}
+                      style={guestCard}
+                    >
+                      <summary
+                        style={{
+                          cursor: "pointer",
+                          fontWeight: 700,
+                          color: "#0f172a",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          userSelect: "none",
+                        }}
+                      >
+                        <div
+                          style={{
+                            flex: 1,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          {guest.guestType === "adult" ? "Người lớn" : "Trẻ em"}{" "}
+                          {guest.index + 1}
+                          {guest.isAccountOwner && (
+                            <Badge tone="blue">Người đặt tour</Badge>
+                          )}
+                        </div>
+                        <Badge tone={isGuestDone(guest) ? "green" : "amber"}>
+                          {isGuestDone(guest)
+                            ? "✓ Đã đủ thông tin"
+                            : "⚠ Cần hoàn thiện"}
+                        </Badge>
+                      </summary>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: 16,
+                          marginTop: 20,
+                          paddingTop: 16,
+                          borderTop: "1px dashed #e2e8f0",
+                        }}
+                      >
+                        {!guest.isAccountOwner &&
+                        getAvailableSavedTravelers(guest, index).length > 0 ? (
+                          <div
+                            style={{
+                              background: "#f8fafc",
+                              padding: 16,
+                              borderRadius: 12,
+                            }}
+                          >
+                            <Field label="Chọn từ hành khách đã lưu">
+                              <select
+                                style={inputStyle}
+                                value={guest.savedTravelerId || ""}
+                                onChange={handleSavedTravelerSelect(index)}
+                              >
+                                <option value="">+ Nhập thông tin mới</option>
+                                {getAvailableSavedTravelers(guest, index).map(
+                                  (item) => (
+                                    <option key={item.id} value={item.id}>
+                                      {item.fullName}
+                                    </option>
+                                  ),
+                                )}
+                              </select>
+                            </Field>
+                          </div>
+                        ) : null}
+                        <div style={grid2}>
+                          <Field label="Họ và tên đúng giấy tờ" required>
+                            <input
+                              style={inputStyle}
+                              value={guest.fullName || ""}
+                              onChange={handleGuestChange(index, "fullName")}
+                            />
+                          </Field>
+                          <Field label="Ngày sinh" required>
+                            <input
+                              style={inputStyle}
+                              type="date"
+                              value={guest.dateOfBirth || ""}
+                              onChange={handleGuestChange(index, "dateOfBirth")}
+                            />
+                          </Field>
+                          <Field label="Giới tính" required>
+                            <select
+                              style={inputStyle}
+                              value={guest.gender || ""}
+                              onChange={handleGuestChange(index, "gender")}
+                            >
+                              <option value="">Chọn giới tính</option>
+                              <option value="male">Nam</option>
+                              <option value="female">Nữ</option>
+                              <option value="other">Khác</option>
+                            </select>
+                          </Field>
+                          <Field label="Loại giấy tờ" required>
+                            <select
+                              style={inputStyle}
+                              defaultValue={
+                                guest.guestType === "adult"
+                                  ? "id_card"
+                                  : "birth_certificate"
+                              }
+                            >
+                              <option value="id_card">CCCD / CMND</option>
+                              <option value="passport">Hộ chiếu</option>
+                              <option value="birth_certificate">
+                                Giấy khai sinh
+                              </option>
+                            </select>
+                          </Field>
+                          <Field
+                            label="Số giấy tờ"
+                            required
+                            error={errors[`guest-id-${index}`]}
+                          >
+                            <input
+                              style={inputStyle}
+                              value={guest.idNumber || ""}
+                              onChange={handleGuestChange(index, "idNumber")}
+                            />
+                          </Field>
+                          <Field label="Quốc tịch">
+                            <input
+                              defaultValue="Việt Nam"
+                              disabled
+                              style={{
+                                ...inputStyle,
+                                background: "#f1f5f9",
+                                color: "#64748b",
+                                cursor: "not-allowed",
+                              }}
+                            />
+                          </Field>
+                        </div>
+                        {errors[`guest-${index}`] ? (
+                          <small style={{ color: "#ef4444", fontWeight: 500 }}>
+                            {errors[`guest-${index}`]}
+                          </small>
+                        ) : null}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+
+              {step === 3 && (
+                <div style={{ display: "grid", gap: 16 }}>
+                  <h4
+                    style={{
+                      margin: "0 0 8px",
+                      fontSize: "1rem",
+                      color: "#334155",
+                    }}
+                  >
+                    Mã giảm giá khả dụng
+                  </h4>
+                  <VoucherCard
+                    checked={!selectedVoucherCode}
+                    onChange={() => setSelectedVoucherCode("")}
+                    title="Không sử dụng mã giảm giá"
+                  />
+
+                  {availableVouchers.length === 0 && (
+                    <p
+                      style={{
+                        color: "#64748b",
+                        fontStyle: "italic",
+                        fontSize: "0.9rem",
+                      }}
+                    >
+                      Hiện chưa có mã giảm giá nào cho tour này.
+                    </p>
+                  )}
+
+                  {availableVouchers.map((voucher) => {
+                    const minOrder = Number(voucher.minOrderAmount || 0);
+                    const disabled = Number(preview?.total || 0) < minOrder;
+                    const discount = estimateVoucherDiscount(
+                      voucher,
+                      preview?.total,
+                    );
+                    return (
+                      <VoucherCard
+                        key={`${voucher.userVoucherId || voucher.id}-${voucher.code}`}
+                        checked={
+                          String(selectedVoucherCode) === String(voucher.code)
+                        }
+                        disabled={disabled}
+                        onChange={() => setSelectedVoucherCode(voucher.code)}
+                        title={voucher.code}
+                        subtitle={voucher.name}
+                        meta={`${formatVoucherDiscount(voucher)} • Đơn tối thiểu ${formatCurrency(minOrder)}${voucher.endDate ? ` • HSD: ${formatDate(voucher.endDate)}` : ""}`}
+                        highlight={
+                          !disabled
+                            ? `Dự kiến giảm ${formatCurrency(discount)}`
+                            : "Chưa đủ điều kiện"
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              {step === 4 && (
+                <div style={{ display: "grid", gap: 24 }}>
+                  <div
+                    style={{
+                      background: "#f8fafc",
+                      padding: 20,
+                      borderRadius: 16,
+                      border: "1px solid #e2e8f0",
+                    }}
+                  >
+                    <h4
+                      style={{
+                        margin: "0 0 16px",
+                        color: "#0f172a",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <span style={{ fontSize: "1.2rem" }}>📝</span> Kiểm tra
+                      thông tin
+                    </h4>
+                    <Summary
+                      rows={[
+                        [
+                          "Tên Tour",
+                          <strong key="tourName" style={{ color: "#0f172a" }}>
+                            {tour.name}
+                          </strong>,
+                        ],
+                        [
+                          "Ngày khởi hành",
+                          selectedDeparture
+                            ? formatDate(selectedDeparture.departureDate)
+                            : "-",
+                        ],
+                        [
+                          "Điểm đón",
+                          pickupOptions.find(
+                            (item) => String(item.id) === String(pickupPointId),
+                          )?.name || "-",
+                        ],
+                        [
+                          "Số lượng khách",
+                          `${bookingPassengers.adultCount} Người lớn, ${bookingPassengers.childCount} Trẻ em`,
+                        ],
+                      ]}
+                    />
+                  </div>
+
+                  <div>
+                    <h4
+                      style={{
+                        margin: "0 0 12px",
+                        color: "#0f172a",
+                        fontSize: "1rem",
+                      }}
+                    >
+                      Danh sách hành khách
+                    </h4>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {bookingGuests.map((guest, idx) => (
+                        <div
+                          key={`${guest.guestType}-${guest.index}`}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            padding: "12px 16px",
+                            background: "#ffffff",
+                            border: "1px solid #e2e8f0",
+                            borderRadius: 8,
+                          }}
+                        >
+                          <span style={{ fontWeight: 600, color: "#334155" }}>
+                            {idx + 1}. {guest.fullName}
+                          </span>
+                          <span style={{ color: "#64748b" }}>
+                            {guest.idNumber}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <label
+                    style={{
+                      display: "flex",
+                      gap: 12,
+                      alignItems: "flex-start",
+                      padding: 16,
+                      background: confirmed ? "#ecfdf5" : "#f8fafc",
+                      border: `1px solid ${confirmed ? "#10b981" : "#e2e8f0"}`,
+                      borderRadius: 12,
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={confirmed}
+                      onChange={(e) => setConfirmed(e.target.checked)}
+                      style={{
+                        width: 20,
+                        height: 20,
+                        marginTop: 2,
+                        accentColor: "#10b981",
+                      }}
+                    />
+                    <span
+                      style={{
+                        color: "#334155",
+                        fontSize: "0.95rem",
+                        lineHeight: "1.5",
+                      }}
+                    >
+                      Tôi xác nhận các thông tin đặt tour trên là chính xác và
+                      đồng ý với các <strong>điều khoản & chính sách</strong>{" "}
+                      của Travela. Booking sẽ được giữ chỗ tự động trong{" "}
+                      <strong>15 phút</strong> chờ thanh toán.
+                    </span>
+                  </label>
+                  {errors.confirmed ? (
+                    <small
+                      style={{
+                        color: "#ef4444",
+                        fontWeight: 600,
+                        marginTop: "-16px",
+                      }}
+                    >
+                      {errors.confirmed}
+                    </small>
+                  ) : null}
+                </div>
+              )}
+            </section>
+
+            {/* Cột Tóm tắt chi phí (Sticky Sidebar) */}
+            <aside
+              style={{ display: "flex", flexDirection: "column", gap: 16 }}
+            >
+              {step === 0 && selectedDeparture && (
+                <div style={summaryCard}>
+                  <h4
+                    style={{
+                      margin: "0 0 16px",
+                      color: "#0f172a",
+                      fontSize: "1.1rem",
+                    }}
+                  >
+                    Thông tin vé
+                  </h4>
+                  <Summary
+                    rows={[
+                      [
+                        "Người lớn",
+                        formatCurrency(selectedDeparture.adultPrice),
+                      ],
+                      ["Trẻ em", formatCurrency(selectedDeparture.childPrice)],
+                      [
+                        "Số chỗ còn nhận",
+                        <span
+                          key="slots"
+                          style={{ color: "#10b981", fontWeight: 700 }}
+                        >
+                          {remainingSlots} chỗ
+                        </span>,
+                      ],
+                    ]}
+                  />
+                </div>
+              )}
+              <CostSummary
+                preview={preview}
+                bookingPassengers={bookingPassengers}
+                selectedVoucher={selectedVoucher}
+                selectedVoucherDiscount={selectedVoucherDiscount}
+                finalAmount={finalAmount}
+              />
+            </aside>
+          </div>
+        </main>
+
+        <footer style={footer}>
+          <button
+            type="button"
+            onClick={previousStep}
+            disabled={step === 0}
+            style={{
+              ...secondaryBtn,
+              opacity: step === 0 ? 0 : 1,
+              pointerEvents: step === 0 ? "none" : "auto",
+            }}
+          >
+            Quay lại
+          </button>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div
+              style={{
+                textAlign: "right",
+                display: step === 4 ? "block" : "none",
+              }}
+            >
+              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>
+                Tổng thanh toán
+              </div>
+              <div
+                style={{
+                  fontSize: "1.25rem",
+                  fontWeight: 800,
+                  color: "#10b981",
+                }}
+              >
+                {formatCurrency(finalAmount)}
+              </div>
+            </div>
+            {step < steps.length - 1 ? (
+              <button type="button" onClick={nextStep} style={primaryBtn}>
+                Tiếp tục
+              </button>
+            ) : (
+              <button type="submit" style={primaryBtn}>
+                Thanh toán ngay
+              </button>
+            )}
+          </div>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+// Sub-components
+function Badge({ children, tone = "slate" }) {
+  const themes = {
+    green: { bg: "#dcfce7", color: "#166534" },
+    amber: { bg: "#fef3c7", color: "#92400e" },
+    blue: { bg: "#dbeafe", color: "#1e40af" },
+    slate: { bg: "#f1f5f9", color: "#475569" },
+  };
+  const theme = themes[tone] || themes.slate;
+
+  return (
+    <span
+      style={{
+        padding: "4px 10px",
+        borderRadius: 6,
+        background: theme.bg,
+        color: theme.color,
+        fontSize: "0.75rem",
+        fontWeight: 600,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Summary({ rows }) {
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {rows.map(([label, value], idx) => (
+        <div
+          key={idx}
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 16,
+            fontSize: "0.95rem",
+          }}
+        >
+          <span style={{ color: "#64748b" }}>{label}</span>
+          <span
+            style={{ color: "#0f172a", fontWeight: 600, textAlign: "right" }}
+          >
+            {value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VoucherCard({
+  checked,
+  disabled,
+  onChange,
+  title,
+  subtitle,
+  meta,
+  highlight,
+}) {
+  return (
+    <label
+      style={{
+        ...guestCard,
+        display: "flex",
+        gap: 16,
+        opacity: disabled ? 0.6 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
+        borderColor: checked ? "#10b981" : "#e2e8f0",
+        background: checked ? "#f0fdf4" : "#ffffff",
+        boxShadow: checked
+          ? "0 4px 12px rgba(16, 185, 129, 0.1)"
+          : "0 2px 4px rgba(0,0,0,0.02)",
+      }}
+    >
+      <input
+        type="radio"
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+        style={{ width: 20, height: 20, accentColor: "#10b981", marginTop: 2 }}
+      />
+      <div style={{ flex: 1 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 12,
+          }}
+        >
+          <strong>{title}</strong>
+          {highlight && (
+            <Badge tone={disabled ? "slate" : "green"}>{highlight}</Badge>
+          )}
+        </div>
+        {subtitle && (
+          <div
+            style={{
+              color: "#0f172a",
+              fontSize: "0.9rem",
+              marginTop: 4,
+              fontWeight: 500,
+            }}
+          >
+            {subtitle}
+          </div>
+        )}
+        {meta && (
+          <p
+            style={{ margin: "6px 0 0", color: "#64748b", fontSize: "0.85rem" }}
+          >
+            {meta}
+          </p>
+        )}
+      </div>
+    </label>
+  );
+}
+
+function CostSummary({
+  preview,
+  bookingPassengers,
+  selectedVoucher,
+  selectedVoucherDiscount,
+  finalAmount,
+}) {
+  return (
+    <div style={{ ...summaryCard, position: "sticky", top: 0 }}>
+      <h4
+        style={{
+          margin: "0 0 20px",
+          color: "#0f172a",
+          fontSize: "1.1rem",
+          paddingBottom: 12,
+          borderBottom: "1px solid #e2e8f0",
+        }}
+      >
+        Chi tiết thanh toán
+      </h4>
+      <div style={{ display: "grid", gap: 16, marginBottom: 20 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: "0.95rem",
+          }}
+        >
+          <span style={{ color: "#64748b" }}>
+            Vé người lớn (x{bookingPassengers.adultCount})
+          </span>
+          <span style={{ fontWeight: 600, color: "#0f172a" }}>-</span>
+        </div>
+        {bookingPassengers.childCount > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: "0.95rem",
+            }}
+          >
+            <span style={{ color: "#64748b" }}>
+              Vé trẻ em (x{bookingPassengers.childCount})
+            </span>
+            <span style={{ fontWeight: 600, color: "#0f172a" }}>-</span>
+          </div>
+        )}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: "0.95rem",
+          }}
+        >
+          <span style={{ color: "#64748b" }}>Tạm tính</span>
+          <span style={{ fontWeight: 600, color: "#0f172a" }}>
+            {formatCurrency(preview?.total || 0)}
+          </span>
+        </div>
+        {selectedVoucher && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: "0.95rem",
+              color: "#10b981",
+            }}
+          >
+            <span>Mã giảm giá ({selectedVoucher.code})</span>
+            <span style={{ fontWeight: 600 }}>
+              -{formatCurrency(selectedVoucherDiscount)}
+            </span>
+          </div>
+        )}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+          paddingTop: 16,
+          borderTop: "1px dashed #cbd5e1",
+        }}
+      >
+        <span style={{ color: "#0f172a", fontWeight: 700 }}>Tổng tiền</span>
+        <span
+          style={{ fontSize: "1.35rem", fontWeight: 800, color: "#10b981" }}
+        >
+          {formatCurrency(finalAmount)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------
+// STYLES OBJECTS
+// -----------------------------------------------------
+
+const overlay = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 1000,
+  background: "rgba(15, 23, 42, 0.58)",
+  // Chừa khoảng trống phía trên để modal không dính sát thanh header.
+  padding: "104px 20px 28px",
+  overflowY: "auto",
+  overflowX: "hidden",
+  backdropFilter: "blur(5px)",
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "center",
+};
+const shell = {
+  width: "100%",
+  maxWidth: 1000,
+  margin: "0 auto",
+  background: "#ffffff",
+  borderRadius: 24,
+  display: "flex",
+  flexDirection: "column",
+  minHeight: 620,
+  // Trừ cả chiều cao header và khoảng cách trên/dưới của overlay.
+  maxHeight: "calc(100vh - 132px)",
+  overflow: "hidden",
+  boxShadow: "0 28px 80px rgba(15, 23, 42, 0.32)",
+  border: "1px solid rgba(255, 255, 255, 0.45)",
+};
+const header = {
+  padding: "24px 30px 22px",
+  background: "#ffffff",
+  borderBottom: "1px solid #eef2f7",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 20,
+  flexShrink: 0,
+};
+const closeBtn = {
+  width: 36,
+  height: 36,
+  borderRadius: "50%",
+  border: "none",
+  background: "#f1f5f9",
+  cursor: "pointer",
+  fontWeight: 600,
+  color: "#475569",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  transition: "background 0.2s",
+};
+const progress = {
+  padding: "18px 30px",
+  display: "flex",
+  gap: 12,
+  background: "#f8fafc",
+  borderBottom: "1px solid #e2e8f0",
+  overflowX: "auto",
+  flexShrink: 0,
+};
+const stepPill = {
+  flex: 1,
+  minWidth: 140,
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "12px",
+  borderRadius: 12,
+  border: "none",
+  background: "transparent",
+  cursor: "pointer",
+  transition: "all 0.2s",
+};
+const stepDot = {
+  width: 28,
+  height: 28,
+  borderRadius: "50%",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexShrink: 0,
+  fontSize: "0.85rem",
+  fontWeight: 700,
+};
+const body = {
+  overflow: "auto",
+  padding: "32px",
+  background: "#f1f5f9",
+  flex: 1,
+};
+const contentWrapper = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) 340px",
+  gap: 24,
+  alignItems: "start",
+};
+const mainContent = {
+  background: "#ffffff",
+  borderRadius: 20,
+  padding: 32,
+  boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03)",
+  border: "1px solid #e2e8f0",
+};
+const title = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: "1.5rem",
+  fontWeight: 800,
+};
+const desc = { margin: "8px 0 0", color: "#64748b", fontSize: "0.95rem" };
+const grid2 = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: 20,
+};
+const guestCard = {
+  padding: 20,
+  borderRadius: 16,
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
+};
+const summaryCard = {
+  padding: 24,
+  borderRadius: 16,
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)",
+};
+const footer = {
+  padding: "20px 32px",
+  borderTop: "1px solid #e2e8f0",
+  background: "#ffffff",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  borderRadius: "0 0 24px 24px",
+};
+const primaryBtn = {
+  padding: "14px 28px",
+  borderRadius: 12,
+  border: "none",
+  background: "#10b981",
+  color: "#fff",
+  fontWeight: 700,
+  fontSize: "1rem",
+  cursor: "pointer",
+  boxShadow: "0 4px 12px rgba(16,185,129,0.3)",
+  transition: "all 0.2s",
+};
+const secondaryBtn = {
+  padding: "14px 28px",
+  borderRadius: 12,
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#334155",
+  fontWeight: 700,
+  fontSize: "1rem",
+  cursor: "pointer",
+  transition: "all 0.2s",
+};

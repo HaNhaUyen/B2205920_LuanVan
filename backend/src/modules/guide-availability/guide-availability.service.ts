@@ -491,6 +491,23 @@ export class GuideAvailabilityService {
         include: { guide: true, tour: true, booking: true },
       });
 
+      /*
+       * Đồng bộ người phụ trách ở bảng trip_operations.
+       * Danh sách phân công/lịch trình đọc từ guide_assignments, còn màn hình
+       * Điều hành chuyến đi đọc theo trip_operations.guide_id. Nếu chỉ tạo
+       * assignment mới mà không đổi guide_id ở trip_operations thì HDV mới
+       * vẫn thấy tour trong Lịch trình nhưng không thấy trong Điều hành.
+       */
+      await tx.$executeRawUnsafe(
+        `UPDATE trip_operations op
+         JOIN bookings b ON b.departure_id = op.departure_id
+         SET op.guide_id = ?,
+             op.updated_at = NOW()
+         WHERE b.id = ?`,
+        replacementGuideId,
+        assignment.bookingId,
+      );
+
       const availability = await tx.guideAvailability.update({
         where: { id: availabilityId },
         data: {

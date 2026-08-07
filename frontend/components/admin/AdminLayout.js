@@ -7,8 +7,8 @@ import { mapImageUrl } from "@/lib/tour";
 import AdminChatbotWidget from "@/components/admin/AdminChatbotWidget";
 
 const links = [
-  { href: "/admin", label: "Dashboard" },
-  { href: "/admin/tours", label: "Tours" },
+  { href: "/admin", label: "Tổng quan" },
+  { href: "/admin/tours", label: "Tour" },
   { href: "/admin/destinations", label: "Điểm đến" },
   { href: "/admin/bookings", label: "Booking" },
   { href: "/admin/reviews", label: "Đánh giá" },

@@ -42,6 +42,8 @@ const PAGE_SIZE = 4;
 const statusLabels = {
   assigned: "Đã phân công",
   accepted: "Đã nhận tour",
+  unavailable_pending: "Không thể nhận",
+  unavailable: "Không thể nhận",
   in_progress: "Đang dẫn tour",
   completed: "Đã hoàn thành",
   issue: "Có sự cố",
@@ -56,12 +58,15 @@ const statusOptions = [
   { value: "all", label: "Tất cả trạng thái" },
   { value: "assigned", label: "Đã phân công" },
   { value: "accepted", label: "Đã nhận tour" },
+  { value: "unavailable_pending", label: "Không thể nhận" },
   { value: "completed", label: "Đã hoàn thành" },
 ];
 
 const statusTones = {
   assigned: ["#eff6ff", "#1d4ed8", "#bfdbfe"],
   accepted: ["#f0fdf4", "#15803d", "#bbf7d0"],
+  unavailable_pending: ["#fff7ed", "#c2410c", "#fed7aa"],
+  unavailable: ["#fff7ed", "#c2410c", "#fed7aa"],
   in_progress: ["#fffbeb", "#b45309", "#fde68a"],
   completed: ["#f0fdfa", "#0f766e", "#ccfbf1"],
   issue: ["#fef2f2", "#b91c1c", "#fecaca"],
@@ -336,7 +341,6 @@ export default function GuidePage() {
       const updated = await apiFetch("/guide-portal/me", {
         method: "PATCH",
         body: JSON.stringify({
-          email: profileForm.email,
           phone: profileForm.phone,
           identityNumber: profileForm.identityNumber,
           note: profileForm.note,
@@ -866,10 +870,12 @@ export default function GuidePage() {
           {activeTab === "profile" && (
             <div className="profile-page fade-in">
               <div className="profile-container">
-                <div className="admin-card card-left">
+                <div className="admin-card card-left profile-identity-card">
+                  <div className="profile-card-glow" />
                   <SectionHeader
+                    eyebrow="Hồ sơ hướng dẫn viên"
                     title="Thông tin cơ bản"
-                    description="Thông tin định danh của hướng dẫn viên."
+                    description="Thông tin định danh và kinh nghiệm chuyên môn."
                   />
                   <div className="profile-static">
                     <div className="avatar-large">
@@ -884,14 +890,6 @@ export default function GuidePage() {
                         label="Kinh nghiệm"
                         value={`${guide?.experienceYears || 0} năm`}
                       />
-                      <InfoBox
-                        label="Trạng thái HĐ"
-                        value={
-                          guide?.status === "active"
-                            ? "Đang hoạt động"
-                            : guide?.status
-                        }
-                      />
                     </div>
                   </div>
                 </div>
@@ -904,16 +902,17 @@ export default function GuidePage() {
                   <form onSubmit={saveProfile} className="profile-form">
                     <div className="input-group">
                       <label>Địa chỉ Email</label>
-                      <input
-                        type="email"
-                        value={profileForm.email}
-                        onChange={(e) =>
-                          setProfileForm((p) => ({
-                            ...p,
-                            email: e.target.value,
-                          }))
-                        }
-                      />
+                      <div className="readonly-field">
+                        <LockKeyhole size={18} />
+                        <input
+                          type="email"
+                          value={profileForm.email}
+                          readOnly
+                          disabled
+                          aria-readonly="true"
+                          title="Email đăng nhập do quản trị viên quản lý"
+                        />
+                      </div>
                     </div>
                     <div className="input-group">
                       <label>Số điện thoại</label>
@@ -2044,6 +2043,61 @@ export default function GuidePage() {
         .input-group textarea:focus {
           border-color: #3b82f6;
           box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .readonly-field {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .readonly-field > svg {
+          position: absolute;
+          left: 14px;
+          z-index: 2;
+          color: #64748b;
+          pointer-events: none;
+        }
+
+        .readonly-field input {
+          padding-left: 44px !important;
+          background: #f8fafc !important;
+          color: #64748b !important;
+          border-color: #e2e8f0 !important;
+          cursor: not-allowed;
+          opacity: 1;
+        }
+
+        .field-help {
+          display: block;
+          margin-top: 8px;
+          color: #64748b;
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
+        .profile-identity-card {
+          position: relative;
+          overflow: hidden;
+          background: linear-gradient(
+            160deg,
+            #ffffff 0%,
+            #f8fbff 58%,
+            #eff6ff 100%
+          );
+          border-color: #dbeafe;
+        }
+
+        .profile-card-glow {
+          position: absolute;
+          width: 180px;
+          height: 180px;
+          right: -70px;
+          top: -80px;
+          border-radius: 50%;
+          background: rgba(59, 130, 246, 0.12);
+          filter: blur(2px);
+          pointer-events: none;
         }
 
         .form-actions {
