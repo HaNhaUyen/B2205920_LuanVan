@@ -55,6 +55,29 @@ function formatNotificationDateTime(value, item = null) {
   }).format(parsed);
 }
 
+function getNotificationSortTimestamp(item) {
+  if (!item?.createdAt) return 0;
+
+  const parsed = new Date(item.createdAt);
+  if (Number.isNaN(parsed.getTime())) return 0;
+
+  return isLegacyGuideNotification(item)
+    ? parsed.getTime() - 7 * 60 * 60 * 1000
+    : parsed.getTime();
+}
+
+function sortNotificationsNewestFirst(items = []) {
+  return [...items].sort((a, b) => {
+    const timeDiff =
+      getNotificationSortTimestamp(b) - getNotificationSortTimestamp(a);
+
+    if (timeDiff !== 0) return timeDiff;
+
+    // Cùng thời điểm thì ưu tiên id lớn hơn để thứ tự luôn ổn định.
+    return Number(b?.id || 0) - Number(a?.id || 0);
+  });
+}
+
 function getNotificationListUrl(user) {
   return user?.role === "guide" ? "/guide?tab=notifications" : "/notifications";
 }
@@ -66,7 +89,7 @@ function getNotificationDetailUrl(user, notificationId) {
 }
 
 function normalizeNotificationItems(value) {
-  return Array.isArray(value) ? value : [];
+  return sortNotificationsNewestFirst(Array.isArray(value) ? value : []);
 }
 
 function shorten(text = "", maxLength = 145) {
@@ -144,10 +167,6 @@ export default function NotificationBell({ user }) {
       return;
     }
 
-    /*
-     * Khi đổi tài khoản trong cùng trình duyệt, xóa dữ liệu cũ
-     * trước khi tải thông báo của tài khoản mới.
-     */
     if (String(lastUserIdRef.current) !== String(user.id)) {
       lastUserIdRef.current = user.id;
       setItems([]);

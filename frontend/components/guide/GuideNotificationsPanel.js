@@ -48,6 +48,37 @@ function formatGuideNotificationDateTime(value, item = null) {
   }).format(parsed);
 }
 
+function getNotificationSortTimestamp(item) {
+  if (!item?.createdAt) return 0;
+
+  const parsed = new Date(item.createdAt);
+  if (Number.isNaN(parsed.getTime())) return 0;
+
+  /*
+   * Dữ liệu HDV cũ được INSERT bằng SQL NOW():
+   * giá trị lưu trong DB thực tế là giờ Việt Nam nhưng khi Prisma trả ra lại
+   * bị hiểu như UTC. Khi so thứ tự thời gian cần đưa nó về đúng "thời điểm"
+   * bằng cách trừ 7 giờ.
+   *
+   * Dữ liệu mới dùng Prisma createdAt nên giữ nguyên timestamp UTC thật.
+   */
+  return isLegacyGuideNotification(item)
+    ? parsed.getTime() - 7 * 60 * 60 * 1000
+    : parsed.getTime();
+}
+
+function sortNotificationsNewestFirst(items = []) {
+  return [...items].sort((a, b) => {
+    const timeDiff =
+      getNotificationSortTimestamp(b) - getNotificationSortTimestamp(a);
+
+    if (timeDiff !== 0) return timeDiff;
+
+    // Cùng thời điểm thì ưu tiên id lớn hơn để thứ tự luôn ổn định.
+    return Number(b?.id || 0) - Number(a?.id || 0);
+  });
+}
+
 export default function GuideNotificationsPanel({ notificationId = null }) {
   const { showToast } = useToast();
 
@@ -63,7 +94,9 @@ export default function GuideNotificationsPanel({ notificationId = null }) {
     setLoading(true);
     try {
       const result = await apiFetch("/notifications/me");
-      const rows = Array.isArray(result) ? result : [];
+      const rows = sortNotificationsNewestFirst(
+        Array.isArray(result) ? result : [],
+      );
       setItems(rows);
 
       if (notificationId) {

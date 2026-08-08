@@ -65,6 +65,37 @@ function normalizeIdList(value: any): bigint[] {
   return Array.from(new Set(result.map(String))).map((id) => BigInt(id));
 }
 
+function isLegacyGuideNotificationForSort(item: any) {
+  const title = String(item?.title || "").trim();
+  const metadata =
+    item?.metadata && typeof item.metadata === "object" ? item.metadata : {};
+  const type = String(metadata?.type || "").trim();
+
+  return (
+    !type &&
+    [
+      "Đã có hướng dẫn viên phụ trách",
+      "Hướng dẫn viên đã được cập nhật",
+      "Hồ sơ năng lực đã được duyệt",
+      "Hồ sơ năng lực bị từ chối",
+    ].includes(title)
+  );
+}
+
+function notificationSortTimestamp(item: any) {
+  const parsed = new Date(item?.createdAt || 0);
+  if (Number.isNaN(parsed.getTime())) return 0;
+
+  /*
+   * Các notification HDV cũ dùng SQL NOW() nên createdAt đã chứa giờ VN
+   * nhưng bị Prisma hiểu như UTC. Trừ 7 giờ chỉ để SO SÁNH thứ tự.
+   * Không thay đổi giá trị createdAt trả về frontend.
+   */
+  return isLegacyGuideNotificationForSort(item)
+    ? parsed.getTime() - 7 * 60 * 60 * 1000
+    : parsed.getTime();
+}
+
 @Injectable()
 export class NotificationsService implements OnModuleInit, OnModuleDestroy {
   private automationStartupTimer?: NodeJS.Timeout;
@@ -230,24 +261,38 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
         },
       },
 
+      // Chỉ dùng orderBy DB làm thứ tự sơ bộ.
+      // Dữ liệu legacy có createdAt lệch ngữ nghĩa +7h nên sẽ được chuẩn hóa
+      // khi sắp xếp bên dưới trước khi áp dụng limit.
       orderBy: [{ createdAt: "desc" }],
-
-      ...(take ? { take } : {}),
     });
 
-    return items.map((item) => {
-      const metadata =
-        item.metadata && typeof item.metadata === "object" ? item.metadata : {};
+    const normalizedItems = items
+      .map((item) => {
+        const metadata =
+          item.metadata && typeof item.metadata === "object"
+            ? item.metadata
+            : {};
 
-      return {
-        ...item,
-        metadata,
-        actionUrl: metadata.actionUrl || null,
-        actionLabel: metadata.actionLabel || null,
-        isRead: item.reads.length > 0,
-        readAt: item.reads[0]?.readAt || null,
-      };
-    });
+        return {
+          ...item,
+          metadata,
+          actionUrl: (metadata as any).actionUrl || null,
+          actionLabel: (metadata as any).actionLabel || null,
+          isRead: item.reads.length > 0,
+          readAt: item.reads[0]?.readAt || null,
+        };
+      })
+      .sort((a, b) => {
+        const timeDiff =
+          notificationSortTimestamp(b) - notificationSortTimestamp(a);
+
+        if (timeDiff !== 0) return timeDiff;
+
+        return Number(b.id) - Number(a.id);
+      });
+
+    return take ? normalizedItems.slice(0, take) : normalizedItems;
   }
 
   async unreadCount(userId: bigint, role: "admin" | "user" | "guide") {

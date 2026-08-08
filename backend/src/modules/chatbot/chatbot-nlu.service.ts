@@ -393,6 +393,8 @@ JSON schema cần trả:
 Quy tắc:
 - Nếu câu hỏi là "tour này", "tour đó", "khách sạn mấy sao", "lịch trình có mệt không" và memory có tour trước đó => intent follow_up.
 - Nếu người dùng muốn tìm/gợi ý tour theo nhu cầu mềm => tour_search hoặc personal_recommendation.
+- Câu hỏi theo thời điểm như “tháng 8 nên đi đâu?”, “tháng 9 có tour nào?”, “tháng sau nên đi đâu?” => tour_search; trích departureMonth và không bắt buộc destination.
+- Nếu lượt trước đang tìm/gợi ý tour mà user nói ngắn “tháng 9 thì sao”, “còn tháng 10”, “thế tháng 11”, “vậy tháng 12 thì sao” => vẫn là tour_search; chỉ cập nhật departureMonth, giữ các ràng buộc tìm kiếm trước đó nếu user không thay đổi chúng.
 - Nếu hỏi hoàn tiền/hủy/đổi lịch/chính sách => tour_policy.
 - Nếu hỏi điểm đón/giờ đón => pickup_point.
 - Nếu hỏi mã giảm giá/voucher => voucher_check.
@@ -574,7 +576,15 @@ ${input.message}
     let inferredIntent: ChatbotIntent = fallbackIntent;
     let confidence = 0.58;
 
-    if (
+    const isShortMonthContinuation =
+      /^(?:(?:con|the|vay|roi)\s+)?thang\s+\d{1,2}(?:\s+(?:thi sao|sao|nua))?$/i.test(
+        normalized,
+      );
+
+    if (isShortMonthContinuation) {
+      inferredIntent = "tour_search";
+      confidence = 0.94;
+    } else if (
       /\b(diem don|don o dau|don tai dau|cho don|gio don|pickup|xe don)\b/.test(
         normalized,
       )
@@ -611,9 +621,10 @@ ${input.message}
       confidence = 0.82;
     } else if (
       softNeeds.size ||
-      /\b(muon di|toi muon di|minh muon di|co tour nao|goi y tour|tim tour|du lich|ngan sach|gia duoi|ngay.*dem)\b/.test(
+      /\b(muon di|toi muon di|minh muon di|co tour nao|goi y tour|tim tour|du lich|ngan sach|gia duoi|ngay.*dem|nen di dau)\b/.test(
         normalized,
-      )
+      ) ||
+      /\bthang\s+\d{1,2}\b/.test(normalized)
     ) {
       inferredIntent = "tour_search";
       confidence = 0.82;

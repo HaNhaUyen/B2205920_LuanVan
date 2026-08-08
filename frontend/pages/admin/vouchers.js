@@ -112,21 +112,47 @@ export default function AdminVouchersPage() {
     sortBy: "createdAt",
     sortOrder: "desc",
   });
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [form, setForm] = useState(initialForm);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(filters.search.trim());
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [filters.search]);
+
   const qs = useMemo(() => {
     const q = new URLSearchParams();
-    Object.entries(filters).forEach(([k, v]) => {
-      if (v !== "") q.set(k, String(v));
-    });
+
+    q.set("page", String(filters.page));
+    q.set("pageSize", String(filters.pageSize));
+
+    if (debouncedSearch) q.set("search", debouncedSearch);
+    if (filters.status) q.set("status", filters.status);
+    if (filters.memberTier) q.set("memberTier", filters.memberTier);
+    if (filters.sortBy) q.set("sortBy", filters.sortBy);
+    if (filters.sortOrder) q.set("sortOrder", filters.sortOrder);
+
     return q.toString();
-  }, [filters]);
+  }, [
+    filters.page,
+    filters.pageSize,
+    filters.status,
+    filters.memberTier,
+    filters.sortBy,
+    filters.sortOrder,
+    debouncedSearch,
+  ]);
 
   async function load() {
-    setLoading(true);
+    if (!data.items.length) {
+      setLoading(true);
+    }
     try {
       setData(await apiFetch(`/vouchers?${qs}`));
     } catch (e) {

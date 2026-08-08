@@ -10,11 +10,6 @@ function isLegacyGuideNotification(item) {
   const title = String(item?.title || "").trim();
   const type = String(item?.metadata?.type || "").trim();
 
-  /*
-   * Các thông báo HDV đã tạo trước bản sửa backend được INSERT bằng SQL NOW().
-   * MySQL trả chúng như chuỗi UTC dù giá trị thực tế đã là giờ Việt Nam.
-   * Chỉ giữ tương thích cho dữ liệu cũ chưa có metadata type.
-   */
   return (
     !type &&
     [
@@ -30,14 +25,6 @@ function formatNotificationDateTime(value, item = null) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return String(value);
 
-  /*
-   * Chuẩn mới: timestamp được tạo bởi Prisma và được xem là thời điểm UTC thật.
-   * Giao diện luôn hiển thị theo múi giờ Việt Nam (UTC+7).
-   * Ví dụ 11:40Z -> 18:40 tại Việt Nam.
-   *
-   * Riêng dữ liệu HDV cũ tạo bằng SQL NOW() bị gắn nhãn UTC sai thì giữ nguyên
-   * phần giờ UTC để 18:31 cũ vẫn hiển thị 18:31, không thành 01:31 hôm sau.
-   */
   const timeZone = isLegacyGuideNotification(item) ? "UTC" : "Asia/Ho_Chi_Minh";
 
   return new Intl.DateTimeFormat("vi-VN", {
@@ -51,6 +38,37 @@ function formatNotificationDateTime(value, item = null) {
   }).format(parsed);
 }
 
+function getNotificationSortTimestamp(item) {
+  if (!item?.createdAt) return 0;
+
+  const parsed = new Date(item.createdAt);
+  if (Number.isNaN(parsed.getTime())) return 0;
+
+  /*
+   * Dữ liệu HDV cũ được INSERT bằng SQL NOW():
+   * giá trị lưu trong DB thực tế là giờ Việt Nam nhưng khi Prisma trả ra lại
+   * bị hiểu như UTC. Khi so thứ tự thời gian cần đưa nó về đúng "thời điểm"
+   * bằng cách trừ 7 giờ.
+   *
+   * Dữ liệu mới dùng Prisma createdAt nên giữ nguyên timestamp UTC thật.
+   */
+  return isLegacyGuideNotification(item)
+    ? parsed.getTime() - 7 * 60 * 60 * 1000
+    : parsed.getTime();
+}
+
+function sortNotificationsNewestFirst(items = []) {
+  return [...items].sort((a, b) => {
+    const timeDiff =
+      getNotificationSortTimestamp(b) - getNotificationSortTimestamp(a);
+
+    if (timeDiff !== 0) return timeDiff;
+
+    // Cùng thời điểm thì ưu tiên id lớn hơn để thứ tự luôn ổn định.
+    return Number(b?.id || 0) - Number(a?.id || 0);
+  });
+}
+
 export default function NotificationsPage() {
   const router = useRouter();
   const { showToast } = useToast();
@@ -60,9 +78,14 @@ export default function NotificationsPage() {
 
   const loadNotifications = async () => {
     const data = await apiFetch("/notifications/me");
-    setItems(data || []);
+    const sortedItems = sortNotificationsNewestFirst(
+      Array.isArray(data) ? data : [],
+    );
+
+    setItems(sortedItems);
+
     const queryId = router.query?.notificationId;
-    const nextId = queryId || data?.[0]?.id || null;
+    const nextId = queryId || sortedItems[0]?.id || null;
     setSelectedId(nextId ? String(nextId) : null);
   };
 

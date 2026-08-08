@@ -7971,7 +7971,7 @@ export default function AdminPage({ initialTab = "overview" }) {
 
             <div
               style={{
-                gridColumn: "1 / -1",
+                gridColumn: "1 / 3",
                 width: "100%",
                 boxSizing: "border-box",
                 display: "flex",

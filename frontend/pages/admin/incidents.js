@@ -41,7 +41,7 @@ export default function AdminGuideIncidentsPage() {
   const [status, setStatus] = useState("all");
   const [severity, setSeverity] = useState("all");
   const [keyword, setKeyword] = useState("");
-  const [appliedKeyword, setAppliedKeyword] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
   const [page, setPage] = useState(1);
 
   const [loading, setLoading] = useState(true);
@@ -56,12 +56,21 @@ export default function AdminGuideIncidentsPage() {
     query.set("pageSize", String(PAGE_SIZE));
     query.set("status", status);
     query.set("severity", severity);
-    if (appliedKeyword.trim()) query.set("search", appliedKeyword.trim());
+    if (debouncedKeyword.trim()) query.set("search", debouncedKeyword.trim());
     return query.toString();
-  }, [page, status, severity, appliedKeyword]);
+  }, [page, status, severity, debouncedKeyword]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setDebouncedKeyword(keyword.trim());
+    }, 320);
+
+    return () => window.clearTimeout(timer);
+  }, [keyword]);
 
   const load = async () => {
-    setLoading(true);
+    if (!items.length) setLoading(true);
     try {
       const result = await apiFetch(
         `/trip-operations/admin/incidents/all?${queryString}`,
@@ -93,12 +102,6 @@ export default function AdminGuideIncidentsPage() {
   useEffect(() => {
     setPage(1);
   }, [status, severity]);
-
-  const applySearch = (event) => {
-    event?.preventDefault();
-    setPage(1);
-    setAppliedKeyword(keyword.trim());
-  };
 
   const openDetail = (item) => {
     setSelectedIncident(item);
@@ -198,7 +201,7 @@ export default function AdminGuideIncidentsPage() {
           </Link>
         </div>
 
-        <form className="incident-toolbar" onSubmit={applySearch}>
+        <div className="incident-toolbar">
           <input
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
@@ -229,14 +232,12 @@ export default function AdminGuideIncidentsPage() {
             <option value="low">Thấp</option>
           </select>
 
-          <button type="submit">Tìm kiếm</button>
-
           <button
             type="button"
             className="secondary"
             onClick={() => {
               setKeyword("");
-              setAppliedKeyword("");
+              setDebouncedKeyword("");
               setStatus("all");
               setSeverity("all");
               setPage(1);
@@ -244,7 +245,7 @@ export default function AdminGuideIncidentsPage() {
           >
             Xóa lọc
           </button>
-        </form>
+        </div>
 
         <div className="incident-result-meta">
           <span>
@@ -511,7 +512,7 @@ export default function AdminGuideIncidentsPage() {
         }
         .incident-toolbar {
           display: grid;
-          grid-template-columns: minmax(260px, 1fr) 190px 180px auto auto;
+          grid-template-columns: minmax(300px, 1fr) 190px 180px auto;
           gap: 12px;
           padding: 16px;
           background: #fff;

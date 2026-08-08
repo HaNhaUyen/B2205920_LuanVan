@@ -439,6 +439,9 @@ export default function GuideOperationsPanel({ guide }) {
     description: "",
     locationName: "",
   });
+  const [editingIncidentId, setEditingIncidentId] = useState("");
+  const [savingIncident, setSavingIncident] = useState(false);
+  const [deletingIncidentId, setDeletingIncidentId] = useState("");
   const [broadcastForm, setBroadcastForm] = useState({
     title: "",
     content: "",
@@ -883,6 +886,98 @@ export default function GuideOperationsPanel({ guide }) {
       showToast(error.message || "Không thể xóa nhật ký.", "error");
     } finally {
       setDeletingLogId("");
+    }
+  };
+
+  const resetIncidentForm = () => {
+    setEditingIncidentId("");
+    setIncidentForm({
+      category: "other",
+      severity: "medium",
+      title: "",
+      description: "",
+      locationName: "",
+    });
+  };
+
+  const startEditIncident = (incident) => {
+    setEditingIncidentId(String(incident.id));
+    setIncidentForm({
+      category: incident.category || "other",
+      severity: incident.severity || "medium",
+      title: incident.title || "",
+      description: incident.description || "",
+      locationName: incident.locationName || incident.location_name || "",
+    });
+  };
+
+  const saveIncident = async (event) => {
+    event.preventDefault();
+    if (isReadOnlyTrip || !selectedTrip?.id) return;
+
+    const title = incidentForm.title.trim();
+    const description = incidentForm.description.trim();
+
+    if (!title || !description) {
+      showToast("Vui lòng nhập tiêu đề và mô tả sự cố.", "warning");
+      return;
+    }
+
+    setSavingIncident(true);
+    try {
+      const isEditing = Boolean(editingIncidentId);
+      const path = isEditing
+        ? `/trip-operations/${selectedTrip.id}/incidents/${editingIncidentId}`
+        : `/trip-operations/${selectedTrip.id}/incidents`;
+
+      await apiFetch(path, {
+        method: isEditing ? "PATCH" : "POST",
+        body: JSON.stringify({
+          category: incidentForm.category,
+          severity: incidentForm.severity,
+          title,
+          description,
+          locationName: incidentForm.locationName.trim(),
+        }),
+      });
+
+      showToast(
+        isEditing ? "Đã cập nhật sự cố." : "Đã tạo ticket sự cố.",
+        "success",
+      );
+      resetIncidentForm();
+      setIncidentPage(1);
+      await reloadCurrent();
+    } catch (error) {
+      showToast(error.message || "Không thể lưu sự cố.", "error");
+    } finally {
+      setSavingIncident(false);
+    }
+  };
+
+  const deleteIncident = async (incident) => {
+    if (isReadOnlyTrip || !selectedTrip?.id) return;
+
+    if (!window.confirm(`Xóa sự cố "${incident.title || "này"}"?`)) return;
+
+    setDeletingIncidentId(String(incident.id));
+    try {
+      await apiFetch(
+        `/trip-operations/${selectedTrip.id}/incidents/${incident.id}`,
+        { method: "DELETE" },
+      );
+
+      showToast("Đã xóa sự cố.", "success");
+
+      if (String(editingIncidentId) === String(incident.id)) {
+        resetIncidentForm();
+      }
+
+      await reloadCurrent();
+    } catch (error) {
+      showToast(error.message || "Không thể xóa sự cố.", "error");
+    } finally {
+      setDeletingIncidentId("");
     }
   };
 
@@ -1578,6 +1673,15 @@ export default function GuideOperationsPanel({ guide }) {
                   ) : (
                     <div className="ops-table-wrap">
                       <table className="ops-table">
+                        <colgroup>
+                          <col className="ops-col-passenger" />
+                          <col className="ops-col-booking" />
+                          <col className="ops-col-pickup" />
+                          <col className="ops-col-contact" />
+                          <col className="ops-col-status" />
+                          <col className="ops-col-detail" />
+                          <col className="ops-col-checkin" />
+                        </colgroup>
                         <thead>
                           <tr>
                             <th>Hành khách</th>
@@ -1651,15 +1755,19 @@ export default function GuideOperationsPanel({ guide }) {
                                   </span>
                                 </td>
                                 <td>
-                                  <strong>
-                                    {group.pickupName ||
-                                      group.name ||
-                                      guest.pickupName ||
-                                      "Điểm hẹn Travela"}
-                                  </strong>
-                                  <span className="ops-text-muted">
-                                    {group.pickupTime || guest.pickupTime || ""}
-                                  </span>
+                                  <div className="ops-pickup-cell">
+                                    <strong>
+                                      {group.pickupName ||
+                                        group.name ||
+                                        guest.pickupName ||
+                                        "Điểm hẹn Travela"}
+                                    </strong>
+                                    <span className="ops-pickup-time">
+                                      {group.pickupTime ||
+                                        guest.pickupTime ||
+                                        ""}
+                                    </span>
+                                  </div>
                                 </td>
                                 <td>
                                   <span className="ops-phone-text">
@@ -1912,25 +2020,13 @@ export default function GuideOperationsPanel({ guide }) {
                   <div className="ops-form-panel">
                     <form
                       className={`ops-form-card ${isReadOnlyTrip ? "readonly" : ""}`}
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (isReadOnlyTrip) return;
-                        postAndReload(
-                          `/trip-operations/${selectedTrip.id}/incidents`,
-                          incidentForm,
-                          "Đã tạo ticket sự cố.",
-                          () =>
-                            setIncidentForm({
-                              category: "other",
-                              severity: "medium",
-                              title: "",
-                              description: "",
-                              locationName: "",
-                            }),
-                        );
-                      }}
+                      onSubmit={saveIncident}
                     >
-                      <h3>Báo cáo sự cố</h3>
+                      <h3>
+                        {editingIncidentId
+                          ? "Chỉnh sửa sự cố"
+                          : "Báo cáo sự cố"}
+                      </h3>
                       <p className="ops-form-desc">
                         Gửi báo cáo sự cố để trung tâm điều hành hỗ trợ xử lý
                         kịp thời.
@@ -2012,14 +2108,33 @@ export default function GuideOperationsPanel({ guide }) {
                           }
                         />
                       </Field>
-                      <button
-                        className="ops-btn-danger"
-                        type="submit"
-                        disabled={isReadOnlyTrip}
-                      >
-                        <AlertTriangle size={16} />{" "}
-                        {isReadOnlyTrip ? "Chỉ xem" : "Gửi ticket hỗ trợ"}
-                      </button>
+                      <div className="ops-incident-form-actions">
+                        {editingIncidentId ? (
+                          <button
+                            type="button"
+                            className="ops-btn-outline"
+                            onClick={resetIncidentForm}
+                            disabled={savingIncident}
+                          >
+                            <X size={16} /> Hủy sửa
+                          </button>
+                        ) : null}
+
+                        <button
+                          className="ops-btn-danger"
+                          type="submit"
+                          disabled={isReadOnlyTrip || savingIncident}
+                        >
+                          <AlertTriangle size={16} />{" "}
+                          {isReadOnlyTrip
+                            ? "Chỉ xem"
+                            : savingIncident
+                              ? "Đang lưu..."
+                              : editingIncidentId
+                                ? "Lưu thay đổi"
+                                : "Gửi ticket hỗ trợ"}
+                        </button>
+                      </div>
                     </form>
                   </div>
 
@@ -2046,13 +2161,47 @@ export default function GuideOperationsPanel({ guide }) {
                                 <span className="ops-code-text">
                                   {incident.ticketCode || incident.ticket_code}
                                 </span>
-                                <div className="ops-badges-wrap">
-                                  <Badge tone={statusTone(incident.severity)}>
-                                    Mức độ: {incident.severity}
-                                  </Badge>
-                                  <Badge tone={statusTone(incident.status)}>
-                                    {incident.status}
-                                  </Badge>
+
+                                <div className="ops-incident-head-actions">
+                                  <div className="ops-badges-wrap">
+                                    <Badge tone={statusTone(incident.severity)}>
+                                      Mức độ: {incident.severity}
+                                    </Badge>
+                                  </div>
+
+                                  {!isReadOnlyTrip &&
+                                  Number(
+                                    incident.adminReplyCount ??
+                                      incident.admin_reply_count ??
+                                      0,
+                                  ) === 0 ? (
+                                    <div className="ops-incident-actions">
+                                      <button
+                                        type="button"
+                                        className="ops-incident-action edit"
+                                        onClick={() =>
+                                          startEditIncident(incident)
+                                        }
+                                      >
+                                        <Pencil size={14} /> Sửa
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="ops-incident-action delete"
+                                        disabled={
+                                          deletingIncidentId ===
+                                          String(incident.id)
+                                        }
+                                        onClick={() => deleteIncident(incident)}
+                                      >
+                                        <Trash2 size={14} />
+                                        {deletingIncidentId ===
+                                        String(incident.id)
+                                          ? "Đang xóa..."
+                                          : "Xóa"}
+                                      </button>
+                                    </div>
+                                  ) : null}
                                 </div>
                               </div>
                               <strong className="ops-list-title">
@@ -3173,13 +3322,38 @@ export default function GuideOperationsPanel({ guide }) {
         /* Table Design */
         .ops-table-wrap {
           overflow-x: auto;
+          overflow-y: hidden;
           border-radius: var(--border-radius-md);
           border: 1px solid var(--border-color);
+          padding-right: 2px;
         }
         .ops-table {
           width: 100%;
           border-collapse: collapse;
-          min-width: 900px;
+          min-width: 1120px;
+          table-layout: fixed;
+        }
+
+        .ops-col-passenger {
+          width: 22%;
+        }
+        .ops-col-booking {
+          width: 13%;
+        }
+        .ops-col-pickup {
+          width: 18%;
+        }
+        .ops-col-contact {
+          width: 12%;
+        }
+        .ops-col-status {
+          width: 9%;
+        }
+        .ops-col-detail {
+          width: 8%;
+        }
+        .ops-col-checkin {
+          width: 18%;
         }
         .ops-table th {
           position: sticky;
@@ -3209,13 +3383,54 @@ export default function GuideOperationsPanel({ guide }) {
         .ops-text-right {
           text-align: right !important;
         }
+
+        .ops-table th:last-child,
+        .ops-table td:last-child {
+          white-space: nowrap;
+          padding-right: 18px;
+        }
+
+        /* Giữ cột trạng thái ổn định ngay cả khi có "Chưa điểm danh". */
+        .ops-table th:nth-child(5),
+        .ops-table td:nth-child(5) {
+          white-space: nowrap;
+        }
+
+        /* Tên khách được ưu tiên chiều rộng, không bị status dài ép hẹp. */
+        .ops-table td:first-child {
+          overflow-wrap: normal;
+          word-break: normal;
+        }
         .ops-code-text {
           font-family: monospace;
           background: #f1f5f9;
-          padding: 4px 6px;
-          border-radius: 4px;
+          padding: 5px 8px;
+          border-radius: 5px;
           font-size: 13px;
           color: #475569;
+          display: inline-block;
+          min-width: 108px;
+          white-space: nowrap;
+        }
+
+        .ops-pickup-cell {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .ops-pickup-cell strong {
+          min-width: 0;
+          line-height: 1.35;
+        }
+
+        .ops-pickup-time {
+          color: #64748b;
+          font-size: 12px;
+          font-weight: 600;
+          white-space: nowrap;
+          flex: 0 0 auto;
         }
         .ops-phone-text {
           font-weight: 500;
@@ -3272,21 +3487,27 @@ export default function GuideOperationsPanel({ guide }) {
 
         /* Checkin Chips (Segmented Controls alike) */
         .ops-checkin-chips {
-          display: inline-flex;
-          flex-wrap: wrap;
-          gap: 6px;
+          display: flex;
+          flex-wrap: nowrap;
+          gap: 5px;
           justify-content: flex-end;
+          align-items: center;
+          white-space: nowrap;
+          width: 100%;
+          min-width: 0;
         }
         .ops-chip {
           border: 1px solid var(--border-color);
           background: #fff;
-          padding: 6px 10px;
+          padding: 6px 9px;
           border-radius: 20px;
           font-size: 12px;
           font-weight: 600;
           color: var(--text-muted);
           cursor: pointer;
           transition: all 0.2s;
+          flex: 0 0 auto;
+          white-space: nowrap;
         }
         .ops-chip:hover {
           border-color: #cbd5e1;
@@ -3310,10 +3531,15 @@ export default function GuideOperationsPanel({ guide }) {
           color: #991b1b;
           box-shadow: 0 0 0 1px #ef4444 inset;
         }
+        .ops-chip.pending {
+          border-color: #bbf7d0;
+          color: #166534;
+          background: #f0fdf4;
+        }
         .ops-chip.pending.active {
-          background: #f1f5f9;
-          color: #475569;
-          box-shadow: 0 0 0 1px #94a3b8 inset;
+          background: #dcfce7;
+          color: #166534;
+          box-shadow: 0 0 0 1px #22c55e inset;
         }
 
         /* Forms & Layouts */
@@ -3408,6 +3634,52 @@ export default function GuideOperationsPanel({ guide }) {
           padding-left: 36px;
           width: 100%;
           box-sizing: border-box;
+        }
+
+        .ops-incident-form-actions {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .ops-incident-head-actions {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .ops-incident-actions {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+        }
+        .ops-incident-action {
+          min-height: 30px;
+          padding: 0 9px;
+          border-radius: 8px;
+          border: 1px solid;
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 11px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .ops-incident-action.edit {
+          color: #1d4ed8;
+          border-color: #bfdbfe;
+          background: #eff6ff;
+        }
+        .ops-incident-action.delete {
+          color: #b91c1c;
+          border-color: #fecaca;
+          background: #fef2f2;
+        }
+        .ops-incident-action:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
         }
 
         /* List Items (Logs, Incidents, Broadcasts) */
@@ -4129,7 +4401,7 @@ export default function GuideOperationsPanel({ guide }) {
             gap: 12px;
           }
           .ops-checkin-chips {
-            justify-content: flex-start;
+            justify-content: flex-end;
           }
           .ops-passenger-detail-grid,
           .ops-special-notes {

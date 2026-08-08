@@ -18,6 +18,7 @@ const CUSTOMER_STARTER_MESSAGES = [
   "Kiểm tra booking của tôi",
   "Tôi ở Cần Thơ thì đón ở đâu?",
   "Tôi muốn đi Phú Quốc 3 ngày dưới 7 triệu",
+  "Tháng 8 nên đi đâu?",
 ];
 
 const GUIDE_STARTER_MESSAGES = [
@@ -1604,7 +1605,15 @@ export default function AssistantPage({ embed: embedProp = false }) {
                               <BookingCard
                                 key={`${index}-${booking.bookingCode}`}
                                 booking={booking}
-                                onRefund={requestRefundFromChat}
+                                onRefund={(selectedBooking) =>
+                                  sendMessage(
+                                    `Tôi muốn hủy booking ${
+                                      selectedBooking.bookingCode ||
+                                      selectedBooking.id ||
+                                      selectedBooking.bookingId
+                                    }`,
+                                  )
+                                }
                               />
                             ))}
                           </div>

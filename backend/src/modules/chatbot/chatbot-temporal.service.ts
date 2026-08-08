@@ -79,7 +79,9 @@ export class ChatbotTemporalService {
       return exact("hôm qua", this.addDays(today, -1), 0.96);
     }
 
-    const numeric = text.match(/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/);
+    const numeric = text.match(
+      /\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/,
+    );
     if (numeric) {
       const day = Number(numeric[1]);
       const month = Number(numeric[2]);
@@ -115,8 +117,7 @@ export class ChatbotTemporalService {
     if (monthMatch) {
       const month = Number(monthMatch[1]);
       if (month >= 1 && month <= 12) {
-        const year =
-          month < today.month ? today.year + 1 : today.year;
+        const year = month < today.month ? today.year + 1 : today.year;
         const from = { year, month, day: 1 };
         const to = { year, month, day: this.daysInMonth(year, month) };
         return range(monthMatch[0], from, to, 0.82, "month");
@@ -125,11 +126,19 @@ export class ChatbotTemporalService {
 
     if (/\bcuoi tuan (nay|tuan nay)\b/.test(text)) {
       const monday = this.startOfIsoWeek(today);
-      return range("cuối tuần này", this.addDays(monday, 5), this.addDays(monday, 6));
+      return range(
+        "cuối tuần này",
+        this.addDays(monday, 5),
+        this.addDays(monday, 6),
+      );
     }
     if (/\bcuoi tuan (sau|toi)\b/.test(text)) {
       const monday = this.addDays(this.startOfIsoWeek(today), 7);
-      return range("cuối tuần sau", this.addDays(monday, 5), this.addDays(monday, 6));
+      return range(
+        "cuối tuần sau",
+        this.addDays(monday, 5),
+        this.addDays(monday, 6),
+      );
     }
     if (/\bdau tuan sau\b/.test(text)) {
       const monday = this.addDays(this.startOfIsoWeek(today), 7);
@@ -137,27 +146,56 @@ export class ChatbotTemporalService {
     }
     if (/\bgiua tuan sau\b/.test(text)) {
       const monday = this.addDays(this.startOfIsoWeek(today), 7);
-      return range("giữa tuần sau", this.addDays(monday, 2), this.addDays(monday, 4), 0.84);
+      return range(
+        "giữa tuần sau",
+        this.addDays(monday, 2),
+        this.addDays(monday, 4),
+        0.84,
+      );
     }
     if (/\bcuoi thang nay\b/.test(text)) {
-      const from = { year: today.year, month: today.month, day: Math.max(today.day, 25) };
-      const to = { year: today.year, month: today.month, day: this.daysInMonth(today.year, today.month) };
+      const from = {
+        year: today.year,
+        month: today.month,
+        day: Math.max(today.day, 25),
+      };
+      const to = {
+        year: today.year,
+        month: today.month,
+        day: this.daysInMonth(today.year, today.month),
+      };
       return range("cuối tháng này", from, to, 0.82);
     }
     if (/\bdau thang sau\b/.test(text)) {
-      const next = this.addMonths({ year: today.year, month: today.month, day: 1 }, 1);
-      return range("đầu tháng sau", next, { ...next, day: Math.min(10, this.daysInMonth(next.year, next.month)) }, 0.82);
+      const next = this.addMonths(
+        { year: today.year, month: today.month, day: 1 },
+        1,
+      );
+      return range(
+        "đầu tháng sau",
+        next,
+        { ...next, day: Math.min(10, this.daysInMonth(next.year, next.month)) },
+        0.82,
+      );
     }
 
     const weekday = this.extractWeekday(text);
     if (weekday) {
       if (/\btuan nay\b/.test(text)) {
         const monday = this.startOfIsoWeek(today);
-        return exact(weekday.rawText, this.addDays(monday, weekday.iso - 1), 0.95);
+        return exact(
+          weekday.rawText,
+          this.addDays(monday, weekday.iso - 1),
+          0.95,
+        );
       }
       if (/\btuan (sau|toi)\b/.test(text)) {
         const monday = this.addDays(this.startOfIsoWeek(today), 7);
-        return exact(weekday.rawText, this.addDays(monday, weekday.iso - 1), 0.95);
+        return exact(
+          weekday.rawText,
+          this.addDays(monday, weekday.iso - 1),
+          0.95,
+        );
       }
       return {
         rawText: weekday.rawText,
@@ -210,7 +248,8 @@ export class ChatbotTemporalService {
       month: "2-digit",
       day: "2-digit",
     }).formatToParts(date);
-    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+    const get = (type: string) =>
+      Number(parts.find((p) => p.type === type)?.value);
     return { year: get("year"), month: get("month"), day: get("day") };
   }
 
@@ -219,7 +258,9 @@ export class ChatbotTemporalService {
   }
 
   private dayOfWeek(date: LocalDate) {
-    const js = new Date(Date.UTC(date.year, date.month - 1, date.day)).getUTCDay();
+    const js = new Date(
+      Date.UTC(date.year, date.month - 1, date.day),
+    ).getUTCDay();
     return js === 0 ? 7 : js;
   }
 
@@ -228,8 +269,14 @@ export class ChatbotTemporalService {
   }
 
   private addDays(date: LocalDate, days: number): LocalDate {
-    const d = new Date(Date.UTC(date.year, date.month - 1, date.day + days, 12));
-    return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+    const d = new Date(
+      Date.UTC(date.year, date.month - 1, date.day + days, 12),
+    );
+    return {
+      year: d.getUTCFullYear(),
+      month: d.getUTCMonth() + 1,
+      day: d.getUTCDate(),
+    };
   }
 
   private addMonths(date: LocalDate, months: number): LocalDate {
@@ -243,7 +290,9 @@ export class ChatbotTemporalService {
 
   private resolveYearForMonthDay(today: LocalDate, month: number, day: number) {
     const currentYearDate = { year: today.year, month, day };
-    return this.compare(currentYearDate, today) < 0 ? today.year + 1 : today.year;
+    return this.compare(currentYearDate, today) < 0
+      ? today.year + 1
+      : today.year;
   }
 
   private expandYear(year: number) {

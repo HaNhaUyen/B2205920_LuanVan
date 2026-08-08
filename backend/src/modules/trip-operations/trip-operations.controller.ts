@@ -136,6 +136,32 @@ export class TripOperationsController {
     return this.service.createIncident(user, Number(id), body);
   }
 
+  @Patch(":id/incidents/:ticketId")
+  @Roles("guide")
+  editOwnIncident(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Param("ticketId") ticketId: string,
+    @Body() body: any,
+  ) {
+    return this.service.editOwnIncident(
+      user,
+      Number(id),
+      Number(ticketId),
+      body,
+    );
+  }
+
+  @Delete(":id/incidents/:ticketId")
+  @Roles("guide")
+  deleteOwnIncident(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Param("ticketId") ticketId: string,
+  ) {
+    return this.service.deleteOwnIncident(user, Number(id), Number(ticketId));
+  }
+
   @Patch("incidents/:ticketId")
   @Roles("admin")
   updateIncident(

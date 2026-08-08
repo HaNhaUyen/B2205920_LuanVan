@@ -69,10 +69,7 @@ export class ChatbotRuleNluService {
       secondary.add("search_tour");
     }
 
-    const temporal = this.temporalService.parseTemporalExpression(
-      message,
-      now,
-    );
+    const temporal = this.temporalService.parseTemporalExpression(message, now);
     if (temporal) {
       slots.temporal = temporal;
       if (temporal.resolvedDate) {
@@ -147,17 +144,23 @@ export class ChatbotRuleNluService {
       secondary.add("tour_availability");
     }
     if (/\b(gia|bao nhieu tien|chi phi|re nhat|gia re)\b/.test(normalized)) {
-      secondary.add(/\b(re nhat|gia re nhat)\b/.test(normalized) ? "ask_cheapest_tour" : "tour_price");
+      secondary.add(
+        /\b(re nhat|gia re nhat)\b/.test(normalized)
+          ? "ask_cheapest_tour"
+          : "tour_price",
+      );
     }
     if (/\b(cuoi tuan|thu\s*7|t7|chu nhat|cn)\b/.test(normalized)) {
       secondary.add("ask_weekend_tour");
     }
 
-    const primaryIntent = forcedPrimaryIntent || (wantsBooking
-      ? "book_tour"
-      : wantsSearch || secondary.size
-        ? "search_tour"
-        : "general");
+    const primaryIntent =
+      forcedPrimaryIntent ||
+      (wantsBooking
+        ? "book_tour"
+        : wantsSearch || secondary.size
+          ? "search_tour"
+          : "general");
 
     const needsClarification: string[] = [];
     if (temporal?.needsClarification) {
@@ -171,8 +174,12 @@ export class ChatbotRuleNluService {
       slots,
       sortPreference,
       confidence:
-        primaryIntent === "general" ? 0.5 : Math.min(0.98, 0.72 + slotCount * 0.05),
-      needsClarification: needsClarification.length ? needsClarification : undefined,
+        primaryIntent === "general"
+          ? 0.5
+          : Math.min(0.98, 0.72 + slotCount * 0.05),
+      needsClarification: needsClarification.length
+        ? needsClarification
+        : undefined,
     };
   }
 
@@ -217,7 +224,9 @@ export class ChatbotRuleNluService {
       /\b(di tu|xuat phat tu|khoi hanh tu)\s+(tp hcm|tphcm|sai gon|sai gon|can tho|ha noi|da nang)\b/,
     );
     if (!match) return null;
-    const value = match[2].replace("tphcm", "TP.HCM").replace("tp hcm", "TP.HCM");
+    const value = match[2]
+      .replace("tphcm", "TP.HCM")
+      .replace("tp hcm", "TP.HCM");
     return { rawText: match[0], value };
   }
 

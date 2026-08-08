@@ -30,10 +30,14 @@ export function toDepartureSummary(departure: any): ChatbotDepartureSummary {
     departureDate: departure?.departureDate
       ? new Date(departure.departureDate).toISOString()
       : null,
-    endDate: departure?.endDate ? new Date(departure.endDate).toISOString() : null,
+    endDate: departure?.endDate
+      ? new Date(departure.endDate).toISOString()
+      : null,
     remainingSlots: getDepartureRemainingSlots(departure),
     status: String(departure?.status || ""),
-    adultPrice: Number(departure?.adultPrice || departure?.tour?.basePriceAdult || 0),
+    adultPrice: Number(
+      departure?.adultPrice || departure?.tour?.basePriceAdult || 0,
+    ),
   };
 }
 
@@ -45,7 +49,10 @@ export function groupDeparturesByTour(
     requestedDate?: string | null;
   },
 ): ChatbotTourDepartureGroup[] {
-  const grouped = new Map<string, { tourId: string; tour: any; departures: any[] }>();
+  const grouped = new Map<
+    string,
+    { tourId: string; tour: any; departures: any[] }
+  >();
   const seenDepartureKeys = new Set<string>();
 
   for (const item of matchedDepartures || []) {
@@ -81,7 +88,10 @@ export function groupDeparturesByTour(
             new Date(a.departureDate || 0).getTime() -
             new Date(b.departureDate || 0).getTime(),
         );
-      const limitedDepartures = departures.slice(0, options.maxDeparturesPerTour);
+      const limitedDepartures = departures.slice(
+        0,
+        options.maxDeparturesPerTour,
+      );
       const nearestDepartureDate = limitedDepartures[0]?.departureDate
         ? new Date(limitedDepartures[0].departureDate)
         : null;
@@ -107,13 +117,15 @@ export function groupDeparturesByTour(
     .sort((a: any, b: any) => {
       const openA = a.departures.some(
         (item: any) =>
-          String(item.status) === "open" && getDepartureRemainingSlots(item) > 0,
+          String(item.status) === "open" &&
+          getDepartureRemainingSlots(item) > 0,
       )
         ? 0
         : 1;
       const openB = b.departures.some(
         (item: any) =>
-          String(item.status) === "open" && getDepartureRemainingSlots(item) > 0,
+          String(item.status) === "open" &&
+          getDepartureRemainingSlots(item) > 0,
       )
         ? 0
         : 1;

@@ -163,7 +163,7 @@ export class RefundsService {
 
   /**
    * Thứ tự ưu tiên chính sách:
-   * 1. Cuối tuần/ngày lễ: không tiếp nhận yêu cầu.
+   * 1. Tour khởi hành vào cuối tuần/ngày lễ: không áp dụng hủy/hoàn.
    * 2. Trong 24 giờ trước khởi hành hoặc đã khởi hành: không hoàn.
    * 3. Trong 24 giờ kể từ lúc thanh toán: hoàn 70%.
    * 4. Còn từ 7 ngày: hoàn 50%.
@@ -256,19 +256,17 @@ export class RefundsService {
       );
     }
 
-    if (this.isWeekend(now)) {
-      const nextBusinessDate = await this.findNextBusinessDate(now);
-
+    // Chính sách cuối tuần/ngày lễ áp dụng theo NGÀY KHỞI HÀNH của tour,
+    // không áp dụng theo ngày khách gửi yêu cầu. Khách vẫn có thể thao tác
+    // hủy/hoàn vào thứ Bảy hoặc Chủ nhật nếu ngày khởi hành là ngày thường.
+    if (this.isWeekend(departureDate)) {
       return {
         eligible: false,
-        blockedReason: "WEEKEND",
+        blockedReason: "WEEKEND_DEPARTURE",
         message:
-          "Travela không tiếp nhận yêu cầu hủy tour vào thứ Bảy hoặc Chủ nhật." +
-          (nextBusinessDate
-            ? ` Vui lòng gửi lại vào ngày làm việc ${nextBusinessDate}.`
-            : " Vui lòng gửi lại vào ngày làm việc tiếp theo."),
-        policyCode: "BLOCKED_WEEKEND",
-        policyLabel: "Không tiếp nhận yêu cầu vào cuối tuần",
+          "Tour này khởi hành vào thứ Bảy hoặc Chủ nhật nên không áp dụng hủy/hoàn tiền theo chính sách hiện tại.",
+        policyCode: "BLOCKED_WEEKEND_DEPARTURE",
+        policyLabel: "Không hủy/hoàn đối với tour khởi hành vào cuối tuần",
         refundRate: 0,
         refundAmount: 0,
         paidAmount,
@@ -278,26 +276,19 @@ export class RefundsService {
         hoursBeforeDeparture,
         daysBeforeDeparture,
         holidayName: null,
-        nextBusinessDate,
+        nextBusinessDate: null,
       };
     }
 
-    const holiday = await this.findHoliday(now);
+    const holiday = await this.findHoliday(departureDate);
 
     if (holiday) {
-      const nextBusinessDate = await this.findNextBusinessDate(now);
-
       return {
         eligible: false,
-        blockedReason: "HOLIDAY",
-        message:
-          `Hôm nay là ngày nghỉ lễ ${holiday.holidayName}. ` +
-          "Travela chưa tiếp nhận yêu cầu hủy tour." +
-          (nextBusinessDate
-            ? ` Vui lòng gửi lại vào ngày làm việc ${nextBusinessDate}.`
-            : " Vui lòng gửi lại vào ngày làm việc tiếp theo."),
-        policyCode: "BLOCKED_HOLIDAY",
-        policyLabel: `Không tiếp nhận trong ngày lễ ${holiday.holidayName}`,
+        blockedReason: "HOLIDAY_DEPARTURE",
+        message: `Tour này khởi hành vào ngày nghỉ lễ ${holiday.holidayName} nên không áp dụng hủy/hoàn tiền theo chính sách hiện tại.`,
+        policyCode: "BLOCKED_HOLIDAY_DEPARTURE",
+        policyLabel: `Không hủy/hoàn đối với tour khởi hành ngày lễ ${holiday.holidayName}`,
         refundRate: 0,
         refundAmount: 0,
         paidAmount,
@@ -307,7 +298,7 @@ export class RefundsService {
         hoursBeforeDeparture,
         daysBeforeDeparture,
         holidayName: holiday.holidayName,
-        nextBusinessDate,
+        nextBusinessDate: null,
       };
     }
 

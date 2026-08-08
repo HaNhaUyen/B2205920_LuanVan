@@ -915,41 +915,47 @@ export class GuidesService {
       "issue",
     ];
 
-    const overlap = await this.prisma.guideAssignment.findFirst({
-      where: {
-        guideId,
-        status: { in: activeStatuses },
-        NOT: [
-          { endDate: { lt: departure.departureDate } },
-          { startDate: { gt: departure.endDate } },
-        ],
-        booking: { departureId: { not: departure.id } },
-      },
-      include: { tour: true },
-    });
+    const [overlap, busyAvailability] = await Promise.all([
+      this.prisma.guideAssignment.findFirst({
+        where: {
+          guideId,
+          status: { in: activeStatuses },
+          NOT: [
+            { endDate: { lt: departure.departureDate } },
+            { startDate: { gt: departure.endDate } },
+          ],
+          booking: { departureId: { not: departure.id } },
+        },
+        include: { tour: true },
+      }),
+      this.prisma.guideAvailability.findFirst({
+        where: {
+          guideId,
+          status: {
+            in: ["pending", "active"],
+          },
+          availabilityType: {
+            not: "available",
+          },
+          startAt: {
+            lte: new Date(
+              new Date(departure.endDate).setHours(23, 59, 59, 999),
+            ),
+          },
+          endAt: {
+            gte: new Date(
+              new Date(departure.departureDate).setHours(0, 0, 0, 0),
+            ),
+          },
+        },
+      }),
+    ]);
+
     if (overlap) {
       throw new BadRequestException(
         `Hướng dẫn viên đã có tour ${overlap.tour?.name || "khác"} trong thời gian này.`,
       );
     }
-
-    const busyAvailability = await this.prisma.guideAvailability.findFirst({
-      where: {
-        guideId,
-        status: {
-          in: ["pending", "active"],
-        },
-        availabilityType: {
-          not: "available",
-        },
-        startAt: {
-          lte: new Date(new Date(departure.endDate).setHours(23, 59, 59, 999)),
-        },
-        endAt: {
-          gte: new Date(new Date(departure.departureDate).setHours(0, 0, 0, 0)),
-        },
-      },
-    });
 
     if (busyAvailability) {
       throw new BadRequestException(
@@ -1011,21 +1017,19 @@ export class GuidesService {
         adminUserId,
       );
 
-      for (const booking of departure.bookings) {
-        await tx.bookingStatusLog.create({
-          data: {
-            bookingId: booking.id,
-            actionType: previousGuide ? "change_guide" : "assign_guide",
-            oldStatus: previousGuide?.fullName || null,
-            newStatus: guide.fullName,
-            source: "admin",
-            reason: dto.note || null,
-            note: previousGuide
-              ? `Đổi HDV từ ${previousGuide.fullName} sang ${guide.fullName} cho toàn bộ lịch khởi hành.`
-              : `Chỉ định HDV ${guide.fullName} cho toàn bộ lịch khởi hành.`,
-          },
-        });
-      }
+      await tx.bookingStatusLog.createMany({
+        data: departure.bookings.map((booking) => ({
+          bookingId: booking.id,
+          actionType: previousGuide ? "change_guide" : "assign_guide",
+          oldStatus: previousGuide?.fullName || null,
+          newStatus: guide.fullName,
+          source: "admin",
+          reason: dto.note || null,
+          note: previousGuide
+            ? `Đổi HDV từ ${previousGuide.fullName} sang ${guide.fullName} cho toàn bộ lịch khởi hành.`
+            : `Chỉ định HDV ${guide.fullName} cho toàn bộ lịch khởi hành.`,
+        })),
+      });
 
       if (previousGuide?.userId && previousGuide.id !== guide.id) {
         await tx.notification.create({
@@ -1070,44 +1074,47 @@ export class GuidesService {
         });
       }
 
-      for (const booking of departure.bookings) {
-        if (!booking.userId) continue;
+      const customerNotificationRows = departure.bookings
+        .filter((booking) => booking.userId)
+        .map((booking) => ({
+          title: previousGuide
+            ? "Hướng dẫn viên đã được cập nhật"
+            : "Đã có hướng dẫn viên phụ trách",
+          message: `Booking ${booking.bookingCode} đã có hướng dẫn viên ${guide.fullName}.`,
+          content: `Travela thông báo hướng dẫn viên phụ trách tour ${departure.tour.name} là ${guide.fullName}${guide.phone ? `, số điện thoại ${guide.phone}` : ""}.`,
+          targetRole: "user" as any,
+          targetUserId: booking.userId!,
+          isPublished: true,
+          createdBy: adminUserId,
+          metadata: {
+            type: previousGuide ? "guide_changed" : "guide_assigned",
+            bookingId: String(booking.id),
+            bookingCode: booking.bookingCode,
+            departureId: String(departure.id),
+            guideId: String(guide.id),
+          } as any,
+        }));
 
-        /*
-         * Không dùng INSERT ... NOW() cho notifications nữa.
-         * Prisma sẽ tạo timestamp cùng chuẩn với các thông báo hủy booking,
-         * phản hồi đánh giá, hoàn tiền... để frontend chỉ cần đổi sang giờ VN.
-         */
-        await tx.notification.create({
-          data: {
-            title: previousGuide
-              ? "Hướng dẫn viên đã được cập nhật"
-              : "Đã có hướng dẫn viên phụ trách",
-            message: `Booking ${booking.bookingCode} đã có hướng dẫn viên ${guide.fullName}.`,
-            content: `Travela thông báo hướng dẫn viên phụ trách tour ${departure.tour.name} là ${guide.fullName}${guide.phone ? `, số điện thoại ${guide.phone}` : ""}.`,
-            targetRole: "user" as any,
-            targetUserId: booking.userId,
-            isPublished: true,
-            createdBy: adminUserId,
-            metadata: {
-              type: previousGuide ? "guide_changed" : "guide_assigned",
-              bookingId: String(booking.id),
-              bookingCode: booking.bookingCode,
-              departureId: String(departure.id),
-              guideId: String(guide.id),
-            } as any,
-          },
+      if (customerNotificationRows.length) {
+        await tx.notification.createMany({
+          data: customerNotificationRows,
         });
       }
 
       return assignment;
     });
 
-    for (const booking of departure.bookings) {
-      const customerEmail = booking.user?.email || booking.contactEmail;
-      if (!customerEmail) continue;
-      try {
-        await this.email.sendMail({
+    /*
+     * Email là tác vụ phụ, không để Admin phải chờ SMTP gửi lần lượt cho
+     * từng booking. Phân công đã hoàn tất ở DB nên response có thể trả ngay.
+     * Promise.allSettled cũng tránh một email lỗi làm ảnh hưởng các email khác.
+     */
+    const emailJobs = departure.bookings
+      .map((booking) => {
+        const customerEmail = booking.user?.email || booking.contactEmail;
+        if (!customerEmail) return null;
+
+        return this.email.sendMail({
           to: customerEmail,
           subject: previousGuide
             ? `Travela cập nhật hướng dẫn viên cho ${booking.bookingCode}`
@@ -1122,7 +1129,11 @@ export class GuidesService {
             ${dto.note ? `<p>Ghi chú: ${htmlEscape(dto.note)}</p>` : ""}
           </div>`,
         });
-      } catch (_) {}
+      })
+      .filter(Boolean) as Promise<any>[];
+
+    if (emailJobs.length) {
+      void Promise.allSettled(emailJobs);
     }
 
     return {

@@ -138,6 +138,7 @@ export default function AdminGuidesPage() {
     search: "",
     status: "all",
   });
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const [bookings, setBookings] = useState([]);
   const [assignableDepartures, setAssignableDepartures] = useState([]);
@@ -166,14 +167,22 @@ export default function AdminGuidesPage() {
     note: "",
   });
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(filters.search.trim());
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [filters.search]);
+
   const qs = useMemo(() => {
     const query = new URLSearchParams();
 
     query.set("page", filters.page);
     query.set("pageSize", filters.pageSize);
 
-    if (filters.search) {
-      query.set("search", filters.search);
+    if (debouncedSearch) {
+      query.set("search", debouncedSearch);
     }
 
     if (filters.status && filters.status !== "all") {
@@ -181,10 +190,12 @@ export default function AdminGuidesPage() {
     }
 
     return query.toString();
-  }, [filters]);
+  }, [filters.page, filters.pageSize, filters.status, debouncedSearch]);
 
   const load = async () => {
-    setLoading(true);
+    if (!data.items.length) {
+      setLoading(true);
+    }
 
     try {
       const [guidesRes, bookingPage, assignableDepartureRows] =
@@ -219,8 +230,8 @@ export default function AdminGuidesPage() {
           }
         }
 
-        if (filters.search) {
-          const kw = filters.search.toLowerCase();
+        if (debouncedSearch) {
+          const kw = debouncedSearch.toLowerCase();
 
           filtered = filtered.filter(
             (guide) =>
