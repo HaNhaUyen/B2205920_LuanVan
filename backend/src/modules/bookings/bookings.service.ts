@@ -1104,46 +1104,124 @@ export class BookingsService {
     return { departure, requestedSlots };
   }
 
-  private async ensureNoDuplicateActiveBooking(
+  private formatBookingDate(value: Date | string | null | undefined) {
+    if (!value) return "-";
+
+    const date = value instanceof Date ? value : new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "-";
+
+    return new Intl.DateTimeFormat("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(date);
+  }
+
+  /**
+   * Không cho cùng một khách hàng có hai booking đang hoạt động bị giao nhau
+   * về thời gian chuyến đi.
+   *
+   * Hai khoảng [startA, endA] và [startB, endB] bị trùng khi:
+   *   startA <= endB && endA >= startB
+   *
+   * Vì vậy, nếu khách đã có chuyến 18/08 - 20/08 thì mọi chuyến mới có chứa
+   * ngày 18, 19 hoặc 20/08 đều bị chặn. Chỉ từ 21/08 trở đi mới hợp lệ.
+   *
+   * Với người dùng đăng nhập, userId là định danh chính xác.
+   * Với khách chưa đăng nhập, dùng cặp email + số điện thoại của người đặt.
+   *
+   * Các booking đã hủy hoặc hết hạn không được đưa vào truy vấn nên không chặn
+   * booking mới.
+   */
+  private async ensureNoOverlappingActiveBooking(
     tx: Prisma.TransactionClient,
     input: {
       departureId: bigint;
+      departureDate: Date;
+      endDate: Date;
       contactEmail: string;
       contactPhone: string;
       userId?: bigint;
     },
   ) {
-    const duplicate = await tx.booking.findFirst({
+    const customerWhere = input.userId
+      ? {
+          userId: input.userId,
+        }
+      : {
+          contactEmail: this.normalizeEmail(input.contactEmail),
+          contactPhone: this.normalizePhone(input.contactPhone),
+        };
+
+    const conflict = await tx.booking.findFirst({
       where: {
-        departureId: input.departureId,
-        bookingStatus: {
-          in: [
-            "pending_payment",
-            "waiting_confirmation",
-            "confirmed",
-            "completed",
-          ] as any,
-        },
+        ...customerWhere,
         OR: [
-          ...(input.userId ? [{ userId: input.userId }] : []),
           {
-            contactEmail: this.normalizeEmail(input.contactEmail),
-            contactPhone: this.normalizePhone(input.contactPhone),
+            bookingStatus: {
+              in: ["waiting_confirmation", "confirmed"] as any,
+            },
+          },
+          {
+            bookingStatus: "pending_payment" as any,
+            holdExpiresAt: {
+              gt: new Date(),
+            },
           },
         ],
+        departure: {
+          is: {
+            // Khoảng ngày được tính inclusive ở cả hai đầu.
+            departureDate: {
+              lte: input.endDate,
+            },
+            endDate: {
+              gte: input.departureDate,
+            },
+          },
+        },
       },
-      select: {
-        id: true,
-        bookingCode: true,
-        bookingStatus: true,
+      include: {
+        tour: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        departure: {
+          select: {
+            id: true,
+            departureDate: true,
+            endDate: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
       },
     });
 
-    if (duplicate) {
+    if (!conflict) return;
+
+    const oldStart = this.formatBookingDate(conflict.departure?.departureDate);
+    const oldEnd = this.formatBookingDate(conflict.departure?.endDate);
+    const newStart = this.formatBookingDate(input.departureDate);
+    const newEnd = this.formatBookingDate(input.endDate);
+    const tourName = conflict.tour?.name || "tour đã đặt";
+
+    const sameDeparture =
+      String(conflict.departureId) === String(input.departureId);
+
+    if (sameDeparture) {
       throw new BadRequestException(
-        `Đã tồn tại booking ${duplicate.bookingCode} cho lịch khởi hành này (${duplicate.bookingStatus}). Không thể tạo booking trùng.`,
+        `Bạn đã có booking ${conflict.bookingCode} cho lịch khởi hành này (${oldStart} - ${oldEnd}). Không thể tạo booking trùng.`,
       );
     }
+
+    throw new BadRequestException(
+      `Không thể đặt tour vì lịch bạn chọn (${newStart} - ${newEnd}) bị trùng với booking ${conflict.bookingCode} - ${tourName} (${oldStart} - ${oldEnd}). Vui lòng chọn lịch khởi hành sau ngày ${oldEnd} hoặc một khoảng thời gian không giao với chuyến đã đặt.`,
+    );
   }
 
   private async resolvePickupPoint(
@@ -1514,16 +1592,42 @@ export class BookingsService {
   async create(dto: CreateBookingDto, rawUserId?: any) {
     const userId = this.normalizeUserId(rawUserId);
     const departureId = BigInt(dto.departureId);
-    const lockKey = `lock:departure:${departureId}`;
-    const lockToken = await this.redisService.acquireLock(lockKey, 10000);
 
-    if (!lockToken) {
+    const normalizedContactEmail = this.normalizeEmail(dto.contactEmail);
+    const normalizedContactPhone = this.normalizePhone(dto.contactPhone);
+
+    const customerIdentity = userId
+      ? `user:${userId.toString()}`
+      : `guest:${normalizedContactEmail}:${normalizedContactPhone}`;
+
+    const departureLockKey = `lock:departure:${departureId}`;
+    const customerLockKey = `lock:booking-customer:${customerIdentity}`;
+
+    const departureLockToken = await this.redisService.acquireLock(
+      departureLockKey,
+      10000,
+    );
+
+    if (!departureLockToken) {
       throw new BadRequestException(
         "Có người đang đặt lịch khởi hành này. Vui lòng thử lại sau vài giây.",
       );
     }
 
+    let customerLockToken: string | null = null;
+
     try {
+      customerLockToken = await this.redisService.acquireLock(
+        customerLockKey,
+        10000,
+      );
+
+      if (!customerLockToken) {
+        throw new BadRequestException(
+          "Yêu cầu đặt tour của bạn đang được xử lý. Vui lòng không gửi nhiều booking cùng lúc.",
+        );
+      }
+
       return await this.prisma.$transaction(async (tx) => {
         await this.ensureBookableUser(tx, userId);
 
@@ -1538,8 +1642,10 @@ export class BookingsService {
         const contactEmail = this.normalizeEmail(dto.contactEmail);
         const contactPhone = this.normalizePhone(dto.contactPhone);
 
-        await this.ensureNoDuplicateActiveBooking(tx, {
+        await this.ensureNoOverlappingActiveBooking(tx, {
           departureId: departure.id,
+          departureDate: departure.departureDate,
+          endDate: departure.endDate,
           contactEmail,
           contactPhone,
           userId,
@@ -1637,7 +1743,11 @@ export class BookingsService {
         };
       });
     } finally {
-      await this.redisService.releaseLock(lockKey, lockToken);
+      if (customerLockToken) {
+        await this.redisService.releaseLock(customerLockKey, customerLockToken);
+      }
+
+      await this.redisService.releaseLock(departureLockKey, departureLockToken);
     }
   }
 
@@ -1658,8 +1768,10 @@ export class BookingsService {
       const contactEmail = this.normalizeEmail(dto.contactEmail);
       const contactPhone = this.normalizePhone(dto.contactPhone);
 
-      await this.ensureNoDuplicateActiveBooking(tx, {
+      await this.ensureNoOverlappingActiveBooking(tx, {
         departureId: departure.id,
+        departureDate: departure.departureDate,
+        endDate: departure.endDate,
         contactEmail,
         contactPhone,
         userId,
@@ -1713,6 +1825,78 @@ export class BookingsService {
 
       return booking;
     });
+  }
+
+  /**
+   * Các khoảng thời gian đang bị chiếm bởi booking còn hiệu lực của user.
+   * Frontend dùng API này để làm mờ/disable lịch khởi hành bị trùng ngay
+   * trong form đặt tour. Backend vẫn kiểm tra lại khi create booking để
+   * chống gọi API trực tiếp hoặc dữ liệu thay đổi đồng thời.
+   */
+  async findMyActiveBookingPeriods(userId: bigint) {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        userId,
+        OR: [
+          {
+            bookingStatus: {
+              in: ["waiting_confirmation", "confirmed"] as any,
+            },
+          },
+          {
+            bookingStatus: "pending_payment" as any,
+            holdExpiresAt: {
+              gt: new Date(),
+            },
+          },
+        ],
+        departure: {
+          is: {
+            endDate: {
+              gte: now,
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        bookingCode: true,
+        bookingStatus: true,
+        tour: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        departure: {
+          select: {
+            id: true,
+            departureDate: true,
+            endDate: true,
+          },
+        },
+      },
+      orderBy: {
+        departure: {
+          departureDate: "asc",
+        },
+      },
+    });
+
+    return bookings.map((booking: any) => ({
+      bookingId: String(booking.id),
+      bookingCode: booking.bookingCode,
+      bookingStatus: booking.bookingStatus,
+      tourId: booking.tour?.id ? String(booking.tour.id) : null,
+      tourName: booking.tour?.name || null,
+      departureId: booking.departure?.id ? String(booking.departure.id) : null,
+      startDate: booking.departure?.departureDate || null,
+      endDate:
+        booking.departure?.endDate || booking.departure?.departureDate || null,
+    }));
   }
 
   async findMyBookings(userId: bigint) {

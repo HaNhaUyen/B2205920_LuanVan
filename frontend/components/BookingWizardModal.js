@@ -120,12 +120,80 @@ function isGuestDone(guest) {
   );
 }
 
+function toLocalDateOnly(value) {
+  if (!value) return null;
+
+  const raw = String(value).trim();
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return new Date(
+    parsed.getFullYear(),
+    parsed.getMonth(),
+    parsed.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+}
+
+function formatDateOnlyVi(value) {
+  const date = toLocalDateOnly(value);
+  if (!date) return "-";
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function findDepartureConflict(departure, activeBookingPeriods = []) {
+  const newStart = toLocalDateOnly(departure?.departureDate);
+  const newEnd =
+    toLocalDateOnly(departure?.endDate || departure?.departureDate) || newStart;
+
+  if (!newStart || !newEnd) return null;
+
+  return (
+    (Array.isArray(activeBookingPeriods) ? activeBookingPeriods : []).find(
+      (period) => {
+        const oldStart = toLocalDateOnly(
+          period?.startDate || period?.departureDate,
+        );
+        const oldEnd =
+          toLocalDateOnly(
+            period?.endDate || period?.startDate || period?.departureDate,
+          ) || oldStart;
+
+        if (!oldStart || !oldEnd) return false;
+
+        // Inclusive ở cả hai đầu:
+        // booking 17-20 khóa lịch 15-17, 17-18, 18-19, 20-22...
+        return (
+          newStart.getTime() <= oldEnd.getTime() &&
+          newEnd.getTime() >= oldStart.getTime()
+        );
+      },
+    ) || null
+  );
+}
+
 export default function BookingWizardModal({
   open,
   onClose,
   onSubmit,
   tour,
   currentUser,
+  activeBookingPeriods = [],
   selectedDepartureId,
   bookingPassengers,
   bookingGuests,
@@ -180,6 +248,10 @@ export default function BookingWizardModal({
       ),
     [tour, selectedDepartureId],
   );
+  const selectedDepartureConflict = useMemo(
+    () => findDepartureConflict(selectedDeparture, activeBookingPeriods),
+    [selectedDeparture, activeBookingPeriods],
+  );
   const remainingSlots = getDepartureRemainingSlots(selectedDeparture || {});
   const totalGuests =
     Number(bookingPassengers.adultCount || 0) +
@@ -197,7 +269,12 @@ export default function BookingWizardModal({
   const validateCurrent = () => {
     const next = {};
     if (step === 0) {
-      if (!selectedDeparture) next.departure = "Vui lòng chọn lịch khởi hành.";
+      if (!selectedDeparture) {
+        next.departure = "Vui lòng chọn lịch khởi hành.";
+      } else if (selectedDepartureConflict) {
+        next.departure =
+          "Lịch khởi hành này hiện không khả dụng. Vui lòng chọn lịch khác.";
+      }
       if (pickupOptions.length > 0 && !pickupPointId)
         next.pickup = "Vui lòng chọn điểm đón.";
       if (bookingPassengers.adultCount < 1)
@@ -419,17 +496,27 @@ export default function BookingWizardModal({
                         }
                         onChange={handleDepartureChange}
                       >
-                        {(tour.departures || []).map((item) => (
-                          <option
-                            key={item.id}
-                            value={item.id}
-                            disabled={getDepartureRemainingSlots(item) <= 0}
-                          >
-                            {formatDate(item.departureDate)} -{" "}
-                            {formatCurrency(item.adultPrice)} - còn{" "}
-                            {getDepartureRemainingSlots(item)} chỗ
-                          </option>
-                        ))}
+                        {(tour.departures || []).map((item) => {
+                          const remaining = getDepartureRemainingSlots(item);
+                          const conflict = findDepartureConflict(
+                            item,
+                            activeBookingPeriods,
+                          );
+                          const disabled = remaining <= 0 || Boolean(conflict);
+
+                          return (
+                            <option
+                              key={item.id}
+                              value={item.id}
+                              disabled={disabled}
+                            >
+                              {formatDate(item.departureDate)} -{" "}
+                              {formatCurrency(item.adultPrice)} - còn{" "}
+                              {remaining} chỗ
+                              {remaining <= 0 ? " - Hết chỗ" : ""}
+                            </option>
+                          );
+                        })}
                       </select>
                     </Field>
                     <Field

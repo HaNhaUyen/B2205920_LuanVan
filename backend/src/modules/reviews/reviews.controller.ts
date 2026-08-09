@@ -111,6 +111,7 @@ export class ReviewsController {
     @Query("tourId") tourId?: string,
     @Query("rating") rating?: string,
     @Query("hasMedia") hasMedia?: string,
+    @Query("aiFlagged") aiFlagged?: string,
   ) {
     return this.reviewsService.adminList({
       page,
@@ -120,7 +121,22 @@ export class ReviewsController {
       tourId,
       rating,
       hasMedia,
+      aiFlagged,
     });
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Post("admin/reviews/ai-scan")
+  adminScanPending(@Query("limit") limit?: string) {
+    return this.reviewsService.adminScanPendingReviews(Number(limit || 100));
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles("admin")
+  @Post("admin/reviews/:id/ai-scan")
+  adminScanOne(@Param("id") id: string) {
+    return this.reviewsService.adminScanReview(Number(id));
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

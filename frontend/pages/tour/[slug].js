@@ -78,9 +78,7 @@ function buildDefaultGuests(
             )
           : normalizeDateInputValue(old?.dateOfBirth || ""),
       gender:
-        i === 0
-          ? currentUser?.gender || old?.gender || ""
-          : old?.gender || "",
+        i === 0 ? currentUser?.gender || old?.gender || "" : old?.gender || "",
       idNumber:
         i === 0
           ? currentUser?.identityNumber ||
@@ -191,6 +189,75 @@ function getBookableDepartures(departures = []) {
         new Date(a.departureDate).getTime() -
         new Date(b.departureDate).getTime(),
     );
+}
+
+function toLocalDateOnly(value) {
+  if (!value) return null;
+
+  const raw = String(value).trim();
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return new Date(
+    parsed.getFullYear(),
+    parsed.getMonth(),
+    parsed.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+}
+
+function findDepartureBookingConflict(departure, activeBookingPeriods = []) {
+  const newStart = toLocalDateOnly(departure?.departureDate);
+  const newEnd =
+    toLocalDateOnly(departure?.endDate || departure?.departureDate) || newStart;
+
+  if (!newStart || !newEnd) return null;
+
+  return (
+    (Array.isArray(activeBookingPeriods) ? activeBookingPeriods : []).find(
+      (period) => {
+        const oldStart = toLocalDateOnly(
+          period?.startDate || period?.departureDate,
+        );
+        const oldEnd =
+          toLocalDateOnly(
+            period?.endDate || period?.startDate || period?.departureDate,
+          ) || oldStart;
+
+        if (!oldStart || !oldEnd) return false;
+
+        // Hai khoảng ngày được tính inclusive:
+        // tour 17-20 sẽ khóa mọi lịch có chứa ngày 17, 18, 19 hoặc 20.
+        return (
+          newStart.getTime() <= oldEnd.getTime() &&
+          newEnd.getTime() >= oldStart.getTime()
+        );
+      },
+    ) || null
+  );
+}
+
+function getFirstAvailableDeparture(
+  departures = [],
+  activeBookingPeriods = [],
+) {
+  return (
+    (Array.isArray(departures) ? departures : []).find(
+      (departure) =>
+        getDepartureRemainingSlotsValue(departure) > 0 &&
+        !findDepartureBookingConflict(departure, activeBookingPeriods),
+    ) || null
+  );
 }
 
 function getTourMediaUrl(item = {}, fallback = "") {
@@ -507,6 +574,7 @@ export default function TourDetailPage() {
   const [selectedVoucherCode, setSelectedVoucherCode] = useState("");
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
   const [accountUser, setAccountUser] = useState(() => getUser());
+  const [activeBookingPeriods, setActiveBookingPeriods] = useState([]);
 
   useEffect(() => {
     if (!slug) return;
@@ -559,17 +627,25 @@ export default function TourDetailPage() {
 
         const storedCurrent = getUser();
         if (storedCurrent) {
-          const [freshUser, favoriteItems, voucherItems, travelerItems] =
-            await Promise.all([
-              apiFetch("/auth/me", { cache: "no-store" }).catch(
-                () => storedCurrent,
-              ),
-              apiFetch(`/favorites/me?_=${Date.now()}`, {
-                cache: "no-store",
-              }).catch(() => []),
-              apiFetch("/vouchers/me").catch(() => []),
-              apiFetch("/travel-companions").catch(() => []),
-            ]);
+          const [
+            freshUser,
+            favoriteItems,
+            voucherItems,
+            travelerItems,
+            activePeriods,
+          ] = await Promise.all([
+            apiFetch("/auth/me", { cache: "no-store" }).catch(
+              () => storedCurrent,
+            ),
+            apiFetch(`/favorites/me?_=${Date.now()}`, {
+              cache: "no-store",
+            }).catch(() => []),
+            apiFetch("/vouchers/me").catch(() => []),
+            apiFetch("/travel-companions").catch(() => []),
+            apiFetch(`/bookings/me/active-periods?_=${Date.now()}`, {
+              cache: "no-store",
+            }).catch(() => []),
+          ]);
           if (!active) return;
 
           // Luôn ưu tiên hồ sơ mới nhất từ backend thay vì localStorage cũ.
@@ -578,6 +654,7 @@ export default function TourDetailPage() {
 
           setFavorite(isTourInFavorites(favoriteItems, rawTour.id));
           setMyVouchers(voucherItems || []);
+          setActiveBookingPeriods(unwrapArray(activePeriods));
 
           const normalizedTravelers = (travelerItems || []).map(
             normalizeSavedTraveler,
@@ -604,6 +681,7 @@ export default function TourDetailPage() {
           setMyVouchers([]);
           setSavedTravelers([]);
           setSelectedVoucherCode("");
+          setActiveBookingPeriods([]);
         }
       } catch (error) {
         if (!active) return;
@@ -818,12 +896,25 @@ export default function TourDetailPage() {
     }
 
     try {
-      const freshUser = await apiFetch("/auth/me", {
-        cache: "no-store",
-      }).catch(() => currentUser);
+      /*
+       * Luôn tải lại hồ sơ + khoảng ngày đang bận ngay trước khi mở form.
+       * Nhờ vậy nếu user vừa tạo booking ở tab/trang khác, danh sách lịch
+       * bị khóa vẫn được cập nhật mới nhất.
+       */
+      const [freshUser, activePeriodsPayload] = await Promise.all([
+        apiFetch("/auth/me", {
+          cache: "no-store",
+        }).catch(() => currentUser),
+        apiFetch(`/bookings/me/active-periods?_=${Date.now()}`, {
+          cache: "no-store",
+        }).catch(() => []),
+      ]);
+
+      const freshActivePeriods = unwrapArray(activePeriodsPayload);
 
       setAccountUser(freshUser);
       updateStoredUser(freshUser);
+      setActiveBookingPeriods(freshActivePeriods);
 
       setBookingGuests((previous) =>
         buildDefaultGuests(
@@ -845,12 +936,34 @@ export default function TourDetailPage() {
         ),
       );
 
+      /*
+       * Không để form mở ra với một option đang bị disabled.
+       * Nếu lịch đang chọn bị trùng booking cũ, tự chuyển sang lịch đầu tiên
+       * còn chỗ và không giao ngày. Nếu không có lịch hợp lệ thì vẫn mở modal
+       * để user thấy lý do các lịch bị khóa.
+       */
+      const currentDeparture = (tour?.departures || []).find(
+        (item) => String(item.id) === String(selectedDepartureId),
+      );
+      const currentConflict = currentDeparture
+        ? findDepartureBookingConflict(currentDeparture, freshActivePeriods)
+        : null;
+
+      if (!currentDeparture || currentConflict) {
+        const firstAvailable = getFirstAvailableDeparture(
+          tour?.departures || [],
+          freshActivePeriods,
+        );
+
+        if (firstAvailable) {
+          setSelectedDepartureId(firstAvailable.id);
+          recalculatePreview(firstAvailable.id, bookingPassengers);
+        }
+      }
+
       setBookingModalOpen(true);
     } catch (error) {
-      showToast(
-        error?.message || "Không tải được hồ sơ để đặt tour.",
-        "error",
-      );
+      showToast(error?.message || "Không tải được hồ sơ để đặt tour.", "error");
     }
   };
 
@@ -1084,6 +1197,30 @@ export default function TourDetailPage() {
     const formData = new FormData(event.currentTarget);
     const payload = buildBookingPayload(formData);
     const expectedGuests = payload.adultCount + payload.childCount;
+
+    const departureForSubmit = (tour?.departures || []).find(
+      (item) => String(item.id) === String(payload.departureId),
+    );
+    const submitConflict = findDepartureBookingConflict(
+      departureForSubmit,
+      activeBookingPeriods,
+    );
+
+    if (submitConflict) {
+      showToast(
+        `Lịch đã chọn bị trùng với booking ${
+          submitConflict.bookingCode || "đang có"
+        } (${formatDate(
+          submitConflict.startDate || submitConflict.departureDate,
+        )} - ${formatDate(
+          submitConflict.endDate ||
+            submitConflict.startDate ||
+            submitConflict.departureDate,
+        )}). Vui lòng chọn lịch khác.`,
+        "error",
+      );
+      return;
+    }
 
     if (pickupOptions.length > 0 && !payload.pickupPointId) {
       showToast("Vui lòng chọn điểm đón trước khi đặt tour.", "error");
@@ -2323,6 +2460,7 @@ export default function TourDetailPage() {
                     onSubmit={handleBooking}
                     tour={tour}
                     currentUser={currentUser}
+                    activeBookingPeriods={activeBookingPeriods}
                     selectedDepartureId={selectedDepartureId}
                     bookingPassengers={bookingPassengers}
                     bookingGuests={bookingGuests}

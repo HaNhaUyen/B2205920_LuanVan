@@ -89,6 +89,7 @@ const initialReviewFilter = {
   tourId: "",
   rating: "",
   hasMedia: "",
+  aiFlagged: "",
   sortBy: "createdAt",
   sortOrder: "desc",
 };
@@ -142,6 +143,12 @@ const initialReviewReply = {
   status: "approved",
   adminReply: "",
   comment: "",
+  aiFlagged: false,
+  aiModerationCategory: "",
+  aiModerationSeverity: "",
+  aiModerationConfidence: null,
+  aiModerationReason: "",
+  aiModeratedAt: null,
 };
 const initialTourForm = {
   id: "",
@@ -1673,6 +1680,7 @@ export default function AdminPage({ initialTab = "overview" }) {
   const [replyForm, setReplyForm] = useState(initialReplyForm);
   const [reviewReplyOpen, setReviewReplyOpen] = useState(false);
   const [reviewReplyForm, setReviewReplyForm] = useState(initialReviewReply);
+  const [reviewAiScanning, setReviewAiScanning] = useState(false);
   const [tourModalOpen, setTourModalOpen] = useState(false);
   const [tourStep, setTourStep] = useState(1);
   const [tourForm, setTourForm] = useState(initialTourForm);
@@ -1896,6 +1904,7 @@ export default function AdminPage({ initialTab = "overview" }) {
     reviewFilters.tourId,
     reviewFilters.rating,
     reviewFilters.hasMedia,
+    reviewFilters.aiFlagged,
     reviewFilters.sortBy,
     reviewFilters.sortOrder,
   ]);
@@ -2390,6 +2399,16 @@ export default function AdminPage({ initialTab = "overview" }) {
       status: item.status || "approved",
       adminReply: item.adminReply || "",
       comment: item.comment || "",
+      aiFlagged: Boolean(item.aiFlagged),
+      aiModerationCategory: item.aiModerationCategory || "",
+      aiModerationSeverity: item.aiModerationSeverity || "",
+      aiModerationConfidence:
+        item.aiModerationConfidence === null ||
+        item.aiModerationConfidence === undefined
+          ? null
+          : Number(item.aiModerationConfidence),
+      aiModerationReason: item.aiModerationReason || "",
+      aiModeratedAt: item.aiModeratedAt || null,
     });
     setReviewReplyOpen(true);
   };
@@ -2398,7 +2417,10 @@ export default function AdminPage({ initialTab = "overview" }) {
     try {
       await apiFetch(`/admin/reviews/${reviewReplyForm.id}/reply`, {
         method: "PATCH",
-        body: JSON.stringify({ adminReply: reviewReplyForm.adminReply }),
+        body: JSON.stringify({
+          adminReply: reviewReplyForm.adminReply,
+          status: reviewReplyForm.status,
+        }),
       });
       showToast("Đã lưu phản hồi đánh giá và hiển thị ở tour.", "success");
       setReviewReplyOpen(false);
@@ -2410,6 +2432,71 @@ export default function AdminPage({ initialTab = "overview" }) {
       setSubmitting(false);
     }
   };
+  const scanReviewsWithAi = async () => {
+    if (reviewAiScanning) return;
+    setReviewAiScanning(true);
+    try {
+      const result = await apiFetch("/admin/reviews/ai-scan?limit=60", {
+        method: "POST",
+      });
+
+      const scanned = Number(result?.scanned || 0);
+      const flagged = Number(result?.flagged || 0);
+      const remaining = Number(result?.remaining || 0);
+
+      if (scanned === 0) {
+        showToast("Không có đánh giá mới nào cần quét AI.", "success");
+      } else {
+        showToast(
+          `Đã quét ${scanned} đánh giá mới; phát hiện ${flagged} đánh giá cần xem xét${
+            remaining > 0 ? `; còn ${remaining} đánh giá chưa quét` : ""
+          }.`,
+          flagged > 0 ? "warning" : "success",
+        );
+      }
+
+      await loadReviews(reviewFilters);
+    } catch (error) {
+      showToast(error.message || "Không thể quét AI đánh giá.", "error");
+    } finally {
+      setReviewAiScanning(false);
+    }
+  };
+
+  const rescanReviewWithAi = async (id) => {
+    if (!id || reviewAiScanning) return;
+    setReviewAiScanning(true);
+    try {
+      const result = await apiFetch(`/admin/reviews/${id}/ai-scan`, {
+        method: "POST",
+      });
+      setReviewReplyForm((prev) => ({
+        ...prev,
+        aiFlagged: Boolean(result?.aiFlagged),
+        aiModerationCategory: result?.aiModerationCategory || "",
+        aiModerationSeverity: result?.aiModerationSeverity || "",
+        aiModerationConfidence:
+          result?.aiModerationConfidence === null ||
+          result?.aiModerationConfidence === undefined
+            ? null
+            : Number(result.aiModerationConfidence),
+        aiModerationReason: result?.aiModerationReason || "",
+        aiModeratedAt: result?.aiModeratedAt || null,
+      }));
+      showToast(
+        result?.aiFlagged
+          ? "AI phát hiện đánh giá cần Admin xem xét."
+          : "AI chưa phát hiện nội dung vi phạm.",
+        result?.aiFlagged ? "warning" : "success",
+      );
+      await loadReviews(reviewFilters);
+    } catch (error) {
+      showToast(error.message || "Không thể quét lại đánh giá.", "error");
+    } finally {
+      setReviewAiScanning(false);
+    }
+  };
+
   const deleteReview = async (id) => {
     if (!window.confirm("Xóa đánh giá này?")) return;
     try {
@@ -3619,14 +3706,99 @@ export default function AdminPage({ initialTab = "overview" }) {
           min-width: 235px;
         }
 
-        .review-filter-grid {
-          grid-template-columns:
-            minmax(235px, 1.7fr)
-            minmax(220px, 1.45fr)
-            minmax(120px, 0.7fr)
-            minmax(145px, 0.85fr)
-            minmax(160px, 0.95fr)
-            minmax(125px, 0.7fr);
+        .review-toolbar {
+          display: grid;
+          gap: 14px;
+          padding: 18px;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          background: #f8fafc;
+        }
+
+        .review-toolbar-top,
+        .review-toolbar-bottom {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .review-filter-primary {
+          display: grid;
+          grid-template-columns: minmax(280px, 1.7fr) minmax(240px, 1.25fr) minmax(130px, .65fr);
+          gap: 12px;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .review-filter-secondary {
+          display: grid;
+          grid-template-columns: minmax(160px, .9fr) minmax(180px, 1fr) minmax(175px, 1fr) minmax(130px, .7fr);
+          gap: 12px;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .review-filter-primary input,
+        .review-filter-primary select,
+        .review-filter-secondary select {
+          width: 100%;
+          min-width: 0;
+          min-height: 42px;
+          padding: 10px 13px;
+          border: 1px solid #cbd5e1;
+          border-radius: 9px;
+          background: #ffffff;
+          color: #0f172a;
+          font-size: 14px;
+          outline: none;
+          box-sizing: border-box;
+        }
+
+        .review-filter-primary input:focus,
+        .review-filter-primary select:focus,
+        .review-filter-secondary select:focus {
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, .1);
+        }
+
+        .review-ai-action {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-shrink: 0;
+        }
+
+        .review-ai-warning-row {
+          background: #fffaf5;
+        }
+
+        .review-ai-warning-row:hover {
+          background: #fff7ed !important;
+        }
+
+        .review-ai-muted {
+          color: #64748b;
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        @media (max-width: 1200px) {
+          .review-filter-primary,
+          .review-filter-secondary {
+            grid-template-columns: repeat(2, minmax(180px, 1fr));
+          }
+          .review-ai-action { width: 100%; justify-content: flex-end; }
+        }
+
+        @media (max-width: 680px) {
+          .review-filter-primary,
+          .review-filter-secondary {
+            grid-template-columns: 1fr;
+          }
+          .review-ai-action { display: grid; grid-template-columns: 1fr; }
+          .review-ai-action .btn { width: 100%; }
         }
 
         .contact-filter-grid {
@@ -3638,10 +3810,6 @@ export default function AdminPage({ initialTab = "overview" }) {
         }
 
         @media (max-width: 1450px) {
-          .review-filter-grid {
-            grid-template-columns: repeat(3, minmax(180px, 1fr));
-          }
-
           .contact-filter-grid {
             grid-template-columns: repeat(2, minmax(180px, 1fr));
           }
@@ -3652,14 +3820,12 @@ export default function AdminPage({ initialTab = "overview" }) {
         }
 
         @media (max-width: 900px) {
-          .review-filter-grid,
           .contact-filter-grid {
             grid-template-columns: repeat(2, minmax(160px, 1fr));
           }
         }
 
         @media (max-width: 640px) {
-          .review-filter-grid,
           .contact-filter-grid {
             grid-template-columns: 1fr;
           }
@@ -5060,116 +5226,147 @@ export default function AdminPage({ initialTab = "overview" }) {
       {activeTab === "reviews" && (
         <div
           className="admin-card"
-          style={{ display: "flex", flexDirection: "column", gap: "24px" }}
+          style={{ display: "flex", flexDirection: "column", gap: "20px" }}
         >
-          <div className="admin-filter-toolbar">
-            <div className="admin-filter-grid review-filter-grid">
-              <input
-                value={reviewFilters.search}
-                onChange={(e) =>
-                  setReviewFilters((prev) => ({
-                    ...prev,
-                    search: e.target.value,
-                    page: 1,
-                  }))
-                }
-                placeholder="Tìm nội dung, tên khách..."
-              />
+          <div className="review-toolbar">
+            <div className="review-toolbar-top">
+              <div className="review-filter-primary">
+                <input
+                  value={reviewFilters.search}
+                  onChange={(e) =>
+                    setReviewFilters((prev) => ({
+                      ...prev,
+                      search: e.target.value,
+                      page: 1,
+                    }))
+                  }
+                  placeholder="Tìm nội dung, tên khách..."
+                />
 
-              <select
-                value={reviewFilters.tourId}
-                onChange={(e) =>
-                  setReviewFilters((prev) => ({
-                    ...prev,
-                    tourId: e.target.value,
-                    page: 1,
-                  }))
-                }
-              >
-                <option value="">Tất cả tour</option>
-                {[...(allTours || [])]
-                  .sort((a, b) =>
-                    String(a?.name || "").localeCompare(
-                      String(b?.name || ""),
-                      "vi",
-                      { sensitivity: "base", numeric: true },
-                    ),
-                  )
-                  .map((tour) => (
-                    <option key={tour.id} value={tour.id}>
-                      {tour.name}
+                <select
+                  value={reviewFilters.tourId}
+                  onChange={(e) =>
+                    setReviewFilters((prev) => ({
+                      ...prev,
+                      tourId: e.target.value,
+                      page: 1,
+                    }))
+                  }
+                >
+                  <option value="">Tất cả tour</option>
+                  {[...(allTours || [])]
+                    .sort((a, b) =>
+                      String(a?.name || "").localeCompare(
+                        String(b?.name || ""),
+                        "vi",
+                        { sensitivity: "base", numeric: true },
+                      ),
+                    )
+                    .map((tour) => (
+                      <option key={tour.id} value={tour.id}>
+                        {tour.name}
+                      </option>
+                    ))}
+                </select>
+
+                <select
+                  value={reviewFilters.rating}
+                  onChange={(e) =>
+                    setReviewFilters((prev) => ({
+                      ...prev,
+                      rating: e.target.value,
+                      page: 1,
+                    }))
+                  }
+                >
+                  <option value="">Tất cả sao</option>
+                  {[5, 4, 3, 2, 1].map((star) => (
+                    <option key={star} value={star}>
+                      {star} sao
                     </option>
                   ))}
-              </select>
+                </select>
+              </div>
 
-              <select
-                value={reviewFilters.rating}
-                onChange={(e) =>
-                  setReviewFilters((prev) => ({
-                    ...prev,
-                    rating: e.target.value,
-                    page: 1,
-                  }))
-                }
-              >
-                <option value="">Tất cả sao</option>
-                {[5, 4, 3, 2, 1].map((star) => (
-                  <option key={star} value={star}>
-                    {star} sao
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={reviewFilters.hasMedia}
-                onChange={(e) =>
-                  setReviewFilters((prev) => ({
-                    ...prev,
-                    hasMedia: e.target.value,
-                    page: 1,
-                  }))
-                }
-              >
-                <option value="">Tất cả hình ảnh</option>
-                <option value="true">Có hình ảnh</option>
-                <option value="false">Không có hình ảnh</option>
-              </select>
-
-              <select
-                value={reviewFilters.sortBy}
-                onChange={(e) =>
-                  setReviewFilters((prev) => ({
-                    ...prev,
-                    sortBy: e.target.value,
-                    page: 1,
-                  }))
-                }
-              >
-                <option value="createdAt">Ngày đánh giá</option>
-                <option value="rating">Số sao</option>
-                <option value="status">Trạng thái</option>
-                <option value="updatedAt">Ngày cập nhật</option>
-              </select>
-
-              <select
-                value={reviewFilters.sortOrder}
-                onChange={(e) =>
-                  setReviewFilters((prev) => ({
-                    ...prev,
-                    sortOrder: e.target.value,
-                    page: 1,
-                  }))
-                }
-              >
-                <option value="desc">Giảm dần</option>
-                <option value="asc">Tăng dần</option>
-              </select>
+              <div className="review-ai-action">
+                <StatusBadge>
+                  {formatNumber(reviewsData.pagination.total)} đánh giá
+                </StatusBadge>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={scanReviewsWithAi}
+                  disabled={reviewAiScanning}
+                  title="Chỉ quét các đánh giá chưa từng được AI kiểm tra"
+                >
+                  {reviewAiScanning ? "Đang quét..." : "Quét đánh giá mới"}
+                </button>
+              </div>
             </div>
 
-            <div className="admin-filter-actions">
-              <StatusBadge>
-                {formatNumber(reviewsData.pagination.total)} đánh giá
-              </StatusBadge>
+            <div className="review-toolbar-bottom">
+              <div className="review-filter-secondary">
+                <select
+                  value={reviewFilters.hasMedia}
+                  onChange={(e) =>
+                    setReviewFilters((prev) => ({
+                      ...prev,
+                      hasMedia: e.target.value,
+                      page: 1,
+                    }))
+                  }
+                >
+                  <option value="">Tất cả hình ảnh</option>
+                  <option value="true">Có hình ảnh</option>
+                  <option value="false">Không có hình ảnh</option>
+                </select>
+
+                <select
+                  value={reviewFilters.aiFlagged}
+                  onChange={(e) =>
+                    setReviewFilters((prev) => ({
+                      ...prev,
+                      aiFlagged: e.target.value,
+                      page: 1,
+                    }))
+                  }
+                >
+                  <option value="">Tất cả kiểm duyệt AI</option>
+                  <option value="true">AI cảnh báo</option>
+                  <option value="false">Đã quét - bình thường</option>
+                  <option value="unscanned">Chưa quét AI</option>
+                </select>
+
+                <select
+                  value={reviewFilters.sortBy}
+                  onChange={(e) =>
+                    setReviewFilters((prev) => ({
+                      ...prev,
+                      sortBy: e.target.value,
+                      page: 1,
+                    }))
+                  }
+                >
+                  <option value="createdAt">Ngày đánh giá</option>
+                  <option value="rating">Số sao</option>
+                  <option value="status">Trạng thái</option>
+                  <option value="updatedAt">Ngày cập nhật</option>
+                </select>
+
+                <select
+                  value={reviewFilters.sortOrder}
+                  onChange={(e) =>
+                    setReviewFilters((prev) => ({
+                      ...prev,
+                      sortOrder: e.target.value,
+                      page: 1,
+                    }))
+                  }
+                >
+                  <option value="desc">Giảm dần</option>
+                  <option value="asc">Tăng dần</option>
+                </select>
+              </div>
 
               <button
                 type="button"
@@ -5180,6 +5377,7 @@ export default function AdminPage({ initialTab = "overview" }) {
               </button>
             </div>
           </div>
+
           <div className="table-wrap">
             <table className="console-table">
               <thead>
@@ -5188,13 +5386,17 @@ export default function AdminPage({ initialTab = "overview" }) {
                   <th>Tour</th>
                   <th>Điểm</th>
                   <th>Nội dung</th>
+                  <th>AI kiểm duyệt</th>
                   <th>Phản hồi</th>
                   <th style={{ textAlign: "right" }}>Thao tác</th>
                 </tr>
               </thead>
               <tbody>
                 {reviewsData.items.map((item) => (
-                  <tr key={item.id}>
+                  <tr
+                    key={item.id}
+                    className={item.aiFlagged ? "review-ai-warning-row" : ""}
+                  >
                     <td>
                       <strong>{item.user?.fullName || "Khách vãng lai"}</strong>
                       <div className="table-muted">
@@ -5244,6 +5446,24 @@ export default function AdminPage({ initialTab = "overview" }) {
                         </div>
                       ) : null}
                     </td>
+                    <td style={{ minWidth: 170 }}>
+                      {!item.aiModeratedAt ? (
+                        <span className="review-ai-muted">Chưa quét</span>
+                      ) : item.aiFlagged ? (
+                        <div style={{ display: "grid", gap: 5 }}>
+                          <StatusBadge tone="danger">AI cảnh báo</StatusBadge>
+                          <small style={{ color: "#b45309", fontWeight: 700 }}>
+                            {item.aiModerationSeverity || "Cần xem xét"}
+                            {item.aiModerationConfidence !== null &&
+                            item.aiModerationConfidence !== undefined
+                              ? ` · ${Math.round(Number(item.aiModerationConfidence) * 100)}%`
+                              : ""}
+                          </small>
+                        </div>
+                      ) : (
+                        <span className="review-ai-muted">Đã quét</span>
+                      )}
+                    </td>
                     <td>
                       <span
                         className={
@@ -5288,6 +5508,20 @@ export default function AdminPage({ initialTab = "overview" }) {
                     </td>
                   </tr>
                 ))}
+                {!reviewsData.items.length && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      style={{
+                        textAlign: "center",
+                        color: "#64748b",
+                        padding: 28,
+                      }}
+                    >
+                      Không có đánh giá phù hợp bộ lọc.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -6218,7 +6452,7 @@ export default function AdminPage({ initialTab = "overview" }) {
       <Modal
         open={reviewReplyOpen}
         onClose={() => !submitting && setReviewReplyOpen(false)}
-        title="Trả lời đánh giá"
+        title="Xem xét đánh giá"
         size="lg"
         footer={
           <>
@@ -6249,6 +6483,103 @@ export default function AdminPage({ initialTab = "overview" }) {
               rows={3}
               style={{ background: "#f8fafc" }}
             />
+          </div>
+
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 12,
+              border: `1px solid ${
+                reviewReplyForm.aiFlagged ? "#fecaca" : "#bbf7d0"
+              }`,
+              background: reviewReplyForm.aiFlagged ? "#fef2f2" : "#f0fdf4",
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <strong style={{ color: "#0f172a" }}>
+                Kết quả kiểm duyệt AI
+              </strong>
+              <button
+                type="button"
+                className="btn btn-light btn-sm"
+                onClick={() => rescanReviewWithAi(reviewReplyForm.id)}
+                disabled={reviewAiScanning}
+              >
+                {reviewAiScanning ? "Đang quét..." : "Quét lại AI"}
+              </button>
+            </div>
+
+            {!reviewReplyForm.aiModeratedAt ? (
+              <span style={{ color: "#64748b" }}>
+                Đánh giá này chưa được quét.
+              </span>
+            ) : reviewReplyForm.aiFlagged ? (
+              <>
+                <StatusBadge tone="danger">
+                  ⚠ Nội dung cần Admin xem xét
+                </StatusBadge>
+                <div
+                  style={{ color: "#475569", fontSize: 14, lineHeight: 1.6 }}
+                >
+                  <div>
+                    <strong>Loại:</strong>{" "}
+                    {reviewReplyForm.aiModerationCategory || "Khác"}
+                  </div>
+                  <div>
+                    <strong>Mức độ:</strong>{" "}
+                    {reviewReplyForm.aiModerationSeverity || "-"}
+                  </div>
+                  <div>
+                    <strong>Độ tin cậy:</strong>{" "}
+                    {reviewReplyForm.aiModerationConfidence !== null
+                      ? `${Math.round(Number(reviewReplyForm.aiModerationConfidence) * 100)}%`
+                      : "-"}
+                  </div>
+                  <div>
+                    <strong>Lý do:</strong>{" "}
+                    {reviewReplyForm.aiModerationReason || "-"}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <StatusBadge tone="success">
+                  AI chưa phát hiện vi phạm
+                </StatusBadge>
+                <span style={{ color: "#475569", fontSize: 14 }}>
+                  {reviewReplyForm.aiModerationReason ||
+                    "Nội dung được đánh giá là bình thường."}
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="field">
+            <label>Quyết định của Admin</label>
+            <select
+              value={reviewReplyForm.status}
+              onChange={(e) =>
+                setReviewReplyForm((prev) => ({
+                  ...prev,
+                  status: e.target.value,
+                }))
+              }
+            >
+              <option value="approved">Giữ và hiển thị</option>
+              <option value="hidden">Ẩn khỏi trang tour</option>
+              <option value="rejected">Từ chối đánh giá</option>
+              <option value="pending">Chờ xem xét</option>
+            </select>
           </div>
           <div className="field">
             <label>Phản hồi từ Admin (Hiển thị public)</label>

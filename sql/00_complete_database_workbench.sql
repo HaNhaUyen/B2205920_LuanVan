@@ -14333,3 +14333,849 @@ ALTER TABLE refund_requests
   SELECT *
 FROM notifications
 ORDER BY created_at DESC;
+
+ALTER TABLE users
+ADD COLUMN gender VARCHAR(20) NULL AFTER birth_date;
+
+/* ============================================================
+   BƯỚC 1 - XEM CÁC BOOKING SEED SẼ CẦN XỬ LÝ
+   Chưa UPDATE gì ở bước này.
+   ============================================================ */
+
+SELECT DISTINCT
+    b.id AS booking_id,
+    b.booking_code,
+    b.user_id AS current_user_id,
+    u.full_name AS current_user_name,
+    d.departure_date,
+    d.end_date,
+    b.booking_status
+FROM bookings b
+
+JOIN users u
+    ON u.id = b.user_id
+
+JOIN tour_departures d
+    ON d.id = b.departure_id
+
+WHERE b.booking_code LIKE 'BK2026X%'
+
+  AND b.booking_status IN (
+      'pending_payment',
+      'waiting_confirmation',
+      'confirmed',
+      'completed'
+  )
+
+  AND EXISTS (
+      SELECT 1
+      FROM bookings b2
+
+      JOIN tour_departures d2
+          ON d2.id = b2.departure_id
+
+      WHERE b2.user_id = b.user_id
+        AND b2.id <> b.id
+
+        AND b2.booking_status IN (
+            'pending_payment',
+            'waiting_confirmation',
+            'confirmed',
+            'completed'
+        )
+
+        /* Hai khoảng ngày giao nhau */
+        AND d.departure_date <= d2.end_date
+        AND d.end_date >= d2.departure_date
+
+        AND (
+            /* Nếu đụng booking thật/test:
+               luôn ưu tiên giữ booking thật/test,
+               booking seed phải di chuyển */
+            b2.booking_code NOT LIKE 'BK2026X%'
+
+            OR
+
+            /* Nếu seed đụng seed:
+               giữ booking seed có ID nhỏ hơn */
+            (
+                b2.booking_code LIKE 'BK2026X%'
+                AND b2.id < b.id
+            )
+        )
+  )
+
+ORDER BY
+    b.user_id,
+    d.departure_date,
+    b.id;
+    
+    
+    /* ============================================================
+   BƯỚC 2 - TẠO BẢNG TẠM GHI NHẬN NHỮNG GÌ ĐÃ THAY ĐỔI
+   ============================================================ */
+
+DROP TEMPORARY TABLE IF EXISTS tmp_seed_booking_reassign;
+
+CREATE TEMPORARY TABLE tmp_seed_booking_reassign (
+    booking_id BIGINT UNSIGNED NOT NULL,
+    booking_code VARCHAR(50) NOT NULL,
+
+    old_user_id BIGINT UNSIGNED NOT NULL,
+    new_user_id BIGINT UNSIGNED NOT NULL,
+
+    departure_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+
+    changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (booking_id)
+);
+
+
+/* ============================================================
+   BƯỚC 3 - PROCEDURE TỰ ĐỘNG TÌM USER KHÔNG TRÙNG
+   ============================================================ */
+
+DROP PROCEDURE IF EXISTS fix_duplicate_seed_bookings;
+
+DELIMITER $$
+
+CREATE PROCEDURE fix_duplicate_seed_bookings()
+BEGIN
+
+    DECLARE v_done INT DEFAULT 0;
+
+    DECLARE v_booking_id BIGINT UNSIGNED;
+    DECLARE v_booking_code VARCHAR(50);
+
+    DECLARE v_old_user_id BIGINT UNSIGNED;
+    DECLARE v_new_user_id BIGINT UNSIGNED;
+
+    DECLARE v_departure_date DATE;
+    DECLARE v_end_date DATE;
+
+
+    /* --------------------------------------------------------
+       Chỉ lấy booking SEED thực sự đang bị xung đột.
+
+       Quy tắc:
+       1. Nếu BK2026X đụng booking KHÔNG phải BK2026X
+          -> di chuyển BK2026X.
+
+       2. Nếu BK2026X đụng BK2026X
+          -> giữ booking có ID nhỏ nhất,
+             các booking phía sau sẽ di chuyển.
+       -------------------------------------------------------- */
+
+    DECLARE cur CURSOR FOR
+
+        SELECT
+            b.id,
+            b.booking_code,
+            b.user_id,
+            d.departure_date,
+            d.end_date
+
+        FROM bookings b
+
+        JOIN tour_departures d
+            ON d.id = b.departure_id
+
+        WHERE b.booking_code LIKE 'BK2026X%'
+
+          AND b.user_id IS NOT NULL
+
+          AND b.booking_status IN (
+              'pending_payment',
+              'waiting_confirmation',
+              'confirmed',
+              'completed'
+          )
+
+          AND EXISTS (
+
+              SELECT 1
+
+              FROM bookings b2
+
+              JOIN tour_departures d2
+                  ON d2.id = b2.departure_id
+
+              WHERE b2.user_id = b.user_id
+
+                AND b2.id <> b.id
+
+                AND b2.booking_status IN (
+                    'pending_payment',
+                    'waiting_confirmation',
+                    'confirmed',
+                    'completed'
+                )
+
+                /* overlap inclusive */
+                AND d.departure_date <= d2.end_date
+                AND d.end_date >= d2.departure_date
+
+                AND (
+
+                    /* Protected booking thắng seed */
+                    b2.booking_code NOT LIKE 'BK2026X%'
+
+                    OR
+
+                    /* Seed có ID nhỏ hơn được giữ */
+                    (
+                        b2.booking_code LIKE 'BK2026X%'
+                        AND b2.id < b.id
+                    )
+                )
+          )
+
+        ORDER BY
+            d.departure_date ASC,
+            b.id ASC;
+
+
+    DECLARE CONTINUE HANDLER
+        FOR NOT FOUND SET v_done = 1;
+
+
+    OPEN cur;
+
+
+    read_loop: LOOP
+
+        FETCH cur
+        INTO
+            v_booking_id,
+            v_booking_code,
+            v_old_user_id,
+            v_departure_date,
+            v_end_date;
+
+
+        IF v_done = 1 THEN
+            LEAVE read_loop;
+        END IF;
+
+
+        SET v_new_user_id = NULL;
+
+
+        /* ----------------------------------------------------
+           Tìm một USER SEED khác:
+           - role = user
+           - active
+           - ID 2 -> 250
+           - không phải user hiện tại
+           - KHÔNG có booking nào giao ngày với booking cần chuyển
+
+           ORDER BY số booking giúp phân phối booking tương đối đều.
+           ---------------------------------------------------- */
+
+        SET v_new_user_id = (
+
+            SELECT u.id
+
+            FROM users u
+
+            WHERE u.role = 'user'
+              AND u.status = 'active'
+
+              /* Chỉ pool user seed */
+              AND u.id BETWEEN 2 AND 250
+
+              AND u.id <> v_old_user_id
+
+              /* Candidate tuyệt đối không được có tour trùng */
+              AND NOT EXISTS (
+
+                  SELECT 1
+
+                  FROM bookings existing_booking
+
+                  JOIN tour_departures existing_departure
+                      ON existing_departure.id =
+                         existing_booking.departure_id
+
+                  WHERE existing_booking.user_id = u.id
+
+                    AND existing_booking.booking_status IN (
+                        'pending_payment',
+                        'waiting_confirmation',
+                        'confirmed',
+                        'completed'
+                    )
+
+                    AND v_departure_date
+                        <= existing_departure.end_date
+
+                    AND v_end_date
+                        >= existing_departure.departure_date
+              )
+
+            /* User ít booking hơn được ưu tiên */
+            ORDER BY
+
+                (
+                    SELECT COUNT(*)
+                    FROM bookings bx
+                    WHERE bx.user_id = u.id
+                ) ASC,
+
+                u.id ASC
+
+            LIMIT 1
+        );
+
+
+        /* Không tìm được user phù hợp thì không UPDATE */
+        IF v_new_user_id IS NOT NULL THEN
+
+
+            /* ----------------------------------------------
+               Lưu audit trước
+               ---------------------------------------------- */
+
+            INSERT INTO tmp_seed_booking_reassign (
+                booking_id,
+                booking_code,
+                old_user_id,
+                new_user_id,
+                departure_date,
+                end_date
+            )
+            VALUES (
+                v_booking_id,
+                v_booking_code,
+                v_old_user_id,
+                v_new_user_id,
+                v_departure_date,
+                v_end_date
+            );
+
+
+            /* ----------------------------------------------
+               Đổi chủ booking.
+
+               Đồng bộ luôn contact info vì nếu chỉ đổi user_id
+               mà contact vẫn là người cũ thì dữ liệu sẽ lệch.
+               ---------------------------------------------- */
+
+            UPDATE bookings b
+
+            JOIN users new_user
+                ON new_user.id = v_new_user_id
+
+            SET
+                b.user_id = new_user.id,
+
+                b.contact_name = new_user.full_name,
+
+                b.contact_email = new_user.email,
+
+                b.contact_phone =
+                    COALESCE(
+                        new_user.phone,
+                        b.contact_phone
+                    ),
+
+                b.updated_at = NOW()
+
+            WHERE b.id = v_booking_id
+              AND b.booking_code LIKE 'BK2026X%';
+
+
+            /* ----------------------------------------------
+               Ghi log để sau này biết dữ liệu seed đã được dọn.
+               Không đổi booking_status.
+               ---------------------------------------------- */
+
+            INSERT INTO booking_status_logs (
+                booking_id,
+                action_type,
+                old_status,
+                new_status,
+                changed_by_user_id,
+                source,
+                reason,
+                note,
+                created_at
+            )
+
+            SELECT
+                b.id,
+                'seed_reassign_user',
+                b.booking_status,
+                b.booking_status,
+                1,
+                'maintenance',
+                'Tự động xử lý booking seed bị trùng lịch khách hàng',
+
+                CONCAT(
+                    'Reassign seed booking ',
+                    b.booking_code,
+                    ': user ',
+                    v_old_user_id,
+                    ' -> ',
+                    v_new_user_id
+                ),
+
+                NOW()
+
+            FROM bookings b
+            WHERE b.id = v_booking_id;
+
+
+        END IF;
+
+
+    END LOOP;
+
+
+    CLOSE cur;
+
+END$$
+
+DELIMITER ;
+
+
+
+START TRANSACTION;
+CALL fix_duplicate_seed_bookings();
+
+SELECT
+    booking_code,
+    old_user_id,
+    new_user_id,
+    departure_date,
+    end_date
+FROM tmp_seed_booking_reassign
+ORDER BY departure_date;
+
+SELECT
+    b1.user_id,
+
+    u.full_name,
+
+    b1.booking_code AS booking_1,
+    d1.departure_date AS start_1,
+    d1.end_date AS end_1,
+    b1.booking_status AS status_1,
+
+    b2.booking_code AS booking_2,
+    d2.departure_date AS start_2,
+    d2.end_date AS end_2,
+    b2.booking_status AS status_2
+
+FROM bookings b1
+
+JOIN users u
+    ON u.id = b1.user_id
+
+JOIN tour_departures d1
+    ON d1.id = b1.departure_id
+
+JOIN bookings b2
+    ON b2.user_id = b1.user_id
+   AND b2.id > b1.id
+
+JOIN tour_departures d2
+    ON d2.id = b2.departure_id
+
+WHERE b1.booking_status IN (
+    'pending_payment',
+    'waiting_confirmation',
+    'confirmed',
+    'completed'
+)
+
+AND b2.booking_status IN (
+    'pending_payment',
+    'waiting_confirmation',
+    'confirmed',
+    'completed'
+)
+
+/* inclusive overlap */
+AND d1.departure_date <= d2.end_date
+AND d1.end_date >= d2.departure_date
+
+ORDER BY
+    b1.user_id,
+    d1.departure_date;
+    
+    -- Chạy file này nếu database Travela hiện tại đã tồn tại bảng reviews.
+ALTER TABLE reviews
+  ADD COLUMN ai_flagged BOOLEAN NOT NULL DEFAULT FALSE AFTER status,
+  ADD COLUMN ai_moderation_category VARCHAR(100) NULL AFTER ai_flagged,
+  ADD COLUMN ai_moderation_severity VARCHAR(20) NULL AFTER ai_moderation_category,
+  ADD COLUMN ai_moderation_confidence DECIMAL(5,4) NULL AFTER ai_moderation_severity,
+  ADD COLUMN ai_moderation_reason VARCHAR(500) NULL AFTER ai_moderation_confidence,
+  ADD COLUMN ai_moderated_at DATETIME NULL AFTER ai_moderation_reason,
+  ADD INDEX idx_reviews_ai_moderation (ai_flagged, ai_moderated_at);
+
+
+
+START TRANSACTION;
+
+UPDATE reviews
+SET
+  comment = 'Tour như cc, làm ăn chán vãi.',
+  ai_flagged = 0,
+  ai_moderation_category = NULL,
+  ai_moderation_severity = NULL,
+  ai_moderation_confidence = NULL,
+  ai_moderation_reason = NULL,
+  ai_moderated_at = NULL,
+  updated_at = NOW()
+WHERE id = 7
+  AND (admin_reply IS NULL OR TRIM(admin_reply) = '');
+
+UPDATE reviews
+SET
+  comment = 'Nhân viên ngu như chó, nói chuyện mất dạy.',
+  ai_flagged = 0,
+  ai_moderation_category = NULL,
+  ai_moderation_severity = NULL,
+  ai_moderation_confidence = NULL,
+  ai_moderation_reason = NULL,
+  ai_moderated_at = NULL,
+  updated_at = NOW()
+WHERE id = 8
+  AND (admin_reply IS NULL OR TRIM(admin_reply) = '');
+
+UPDATE reviews
+SET
+  comment = 'Tao giết mày nếu còn phục vụ kiểu này.',
+  ai_flagged = 0,
+  ai_moderation_category = NULL,
+  ai_moderation_severity = NULL,
+  ai_moderation_confidence = NULL,
+  ai_moderation_reason = NULL,
+  ai_moderated_at = NULL,
+  updated_at = NOW()
+WHERE id = 10
+  AND (admin_reply IS NULL OR TRIM(admin_reply) = '');
+
+UPDATE reviews
+SET
+  comment = 'Bọn hướng dẫn viên đúng là lũ chó đẻ.',
+  ai_flagged = 0,
+  ai_moderation_category = NULL,
+  ai_moderation_severity = NULL,
+  ai_moderation_confidence = NULL,
+  ai_moderation_reason = NULL,
+  ai_moderated_at = NULL,
+  updated_at = NOW()
+WHERE id = 11
+  AND (admin_reply IS NULL OR TRIM(admin_reply) = '');
+
+UPDATE reviews
+SET
+  comment = 'Đồ súc vật, tour rác rưởi, cút mẹ đi.',
+  ai_flagged = 0,
+  ai_moderation_category = NULL,
+  ai_moderation_severity = NULL,
+  ai_moderation_confidence = NULL,
+  ai_moderation_reason = NULL,
+  ai_moderated_at = NULL,
+  updated_at = NOW()
+WHERE id = 13
+  AND (admin_reply IS NULL OR TRIM(admin_reply) = '');
+
+COMMIT;
+
+-- Kiểm tra lại 5 review sau khi cập nhật
+SELECT
+  id,
+  rating,
+  comment,
+  admin_reply,
+  status,
+  ai_flagged,
+  ai_moderation_category,
+  ai_moderation_severity,
+  ai_moderation_confidence,
+  ai_moderation_reason,
+  ai_moderated_at
+FROM reviews
+WHERE id IN (7, 8, 10, 11, 13)
+ORDER BY id;
+
+
+
+
+START TRANSACTION;
+
+-- ------------------------------------------------------------
+-- 1) RULE-FIRST / THREAT
+-- Regex local bắt "tao giết mày".
+-- Mong đợi:
+--   ai_flagged = 1
+--   category có threat
+--   severity = critical
+--   reason bắt đầu bằng "Rule-first phát hiện..."
+-- ------------------------------------------------------------
+INSERT INTO reviews (
+    user_id,
+    tour_id,
+    booking_id,
+    rating,
+    comment,
+    admin_reply,
+    admin_reply_at,
+    status,
+    ai_flagged,
+    ai_moderation_category,
+    ai_moderation_severity,
+    ai_moderation_confidence,
+    ai_moderation_reason,
+    ai_moderated_at,
+    created_at,
+    updated_at
+)
+SELECT
+    b.user_id,
+    b.tour_id,
+    b.id,
+    5,
+    'Tao giết mày nếu còn để khách chờ kiểu này.',
+    NULL,
+    NULL,
+    'approved',
+    0,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NOW(),
+    NOW()
+FROM bookings b
+WHERE b.id = 297
+  AND b.user_id IS NOT NULL
+  AND b.booking_status = 'completed'
+  AND EXISTS (
+      SELECT 1
+      FROM payments p
+      WHERE p.booking_id = b.id
+        AND p.payment_status = 'paid'
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM reviews r
+      WHERE r.booking_id = b.id
+        AND r.user_id = b.user_id
+  );
+
+-- ------------------------------------------------------------
+-- 2) RULE-FIRST / HARASSMENT
+-- Regex local bắt "ngu như" và "mất dạy".
+-- Mong đợi:
+--   ai_flagged = 1
+--   category có harassment
+--   severity = high
+-- ------------------------------------------------------------
+INSERT INTO reviews (
+    user_id, tour_id, booking_id, rating, comment,
+    admin_reply, admin_reply_at, status,
+    ai_flagged, ai_moderation_category, ai_moderation_severity,
+    ai_moderation_confidence, ai_moderation_reason, ai_moderated_at,
+    created_at, updated_at
+)
+SELECT
+    b.user_id,
+    b.tour_id,
+    b.id,
+    4,
+    'Hướng dẫn viên ngu như chó, nói chuyện mất dạy.',
+    NULL,
+    NULL,
+    'approved',
+    0,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    DATE_ADD(NOW(), INTERVAL 1 SECOND),
+    DATE_ADD(NOW(), INTERVAL 1 SECOND)
+FROM bookings b
+WHERE b.id = 302
+  AND b.user_id IS NOT NULL
+  AND b.booking_status = 'completed'
+  AND EXISTS (
+      SELECT 1 FROM payments p
+      WHERE p.booking_id = b.id
+        AND p.payment_status = 'paid'
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM reviews r
+      WHERE r.booking_id = b.id
+        AND r.user_id = b.user_id
+  );
+
+-- ------------------------------------------------------------
+-- 3) GROQ / HARASSMENT THEO NGỮ CẢNH
+-- Cố tình KHÔNG dùng các cụm local như:
+-- ngu như, mất dạy, súc vật, rác rưởi, cút đi, chó đẻ...
+--
+-- Mong đợi Groq hiểu đây là công kích/hạ nhục con người.
+-- ------------------------------------------------------------
+INSERT INTO reviews (
+    user_id, tour_id, booking_id, rating, comment,
+    admin_reply, admin_reply_at, status,
+    ai_flagged, ai_moderation_category, ai_moderation_severity,
+    ai_moderation_confidence, ai_moderation_reason, ai_moderated_at,
+    created_at, updated_at
+)
+SELECT
+    b.user_id,
+    b.tour_id,
+    b.id,
+    3,
+    'Người hướng dẫn đó không xứng đáng được xem là con người, cách cư xử khiến tôi thấy họ thật đáng khinh.',
+    NULL,
+    NULL,
+    'approved',
+    0,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    DATE_ADD(NOW(), INTERVAL 2 SECOND),
+    DATE_ADD(NOW(), INTERVAL 2 SECOND)
+FROM bookings b
+WHERE b.id = 922
+  AND b.user_id IS NOT NULL
+  AND b.booking_status = 'completed'
+  AND EXISTS (
+      SELECT 1 FROM payments p
+      WHERE p.booking_id = b.id
+        AND p.payment_status = 'paid'
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM reviews r
+      WHERE r.booking_id = b.id
+        AND r.user_id = b.user_id
+  );
+
+-- ------------------------------------------------------------
+-- 4) GROQ / HARASSMENT THEO NGỮ CẢNH
+-- Không có keyword rule-first.
+-- Nội dung mang tính hạ nhục/cô lập một người nên LLM mới cần phân tích.
+-- ------------------------------------------------------------
+INSERT INTO reviews (
+    user_id, tour_id, booking_id, rating, comment,
+    admin_reply, admin_reply_at, status,
+    ai_flagged, ai_moderation_category, ai_moderation_severity,
+    ai_moderation_confidence, ai_moderation_reason, ai_moderated_at,
+    created_at, updated_at
+)
+SELECT
+    b.user_id,
+    b.tour_id,
+    b.id,
+    2,
+    'Người như vậy đáng bị mọi người khinh miệt và cô lập, không nên được đối xử như một người bình thường.',
+    NULL,
+    NULL,
+    'approved',
+    0,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    DATE_ADD(NOW(), INTERVAL 3 SECOND),
+    DATE_ADD(NOW(), INTERVAL 3 SECOND)
+FROM bookings b
+WHERE b.id = 1327
+  AND b.user_id IS NOT NULL
+  AND b.booking_status = 'completed'
+  AND EXISTS (
+      SELECT 1 FROM payments p
+      WHERE p.booking_id = b.id
+        AND p.payment_status = 'paid'
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM reviews r
+      WHERE r.booking_id = b.id
+        AND r.user_id = b.user_id
+  );
+
+-- ------------------------------------------------------------
+-- 5) SAFE NEGATIVE / 1 SAO
+-- Đây là review tiêu cực hợp lệ.
+-- Mong đợi:
+--   ai_flagged = 0
+--   severity = none
+-- Dù 1 sao và dùng "rất tệ", AI KHÔNG được xem là vi phạm.
+-- ------------------------------------------------------------
+INSERT INTO reviews (
+    user_id, tour_id, booking_id, rating, comment,
+    admin_reply, admin_reply_at, status,
+    ai_flagged, ai_moderation_category, ai_moderation_severity,
+    ai_moderation_confidence, ai_moderation_reason, ai_moderated_at,
+    created_at, updated_at
+)
+SELECT
+    b.user_id,
+    b.tour_id,
+    b.id,
+    1,
+    'Hướng dẫn viên hỗ trợ rất tệ, giải thích sơ sài và xử lý tình huống chậm. Tôi không hài lòng với chuyến đi này.',
+    NULL,
+    NULL,
+    'approved',
+    0,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    DATE_ADD(NOW(), INTERVAL 4 SECOND),
+    DATE_ADD(NOW(), INTERVAL 4 SECOND)
+FROM bookings b
+WHERE b.id = 1336
+  AND b.user_id IS NOT NULL
+  AND b.booking_status = 'completed'
+  AND EXISTS (
+      SELECT 1 FROM payments p
+      WHERE p.booking_id = b.id
+        AND p.payment_status = 'paid'
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM reviews r
+      WHERE r.booking_id = b.id
+        AND r.user_id = b.user_id
+  );
+
+COMMIT;
+
+-- ============================================================
+-- KIỂM TRA 5 REVIEW VỪA THÊM
+-- Trước khi bấm Quét:
+-- ai_moderated_at phải NULL.
+-- ============================================================
+SELECT
+    r.id,
+    r.user_id,
+    r.tour_id,
+    r.booking_id,
+    r.rating,
+    r.comment,
+    r.status,
+    r.ai_flagged,
+    r.ai_moderation_category,
+    r.ai_moderation_severity,
+    r.ai_moderation_confidence,
+    r.ai_moderation_reason,
+    r.ai_moderated_at,
+    r.created_at
+FROM reviews r
+WHERE r.booking_id IN (297, 302, 922, 1327, 1336)
+ORDER BY r.created_at DESC;

@@ -56,6 +56,12 @@ export class BookingsController {
     return this.bookingsService.findMyBookings(user.userId);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get("bookings/me/active-periods")
+  findMyActivePeriods(@CurrentUser() user: { userId: bigint }) {
+    return this.bookingsService.findMyActiveBookingPeriods(user.userId);
+  }
+
   @Get("bookings/:id")
   findById(@Param("id") id: string) {
     return this.bookingsService.findById(Number(id));

@@ -442,6 +442,12 @@ model Review {
   adminReply   String?       @map("admin_reply") @db.Text
   adminReplyAt DateTime?     @map("admin_reply_at") @db.DateTime(0)
   status       ReviewStatus  @default(approved)
+  aiFlagged              Boolean       @default(false) @map("ai_flagged")
+  aiModerationCategory   String?       @map("ai_moderation_category") @db.VarChar(100)
+  aiModerationSeverity   String?       @map("ai_moderation_severity") @db.VarChar(20)
+  aiModerationConfidence Decimal?      @map("ai_moderation_confidence") @db.Decimal(5, 4)
+  aiModerationReason     String?       @map("ai_moderation_reason") @db.VarChar(500)
+  aiModeratedAt          DateTime?     @map("ai_moderated_at") @db.DateTime(0)
   createdAt    DateTime      @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt    DateTime      @default(now()) @map("updated_at") @db.DateTime(0)
   media        ReviewMedia[]
@@ -449,6 +455,7 @@ model Review {
   tour         Tour          @relation(fields: [tourId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "reviews_ibfk_2")
   booking      Booking?      @relation(fields: [bookingId], references: [id], onUpdate: NoAction, map: "reviews_ibfk_3")
 
+  @@index([aiFlagged, aiModeratedAt], map: "idx_reviews_ai_moderation")
   @@index([bookingId], map: "booking_id")
   @@index([tourId], map: "tour_id")
   @@index([userId], map: "user_id")

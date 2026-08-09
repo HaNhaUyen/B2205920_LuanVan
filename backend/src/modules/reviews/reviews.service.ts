@@ -8,6 +8,7 @@ import { join, normalize } from "path";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateReviewDto } from "./dto/create-review.dto";
 import { AdminUpsertReviewDto } from "./dto/admin-upsert-review.dto";
+import { ReviewModerationService } from "./review-moderation.service";
 
 type ReviewListQuery = {
   page?: string;
@@ -23,11 +24,15 @@ type AdminReviewQuery = ReviewListQuery & {
   tourId?: string;
   sortBy?: string;
   sortOrder?: string;
+  aiFlagged?: string;
 };
 
 @Injectable()
 export class ReviewsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reviewModerationService: ReviewModerationService,
+  ) {}
 
   private calculateMemberTier(points: number) {
     const safePoints = Math.max(Number(points || 0), 0);
@@ -612,6 +617,16 @@ export class ReviewsService {
       },
     });
 
+    // Review vẫn được đăng bình thường. Việc kiểm duyệt chỉ gắn cờ để Admin xem xét,
+    // tuyệt đối không tự đổi status/xóa review.
+    void this.moderateAndPersistReview(created.id, created.comment).catch(
+      (error) =>
+        console.warn(
+          `[Review moderation] auto scan review=${created.id} failed`,
+          error,
+        ),
+    );
+
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
 
@@ -676,6 +691,134 @@ export class ReviewsService {
     };
   }
 
+  private async moderateAndPersistReview(
+    reviewId: bigint,
+    comment?: string | null,
+  ) {
+    const result = await this.reviewModerationService.moderate(comment);
+
+    return this.prisma.review.update({
+      where: { id: reviewId },
+      data: {
+        aiFlagged: result.flagged,
+        aiModerationCategory: result.category,
+        aiModerationSeverity: result.severity,
+        aiModerationConfidence: result.confidence,
+        aiModerationReason: result.reason,
+        aiModeratedAt: new Date(),
+      } as any,
+    });
+  }
+
+  async adminScanReview(id: number) {
+    if (!id || Number.isNaN(id)) {
+      throw new BadRequestException("Mã đánh giá không hợp lệ.");
+    }
+
+    const review = await this.prisma.review.findUnique({
+      where: { id: BigInt(id) },
+      select: { id: true, comment: true },
+    });
+    if (!review) throw new NotFoundException("Review not found");
+
+    await this.moderateAndPersistReview(review.id, review.comment);
+    const updated = await this.prisma.review.findUnique({
+      where: { id: review.id },
+      include: {
+        tour: { select: { id: true, name: true } },
+        user: {
+          select: { id: true, fullName: true, email: true, avatarUrl: true },
+        },
+      },
+    });
+    if (!updated) throw new NotFoundException("Review not found");
+    const withMedia = await this.attachMediaToReviews([updated]);
+    return this.mapReview(withMedia[0]);
+  }
+
+  async adminScanPendingReviews(limit = 60) {
+    // Chỉ lấy review CHƯA từng được quét. Vì vậy sau lần backfill đầu tiên,
+    // nút này chỉ xử lý các review mới phát sinh hoặc review được reset aiModeratedAt.
+    const safeLimit = Math.min(Math.max(Number(limit || 60), 1), 120);
+    const rows = await this.prisma.review.findMany({
+      where: {
+        comment: { not: null },
+        aiModeratedAt: null,
+      } as any,
+      // Ưu tiên review mới nhất trước.
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: safeLimit,
+      select: { id: true, comment: true },
+    });
+
+    if (!rows.length) {
+      return { scanned: 0, flagged: 0, remaining: 0 };
+    }
+
+    // Không chạy tuần tự từng review vì sẽ rất chậm khi phải gọi Groq.
+    // Cũng không Promise.all toàn bộ để tránh đập rate-limit provider.
+    // 6 worker là mức cân bằng tốt cho demo/local và có thể chỉnh qua env.
+    const configuredConcurrency = Number(
+      process.env.REVIEW_AI_SCAN_CONCURRENCY || 6,
+    );
+    const concurrency = Math.min(
+      Math.max(
+        Number.isFinite(configuredConcurrency) ? configuredConcurrency : 6,
+        1,
+      ),
+      10,
+    );
+
+    let cursor = 0;
+    let scanned = 0;
+    let flagged = 0;
+
+    const worker = async () => {
+      while (true) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= rows.length) return;
+
+        const row = rows[index];
+        try {
+          const result = await this.reviewModerationService.moderate(
+            row.comment,
+          );
+          await this.prisma.review.update({
+            where: { id: row.id },
+            data: {
+              aiFlagged: result.flagged,
+              aiModerationCategory: result.category,
+              aiModerationSeverity: result.severity,
+              aiModerationConfidence: result.confidence,
+              aiModerationReason: result.reason,
+              aiModeratedAt: new Date(),
+            } as any,
+          });
+          scanned += 1;
+          if (result.flagged) flagged += 1;
+        } catch (error) {
+          console.warn(
+            `[Review moderation] scan review=${row.id} failed`,
+            error,
+          );
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, rows.length) }, () =>
+        worker(),
+      ),
+    );
+
+    const remaining = await this.prisma.review.count({
+      where: { comment: { not: null }, aiModeratedAt: null } as any,
+    });
+
+    return { scanned, flagged, remaining };
+  }
+
   async adminList(query: AdminReviewQuery) {
     const { page, pageSize, skip } = this.pageParams(
       query.page,
@@ -683,6 +826,15 @@ export class ReviewsService {
     );
 
     const where: any = {};
+
+    if (query.aiFlagged === "true" || query.aiFlagged === "1") {
+      where.aiFlagged = true;
+    } else if (query.aiFlagged === "false" || query.aiFlagged === "0") {
+      where.aiFlagged = false;
+      where.aiModeratedAt = { not: null };
+    } else if (query.aiFlagged === "unscanned") {
+      where.aiModeratedAt = null;
+    }
 
     if (query.status) where.status = query.status;
     if (query.tourId) where.tourId = BigInt(query.tourId);
