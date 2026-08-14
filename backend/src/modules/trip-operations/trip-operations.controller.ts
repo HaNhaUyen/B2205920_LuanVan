@@ -302,4 +302,50 @@ export class TripOperationsController {
         : body?.documentUrl,
     });
   }
+
+  @Patch("guides/me/competencies/:id")
+  @Roles("guide")
+  @UseInterceptors(
+    FileInterceptor("evidenceFile", {
+      storage: competencyFileStorage,
+      limits: { fileSize: 8 * 1024 * 1024 },
+      fileFilter: (_req, file, callback) => {
+        const allowedMimeTypes = [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "application/pdf",
+        ];
+
+        if (!allowedMimeTypes.includes(file.mimetype)) {
+          callback(
+            new Error("Minh chứng chỉ hỗ trợ JPG, PNG, WEBP hoặc PDF."),
+            false,
+          );
+          return;
+        }
+
+        callback(null, true);
+      },
+    }),
+  )
+  updateCompetency(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return this.service.updateCompetency(user, Number(id), {
+      ...body,
+      documentUrl: file
+        ? `/uploads/guide-competencies/${file.filename}`
+        : body?.documentUrl,
+    });
+  }
+
+  @Delete("guides/me/competencies/:id")
+  @Roles("guide")
+  deleteCompetency(@CurrentUser() user: any, @Param("id") id: string) {
+    return this.service.deleteCompetency(user, Number(id));
+  }
 }

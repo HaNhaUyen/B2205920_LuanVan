@@ -81,6 +81,14 @@ export default function GuideAdvancedTools() {
         "error",
       );
     }
+    if (
+      !["unavailable", "leave", "training", "personal"].includes(
+        busy.availabilityType,
+      )
+    )
+      return showToast("Loại lịch bận không hợp lệ.", "error");
+    if (String(busy.reason || "").trim().length > 500)
+      return showToast("Lý do lịch bận tối đa 500 ký tự.", "error");
 
     try {
       setSaving(true);

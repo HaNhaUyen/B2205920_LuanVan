@@ -45,6 +45,57 @@ export class VouchersService {
     }
   }
 
+  private validateVoucherValues(dto: any, existing?: any) {
+    const name = String(dto.name ?? existing?.name ?? "").trim();
+    const discountType = String(
+      dto.discountType ?? existing?.discountType ?? "percent",
+    );
+    const discountValue = Number(
+      dto.discountValue ?? existing?.discountValue ?? 0,
+    );
+    const maxDiscountRaw = dto.maxDiscount ?? existing?.maxDiscount;
+    const minOrderAmount = Number(
+      dto.minOrderAmount ?? existing?.minOrderAmount ?? 0,
+    );
+    const quota = Number(dto.quota ?? existing?.quota ?? 0);
+    const memberTier = String(
+      dto.memberTier ?? existing?.memberTier ?? "bronze",
+    );
+    const status = String(dto.status ?? existing?.status ?? "active");
+
+    if (!name)
+      throw new BadRequestException("Cần nhập tên chương trình voucher.");
+    if (name.length < 3 || name.length > 160)
+      throw new BadRequestException(
+        "Tên chương trình voucher phải từ 3 đến 160 ký tự.",
+      );
+    if (!["percent", "fixed"].includes(discountType))
+      throw new BadRequestException("Loại giảm giá voucher không hợp lệ.");
+    if (!Number.isFinite(discountValue) || discountValue <= 0)
+      throw new BadRequestException("Giá trị giảm phải là số lớn hơn 0.");
+    if (discountType === "percent" && discountValue > 100)
+      throw new BadRequestException(
+        "Giá trị giảm theo phần trăm không được vượt quá 100%.",
+      );
+    if (maxDiscountRaw !== "" && maxDiscountRaw != null) {
+      const maxDiscount = Number(maxDiscountRaw);
+      if (!Number.isFinite(maxDiscount) || maxDiscount < 0)
+        throw new BadRequestException("Mức giảm tối đa phải là số không âm.");
+    }
+    if (!Number.isFinite(minOrderAmount) || minOrderAmount < 0)
+      throw new BadRequestException(
+        "Giá trị đơn tối thiểu phải là số không âm.",
+      );
+    if (!Number.isInteger(quota) || quota < 0)
+      throw new BadRequestException("Quota phải là số nguyên không âm.");
+    if (!["bronze", "silver", "gold", "diamond"].includes(memberTier))
+      throw new BadRequestException(
+        "Hạng thành viên của voucher không hợp lệ.",
+      );
+    if (!["active", "inactive", "expired"].includes(status))
+      throw new BadRequestException("Trạng thái voucher không hợp lệ.");
+  }
+
   private validateVoucherDates(dto: any, existing?: any) {
     const startRaw = dto.startDate ?? existing?.startDate;
     const endRaw = dto.endDate ?? existing?.endDate;
@@ -68,9 +119,30 @@ export class VouchersService {
       throw new BadRequestException("Ngày kết thúc voucher không hợp lệ.");
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const startOnly = new Date(startDate);
+    startOnly.setHours(0, 0, 0, 0);
+
+    const endOnly = new Date(endDate);
+    endOnly.setHours(0, 0, 0, 0);
+
+    if (startOnly.getTime() < today.getTime()) {
+      throw new BadRequestException(
+        "Ngày bắt đầu voucher phải từ hôm nay trở đi.",
+      );
+    }
+
+    if (endOnly.getTime() < today.getTime()) {
+      throw new BadRequestException(
+        "Ngày kết thúc voucher phải từ hôm nay trở đi.",
+      );
+    }
+
     // Cho phép voucher bắt đầu và kết thúc trong cùng một ngày,
     // nhưng tuyệt đối không cho ngày kết thúc đứng trước ngày bắt đầu.
-    if (endDate.getTime() < startDate.getTime()) {
+    if (endOnly.getTime() < startOnly.getTime()) {
       throw new BadRequestException(
         "Ngày kết thúc voucher phải bằng hoặc sau ngày bắt đầu.",
       );
@@ -305,6 +377,7 @@ export class VouchersService {
     if (!dto.name)
       throw new BadRequestException("Cần nhập tên chương trình voucher.");
 
+    this.validateVoucherValues(dto);
     this.validateVoucherDates(dto);
 
     const code = await this.buildUniqueCode(dto);
@@ -324,9 +397,100 @@ export class VouchersService {
     const existing = await this.prisma.voucher.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Không tìm thấy voucher.");
 
-    // Khi sửa có thể frontend chỉ gửi một trong hai ngày, vì vậy phải
-    // đối chiếu với giá trị đang lưu để vẫn chặn được khoảng thời gian sai.
-    this.validateVoucherDates(dto, existing);
+    const bookingUsageCount = await this.prisma.booking.count({
+      where: { voucherId: id },
+    });
+    const actualUsageCount = Math.max(
+      Number(existing.usedCount || 0),
+      bookingUsageCount,
+    );
+
+    if (actualUsageCount > 0) {
+      const toDateOnly = (value: any) => {
+        if (!value) return "";
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+        return date.toISOString().slice(0, 10);
+      };
+
+      const sameNullableNumber = (left: any, right: any) => {
+        const a = left === "" || left == null ? null : Number(left);
+        const b = right === "" || right == null ? null : Number(right);
+        return a === b;
+      };
+
+      const protectedFieldsChanged =
+        (dto.code !== undefined &&
+          String(dto.code || "").trim() !==
+            String(existing.code || "").trim()) ||
+        (dto.name !== undefined &&
+          String(dto.name || "").trim() !==
+            String(existing.name || "").trim()) ||
+        (dto.memberTier !== undefined &&
+          String(dto.memberTier) !== String(existing.memberTier)) ||
+        (dto.discountType !== undefined &&
+          String(dto.discountType) !== String(existing.discountType)) ||
+        (dto.discountValue !== undefined &&
+          Number(dto.discountValue) !== Number(existing.discountValue)) ||
+        (dto.maxDiscount !== undefined &&
+          !sameNullableNumber(dto.maxDiscount, existing.maxDiscount)) ||
+        (dto.minOrderAmount !== undefined &&
+          Number(dto.minOrderAmount) !== Number(existing.minOrderAmount)) ||
+        (dto.startDate !== undefined &&
+          toDateOnly(dto.startDate) !== toDateOnly(existing.startDate)) ||
+        (dto.endDate !== undefined &&
+          toDateOnly(dto.endDate) !== toDateOnly(existing.endDate)) ||
+        (dto.quota !== undefined &&
+          Number(dto.quota) !== Number(existing.quota)) ||
+        (dto.status !== undefined &&
+          String(dto.status) !== String(existing.status));
+
+      if (protectedFieldsChanged) {
+        throw new BadRequestException(
+          `Voucher này đã có người dùng sử dụng nên chỉ được chỉnh sửa mô tả.`,
+        );
+      }
+
+      return this.prisma.voucher.update({
+        where: { id },
+        data: {
+          description:
+            dto.description !== undefined
+              ? String(dto.description || "").trim() || null
+              : existing.description,
+        },
+      });
+    }
+
+    this.validateVoucherValues(dto, existing);
+
+    const toDateOnly = (value: any) => {
+      if (!value) return "";
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+      return date.toISOString().slice(0, 10);
+    };
+
+    const currentStartDate = toDateOnly(existing.startDate);
+    const currentEndDate = toDateOnly(existing.endDate);
+    const nextStartDate =
+      dto.startDate !== undefined
+        ? String(dto.startDate || "").slice(0, 10)
+        : currentStartDate;
+    const nextEndDate =
+      dto.endDate !== undefined
+        ? String(dto.endDate || "").slice(0, 10)
+        : currentEndDate;
+
+    const voucherDatesChanged =
+      nextStartDate !== currentStartDate || nextEndDate !== currentEndDate;
+
+    // Khi sửa chỉ kiểm tra ngày nếu Admin thực sự thay đổi
+    // ngày bắt đầu hoặc ngày kết thúc. Nếu chỉ đổi trạng thái hoặc
+    // các thông tin khác thì giữ nguyên thời hạn cũ và không chặn vì ngày cũ.
+    if (voucherDatesChanged) {
+      this.validateVoucherDates(dto, existing);
+    }
 
     const code = dto.code ? await this.buildUniqueCode(dto, id) : undefined;
     const updated = await this.prisma.voucher.update({

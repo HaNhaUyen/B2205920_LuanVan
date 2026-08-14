@@ -166,6 +166,7 @@ export default function AdminGuidesPage() {
     guideId: "",
     note: "",
   });
+  const [guideAssignSearch, setGuideAssignSearch] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -277,6 +278,7 @@ export default function AdminGuidesPage() {
   const openAssignGuide = () => {
     setReassignContext(null);
     setAssignForm({ departureId: "", guideId: "", note: "" });
+    setGuideAssignSearch("");
     setAvailable([]);
     setAssignOpen(true);
   };
@@ -325,20 +327,37 @@ export default function AdminGuidesPage() {
     const password = String(form.password || "");
 
     if (!fullName) return showToast("Vui lòng nhập họ tên HDV.", "error");
+    if (fullName.length < 2 || fullName.length > 150)
+      return showToast("Họ tên HDV phải từ 2 đến 150 ký tự.", "error");
+
+    if (!phone) return showToast("Vui lòng nhập số điện thoại HDV.", "error");
     if (!/^0\d{9}$/.test(phone)) {
       return showToast(
         "Số điện thoại phải gồm đúng 10 chữ số và bắt đầu bằng 0.",
         "error",
       );
     }
+
+    if (!email) return showToast("Vui lòng nhập email đăng nhập HDV.", "error");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return showToast("Email đăng nhập HDV không hợp lệ.", "error");
     }
+
+    if (!identityNumber)
+      return showToast("Vui lòng nhập số CCCD của HDV.", "error");
     if (!/^\d{12}$/.test(identityNumber)) {
       return showToast("Số CCCD phải gồm đúng 12 chữ số.", "error");
     }
+
     if (!languages) {
       return showToast("Vui lòng nhập ngôn ngữ của HDV.", "error");
+    }
+    if (languages.length > 500)
+      return showToast("Ngôn ngữ tối đa 500 ký tự.", "error");
+    if (String(form.note || "").trim().length > 1000)
+      return showToast("Ghi chú tối đa 1000 ký tự.", "error");
+    if (String(form.experienceYears ?? "").trim() === "") {
+      return showToast("Vui lòng nhập số năm kinh nghiệm.", "error");
     }
     if (
       !Number.isInteger(experienceYears) ||
@@ -349,6 +368,11 @@ export default function AdminGuidesPage() {
         "Số năm kinh nghiệm phải là số nguyên từ 0 đến 60.",
         "error",
       );
+    }
+    if (password.length > 72)
+      return showToast("Mật khẩu tối đa 72 ký tự.", "error");
+    if (!form.id && !password) {
+      return showToast("Vui lòng nhập mật khẩu đăng nhập cho HDV.", "error");
     }
     if (!form.id && password.length < 6) {
       return showToast(
@@ -498,6 +522,7 @@ export default function AdminGuidesPage() {
       departureId: String(departureId || ""),
       guideId: "",
     }));
+    setGuideAssignSearch("");
 
     await loadAvailableGuidesForBooking(representativeBooking);
   };
@@ -567,6 +592,7 @@ export default function AdminGuidesPage() {
         assignment.note || "Chưa có ghi chú"
       }`,
     });
+    setGuideAssignSearch("");
 
     await loadAvailableGuidesForBooking(normalizedBooking, guide.id);
   };
@@ -592,6 +618,7 @@ export default function AdminGuidesPage() {
         guideId: "",
         note: "",
       });
+      setGuideAssignSearch("");
       setReassignContext(null);
 
       await load();
@@ -679,6 +706,33 @@ export default function AdminGuidesPage() {
       return String(guide.id) !== String(issueGuideId);
     });
   }, [available, currentGuide, reassignContext]);
+
+  const filteredAvailableForReplacement = useMemo(() => {
+    const normalizeGuideSearch = (value = "") =>
+      String(value)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/g, "d")
+        .replace(/Đ/g, "D")
+        .trim()
+        .toLowerCase();
+
+    const keyword = normalizeGuideSearch(guideAssignSearch);
+
+    if (!keyword) return availableForReplacement;
+
+    return availableForReplacement.filter((guide) =>
+      normalizeGuideSearch(guide.fullName).startsWith(keyword),
+    );
+  }, [availableForReplacement, guideAssignSearch]);
+
+  const selectedAvailableGuide = useMemo(
+    () =>
+      availableForReplacement.find(
+        (guide) => String(guide.id) === String(assignForm.guideId),
+      ) || null,
+    [availableForReplacement, assignForm.guideId],
+  );
 
   const activeAssignments = calendarModal?.guide?.assignments || [];
   const guideUnavailability =
@@ -1570,6 +1624,7 @@ export default function AdminGuidesPage() {
       >
         <form
           onSubmit={saveGuide}
+          noValidate
           style={{
             display: "flex",
             flexDirection: "column",
@@ -1899,36 +1954,6 @@ export default function AdminGuidesPage() {
                     công hướng dẫn viên.
                   </p>
                 ) : null}
-
-                {selectedDeparture && (
-                  <div
-                    style={{
-                      marginTop: 12,
-                      padding: 12,
-                      borderRadius: 12,
-                      background: currentGuide ? "#eff6ff" : "#fff7ed",
-                      border: currentGuide
-                        ? "1px solid #bfdbfe"
-                        : "1px solid #fed7aa",
-                      color: currentGuide ? "#1e40af" : "#9a3412",
-                    }}
-                  >
-                    <strong style={{ display: "block", marginBottom: 4 }}>
-                      HDV hiện tại
-                    </strong>
-
-                    {currentGuide ? (
-                      <div style={{ lineHeight: 1.6 }}>
-                        <b>{currentGuide.fullName}</b>
-                        <br />
-                        SĐT: {currentGuide.phone || "--"} · Email:{" "}
-                        {currentGuide.email || "--"}
-                      </div>
-                    ) : (
-                      <span>Chuyến này chưa có HDV.</span>
-                    )}
-                  </div>
-                )}
               </>
             )}
           </div>
@@ -1942,33 +1967,143 @@ export default function AdminGuidesPage() {
             }}
           >
             <h4 style={{ margin: "0 0 10px", color: "#166534" }}>
-              Bước 2: Chọn HDV mới đang rảnh
+              Bước 2: Chọn Hướng dẫn viên
             </h4>
 
-            <select
-              className="guide-input"
-              value={assignForm.guideId}
-              onChange={(e) =>
-                setAssignForm((prev) => ({
-                  ...prev,
-                  guideId: e.target.value,
-                }))
-              }
-              required
-              disabled={!assignForm.departureId}
-            >
-              <option value="">
-                {assignForm.departureId
-                  ? "-- Chọn HDV mới --"
-                  : "Vui lòng chọn lịch khởi hành trước"}
-              </option>
+            <div style={{ position: "relative" }}>
+              <input
+                className="guide-input"
+                type="text"
+                autoComplete="off"
+                disabled={!assignForm.departureId}
+                value={
+                  selectedAvailableGuide && !guideAssignSearch
+                    ? selectedAvailableGuide.fullName
+                    : guideAssignSearch
+                }
+                placeholder={
+                  assignForm.departureId
+                    ? "Nhập tên HDV"
+                    : "Vui lòng chọn lịch khởi hành trước"
+                }
+                onChange={(e) => {
+                  setGuideAssignSearch(e.target.value);
+                  setAssignForm((prev) => ({
+                    ...prev,
+                    guideId: "",
+                  }));
+                }}
+              />
 
-              {availableForReplacement.map((guide) => (
-                <option key={String(guide.id)} value={String(guide.id)}>
-                  {guide.fullName} - {guide.phone}
-                </option>
-              ))}
-            </select>
+              {assignForm.departureId &&
+              guideAssignSearch.trim() &&
+              !assignForm.guideId ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    zIndex: 30,
+                    top: "calc(100% + 6px)",
+                    left: 0,
+                    right: 0,
+                    maxHeight: 240,
+                    overflowY: "auto",
+                    background: "#fff",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: 12,
+                    boxShadow: "0 12px 28px rgba(15, 23, 42, 0.14)",
+                  }}
+                >
+                  {filteredAvailableForReplacement.length ? (
+                    filteredAvailableForReplacement.map((guide) => (
+                      <button
+                        key={String(guide.id)}
+                        type="button"
+                        onClick={() => {
+                          setAssignForm((prev) => ({
+                            ...prev,
+                            guideId: String(guide.id),
+                          }));
+                          setGuideAssignSearch("");
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "11px 14px",
+                          border: "none",
+                          borderBottom: "1px solid #f1f5f9",
+                          background: "#fff",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          display: "grid",
+                          gap: 3,
+                        }}
+                      >
+                        <strong style={{ color: "#0f172a" }}>
+                          {guide.fullName}
+                        </strong>
+                        <span
+                          style={{
+                            color: "#64748b",
+                            fontSize: "0.84rem",
+                          }}
+                        >
+                          {guide.phone || "--"} · {guide.email || "--"}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div
+                      style={{
+                        padding: "12px 14px",
+                        color: "#64748b",
+                        fontSize: "0.88rem",
+                      }}
+                    >
+                      Không tìm thấy HDV rảnh có tên bắt đầu bằng “
+                      {guideAssignSearch.trim()}”.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {assignForm.guideId && selectedAvailableGuide ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: "#ffffff",
+                  border: "1px solid #bbf7d0",
+                  color: "#166534",
+                  fontSize: "0.9rem",
+                }}
+              >
+                Đã chọn: <b>{selectedAvailableGuide.fullName}</b>
+                {selectedAvailableGuide.phone
+                  ? ` · ${selectedAvailableGuide.phone}`
+                  : ""}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignForm((prev) => ({
+                      ...prev,
+                      guideId: "",
+                    }));
+                    setGuideAssignSearch("");
+                  }}
+                  style={{
+                    marginLeft: 10,
+                    border: "none",
+                    background: "transparent",
+                    color: "#2563eb",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                  }}
+                >
+                  Chọn lại
+                </button>
+              </div>
+            ) : null}
 
             {assignForm.departureId && availableForReplacement.length === 0 && (
               <p

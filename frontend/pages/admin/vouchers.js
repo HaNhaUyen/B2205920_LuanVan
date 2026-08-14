@@ -14,6 +14,11 @@ const emptyPage = {
   pagination: { page: 1, pageSize: 10, total: 0, totalPages: 1 },
 };
 
+function getTodayDateInput() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
 const initialForm = {
   id: "",
   code: "",
@@ -24,8 +29,8 @@ const initialForm = {
   discountValue: 10,
   maxDiscount: 500000,
   minOrderAmount: 0,
-  startDate: "2026-01-01",
-  endDate: "2026-12-31",
+  startDate: getTodayDateInput(),
+  endDate: getTodayDateInput(),
   quota: 100,
   status: "active",
 };
@@ -117,6 +122,10 @@ export default function AdminVouchersPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [form, setForm] = useState(initialForm);
+  const [originalVoucherDates, setOriginalVoucherDates] = useState({
+    startDate: "",
+    endDate: "",
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -168,16 +177,27 @@ export default function AdminVouchersPage() {
 
   function openCreate() {
     setForm(initialForm);
+    setOriginalVoucherDates({
+      startDate: "",
+      endDate: "",
+    });
     setModalOpen(true);
   }
 
   function openEdit(v) {
+    const startDate = String(v.startDate || "").slice(0, 10);
+    const endDate = String(v.endDate || "").slice(0, 10);
+
     setForm({
       ...initialForm,
       ...v,
       id: String(v.id),
-      startDate: String(v.startDate || "").slice(0, 10),
-      endDate: String(v.endDate || "").slice(0, 10),
+      startDate,
+      endDate,
+    });
+    setOriginalVoucherDates({
+      startDate,
+      endDate,
     });
     setModalOpen(true);
   }
@@ -212,20 +232,80 @@ export default function AdminVouchersPage() {
   async function save(e) {
     e.preventDefault();
 
-    if (!form.startDate || !form.endDate) {
-      showToast("Vui lòng chọn đầy đủ ngày bắt đầu và ngày kết thúc.", "error");
-      return;
-    }
+    const name = String(form.name || "").trim();
+    const discountValue = Number(form.discountValue);
+    const maxDiscount =
+      form.maxDiscount === "" ? null : Number(form.maxDiscount);
+    const minOrderAmount = Number(form.minOrderAmount || 0);
+    const quota = Number(form.quota || 0);
 
-    const startDate = new Date(`${form.startDate}T00:00:00`);
-    const endDate = new Date(`${form.endDate}T00:00:00`);
-
-    if (endDate.getTime() < startDate.getTime()) {
-      showToast(
-        "Ngày kết thúc voucher phải bằng hoặc sau ngày bắt đầu.",
+    if (!name)
+      return showToast("Vui lòng nhập tên chương trình voucher.", "error");
+    if (name.length < 3 || name.length > 160)
+      return showToast(
+        "Tên chương trình voucher phải từ 3 đến 160 ký tự.",
         "error",
       );
-      return;
+    if (!Number.isFinite(discountValue) || discountValue <= 0)
+      return showToast("Giá trị giảm phải là số lớn hơn 0.", "error");
+    if (form.discountType === "percent" && discountValue > 100)
+      return showToast(
+        "Giá trị giảm theo phần trăm không được vượt quá 100%.",
+        "error",
+      );
+    if (
+      maxDiscount !== null &&
+      (!Number.isFinite(maxDiscount) || maxDiscount < 0)
+    )
+      return showToast("Mức giảm tối đa phải là số không âm.", "error");
+    if (!Number.isFinite(minOrderAmount) || minOrderAmount < 0)
+      return showToast("Đơn tối thiểu phải là số không âm.", "error");
+    if (!Number.isInteger(quota) || quota < 0)
+      return showToast("Quota phải là số nguyên không âm.", "error");
+
+    const voucherDatesChanged =
+      !form.id ||
+      form.startDate !== originalVoucherDates.startDate ||
+      form.endDate !== originalVoucherDates.endDate;
+
+    if (voucherDatesChanged) {
+      if (!form.startDate || !form.endDate) {
+        showToast(
+          "Vui lòng chọn đầy đủ ngày bắt đầu và ngày kết thúc.",
+          "error",
+        );
+        return;
+      }
+
+      const startDate = new Date(`${form.startDate}T00:00:00`);
+      const endDate = new Date(`${form.endDate}T00:00:00`);
+      const today = new Date(`${getTodayDateInput()}T00:00:00`);
+
+      if (
+        Number.isNaN(startDate.getTime()) ||
+        Number.isNaN(endDate.getTime())
+      ) {
+        showToast("Ngày bắt đầu hoặc ngày kết thúc không hợp lệ.", "error");
+        return;
+      }
+
+      if (startDate.getTime() < today.getTime()) {
+        showToast("Ngày bắt đầu voucher phải từ hôm nay trở đi.", "error");
+        return;
+      }
+
+      if (endDate.getTime() < today.getTime()) {
+        showToast("Ngày kết thúc voucher phải từ hôm nay trở đi.", "error");
+        return;
+      }
+
+      if (endDate.getTime() < startDate.getTime()) {
+        showToast(
+          "Ngày kết thúc voucher phải bằng hoặc sau ngày bắt đầu.",
+          "error",
+        );
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -291,6 +371,9 @@ export default function AdminVouchersPage() {
       setExporting(false);
     }
   };
+
+  const voucherLockedToDescription =
+    Boolean(form.id) && Number(form?.usedCount || 0) > 0;
 
   if (loading && data.items.length === 0) {
     return <Loading text="Đang tải voucher..." />;
@@ -1154,6 +1237,7 @@ export default function AdminVouchersPage() {
           <div className="field">
             <label>Mã voucher</label>
             <input
+              disabled={voucherLockedToDescription}
               value={form.code || ""}
               onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
             />
@@ -1163,6 +1247,7 @@ export default function AdminVouchersPage() {
             <label>Tên chương trình</label>
             <input
               required
+              disabled={voucherLockedToDescription}
               value={form.name}
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
             />
@@ -1171,6 +1256,7 @@ export default function AdminVouchersPage() {
           <div className="field">
             <label>Hạng áp dụng</label>
             <select
+              disabled={voucherLockedToDescription}
               value={form.memberTier}
               onChange={(e) =>
                 setForm((p) => ({ ...p, memberTier: e.target.value }))
@@ -1186,6 +1272,7 @@ export default function AdminVouchersPage() {
           <div className="field">
             <label>Loại giảm</label>
             <select
+              disabled={voucherLockedToDescription}
               value={form.discountType}
               onChange={(e) =>
                 setForm((p) => ({ ...p, discountType: e.target.value }))
@@ -1200,6 +1287,7 @@ export default function AdminVouchersPage() {
             <label>Giá trị giảm</label>
             <input
               type="number"
+              disabled={voucherLockedToDescription}
               min="0"
               max={form.discountType === "percent" ? 100 : undefined}
               step={form.discountType === "percent" ? "0.1" : "1000"}
@@ -1214,6 +1302,7 @@ export default function AdminVouchersPage() {
             <label>Giảm tối đa</label>
             <input
               type="number"
+              disabled={voucherLockedToDescription}
               value={form.maxDiscount || ""}
               onChange={(e) =>
                 setForm((p) => ({ ...p, maxDiscount: e.target.value }))
@@ -1225,6 +1314,7 @@ export default function AdminVouchersPage() {
             <label>Đơn tối thiểu</label>
             <input
               type="number"
+              disabled={voucherLockedToDescription}
               value={form.minOrderAmount}
               onChange={(e) =>
                 setForm((p) => ({
@@ -1239,6 +1329,7 @@ export default function AdminVouchersPage() {
             <label>Quota</label>
             <input
               type="number"
+              disabled={voucherLockedToDescription}
               value={form.quota}
               onChange={(e) =>
                 setForm((p) => ({ ...p, quota: e.target.value }))
@@ -1251,6 +1342,8 @@ export default function AdminVouchersPage() {
             <input
               type="date"
               required
+              disabled={voucherLockedToDescription}
+              min={getTodayDateInput()}
               max={form.endDate || undefined}
               value={form.startDate}
               onChange={(e) =>
@@ -1264,7 +1357,12 @@ export default function AdminVouchersPage() {
             <input
               type="date"
               required
-              min={form.startDate || undefined}
+              disabled={voucherLockedToDescription}
+              min={
+                form.startDate && form.startDate > getTodayDateInput()
+                  ? form.startDate
+                  : getTodayDateInput()
+              }
               value={form.endDate}
               onChange={(e) =>
                 setForm((p) => ({ ...p, endDate: e.target.value }))
@@ -1276,6 +1374,7 @@ export default function AdminVouchersPage() {
             <div className="field">
               <label>Trạng thái</label>
               <select
+                disabled={voucherLockedToDescription}
                 value={form.status}
                 onChange={(e) =>
                   setForm((p) => ({ ...p, status: e.target.value }))

@@ -375,13 +375,19 @@ export default function GuideNotificationsPanel({ notificationId = null }) {
                 <div className="detail-message">{selected.message}</div>
               )}
 
-              <div className="detail-content">
-                {String(selected.content || selected.message || "")
-                  .split("\n")
-                  .map((line, index) => (
-                    <p key={`${selected.id}-${index}`}>{line || "\u00A0"}</p>
-                  ))}
-              </div>
+              {selected.content &&
+                String(selected.content).trim() !==
+                  String(selected.message || "").trim() && (
+                  <div className="detail-content">
+                    {String(selected.content)
+                      .split("\n")
+                      .map((line, index) => (
+                        <p key={`${selected.id}-${index}`}>
+                          {line || "\u00A0"}
+                        </p>
+                      ))}
+                  </div>
+                )}
 
               {selected.createdByUser && (
                 <div className="detail-sender">

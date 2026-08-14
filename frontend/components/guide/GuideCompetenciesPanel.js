@@ -10,6 +10,8 @@ import {
   Plus,
   ShieldCheck,
   Sparkles,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { API_URL } from "@/lib/config";
@@ -79,6 +81,8 @@ export default function GuideCompetenciesPanel() {
   const [saving, setSaving] = useState(false);
   const [evidenceFile, setEvidenceFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [existingEvidenceUrl, setExistingEvidenceUrl] = useState("");
 
   const loadCompetencies = async () => {
     try {
@@ -114,21 +118,119 @@ export default function GuideCompetenciesPanel() {
     }));
   };
 
-  const saveCompetency = async (event) => {
-    event.preventDefault();
+  const resetCompetencyForm = () => {
+    setForm(EMPTY_FORM);
+    setEvidenceFile(null);
+    setEditingId(null);
+    setExistingEvidenceUrl("");
+  };
 
-    if (!form.name.trim()) {
-      showToast("Vui lòng nhập tên kỹ năng hoặc chứng chỉ.", "error");
+  const editCompetency = (item) => {
+    const currentEvidence = String(
+      item.documentUrl || item.document_url || "",
+    ).trim();
+
+    setEditingId(item.id);
+    setExistingEvidenceUrl(currentEvidence);
+    setEvidenceFile(null);
+    setForm({
+      competencyType: item.competencyType || item.competency_type || "language",
+      name: item.name || "",
+      level: item.level || "",
+      certificateNo: item.certificateNo || item.certificate_no || "",
+      issuedBy: item.issuedBy || item.issued_by || "",
+      issuedDate:
+        item.issuedDate || item.issued_date
+          ? String(item.issuedDate || item.issued_date).slice(0, 10)
+          : "",
+      expiryDate:
+        item.expiryDate || item.expiry_date
+          ? String(item.expiryDate || item.expiry_date).slice(0, 10)
+          : "",
+      documentUrl: /^https?:\/\//i.test(currentEvidence) ? currentEvidence : "",
+      note: item.note || "",
+    });
+  };
+
+  const deleteCompetency = async (item) => {
+    if (!window.confirm(`Xóa khai báo "${item.name}" đang chờ Admin duyệt?`)) {
       return;
     }
 
+    try {
+      await apiFetch(`/trip-operations/guides/me/competencies/${item.id}`, {
+        method: "DELETE",
+      });
+      if (String(editingId) === String(item.id)) {
+        resetCompetencyForm();
+      }
+      await loadCompetencies();
+      showToast("Đã xóa hồ sơ năng lực đang chờ duyệt.", "success");
+    } catch (error) {
+      showToast(error?.message || "Không thể xóa hồ sơ năng lực.", "error");
+    }
+  };
+
+  const saveCompetency = async (event) => {
+    event.preventDefault();
+
+    const name = String(form.name || "").trim();
+    const level = String(form.level || "").trim();
+    const certificateNo = String(form.certificateNo || "").trim();
+    const issuedBy = String(form.issuedBy || "").trim();
+    const documentUrl = String(form.documentUrl || "").trim();
+    const note = String(form.note || "").trim();
     if (
-      form.competencyType === "certificate" &&
-      !form.documentUrl.trim() &&
-      !evidenceFile
-    ) {
+      !["language", "route", "skill", "certificate"].includes(
+        form.competencyType,
+      )
+    )
+      return showToast("Phân loại năng lực không hợp lệ.", "error");
+    if (name.length < 2 || name.length > 180)
+      return showToast(
+        "Tên kỹ năng/chứng chỉ phải từ 2 đến 180 ký tự.",
+        "error",
+      );
+    if (level.length > 100)
+      return showToast("Mức độ/bậc tối đa 100 ký tự.", "error");
+    if (certificateNo.length > 120)
+      return showToast("Số hiệu chứng chỉ tối đa 120 ký tự.", "error");
+    if (issuedBy.length > 180)
+      return showToast("Đơn vị cấp tối đa 180 ký tự.", "error");
+    if (documentUrl.length > 1000)
+      return showToast("Đường dẫn minh chứng quá dài.", "error");
+    if (note.length > 1000)
+      return showToast("Ghi chú tối đa 1000 ký tự.", "error");
+    if (form.issuedDate) {
+      const issued = new Date(`${form.issuedDate}T00:00:00`);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (Number.isNaN(issued.getTime()) || issued > today)
+        return showToast(
+          "Ngày cấp không hợp lệ hoặc nằm trong tương lai.",
+          "error",
+        );
+    }
+    if (form.expiryDate) {
+      const expiry = new Date(`${form.expiryDate}T00:00:00`);
+      if (Number.isNaN(expiry.getTime()))
+        return showToast("Ngày hết hạn không hợp lệ.", "error");
+      if (form.issuedDate && expiry < new Date(`${form.issuedDate}T00:00:00`))
+        return showToast("Ngày hết hạn phải bằng hoặc sau ngày cấp.", "error");
+    }
+    if (evidenceFile) {
+      const allowed =
+        evidenceFile.type === "application/pdf" ||
+        evidenceFile.type?.startsWith("image/");
+      if (!allowed)
+        return showToast("Minh chứng chỉ nhận file ảnh hoặc PDF.", "error");
+      if (evidenceFile.size > 5 * 1024 * 1024)
+        return showToast("File minh chứng tối đa 5MB.", "error");
+    }
+
+    if (!documentUrl && !evidenceFile && !existingEvidenceUrl) {
       showToast(
-        "Chứng chỉ ngành bắt buộc phải có ảnh hoặc PDF minh chứng.",
+        "Vui lòng tải ảnh/PDF minh chứng hoặc nhập URL minh chứng.",
         "error",
       );
       return;
@@ -139,29 +241,36 @@ export default function GuideCompetenciesPanel() {
 
       const payload = new FormData();
       payload.append("competencyType", form.competencyType);
-      payload.append("name", form.name.trim());
-      payload.append("level", form.level.trim());
-      payload.append("certificateNo", form.certificateNo.trim());
-      payload.append("issuedBy", form.issuedBy.trim());
+      payload.append("name", name);
+      payload.append("level", level);
+      payload.append("certificateNo", certificateNo);
+      payload.append("issuedBy", issuedBy);
       payload.append("issuedDate", form.issuedDate || "");
       payload.append("expiryDate", form.expiryDate || "");
-      payload.append("documentUrl", form.documentUrl.trim());
-      payload.append("note", form.note.trim());
+      payload.append("documentUrl", documentUrl);
+      payload.append("note", note);
 
       if (evidenceFile) {
         payload.append("evidenceFile", evidenceFile);
       }
 
-      await apiFetch("/trip-operations/guides/me/competencies", {
-        method: "POST",
-        body: payload,
-      });
+      await apiFetch(
+        editingId
+          ? `/trip-operations/guides/me/competencies/${editingId}`
+          : "/trip-operations/guides/me/competencies",
+        {
+          method: editingId ? "PATCH" : "POST",
+          body: payload,
+        },
+      );
 
-      setForm(EMPTY_FORM);
-      setEvidenceFile(null);
+      const wasEditing = Boolean(editingId);
+      resetCompetencyForm();
       await loadCompetencies();
       showToast(
-        "Đã gửi hồ sơ năng lực và minh chứng để Admin duyệt.",
+        wasEditing
+          ? "Đã cập nhật hồ sơ năng lực đang chờ duyệt."
+          : "Đã gửi hồ sơ năng lực và minh chứng để Admin duyệt.",
         "success",
       );
     } catch (error) {
@@ -199,7 +308,7 @@ export default function GuideCompetenciesPanel() {
               <Plus size={20} />
             </div>
             <div>
-              <h3>Thêm năng lực mới</h3>
+              <h3>{editingId ? "Cập nhật năng lực" : "Thêm năng lực mới"}</h3>
               <p>Ngoại ngữ, tuyến chuyên sâu, kỹ năng hoặc chứng chỉ.</p>
             </div>
           </div>
@@ -302,6 +411,12 @@ export default function GuideCompetenciesPanel() {
                   </button>
                 </div>
               )}
+              {editingId && existingEvidenceUrl && !evidenceFile && (
+                <small className="competency-help">
+                  Minh chứng hiện tại sẽ được giữ nguyên nếu bạn không chọn file
+                  hoặc URL mới.
+                </small>
+              )}
               {previewUrl && (
                 <img
                   className="competency-file-preview"
@@ -310,8 +425,8 @@ export default function GuideCompetenciesPanel() {
                 />
               )}
               <small className="competency-help">
-                Chấp nhận JPG, PNG, WEBP hoặc PDF, tối đa 8 MB. Chứng chỉ ngành
-                bắt buộc phải có minh chứng.
+                Chấp nhận JPG, PNG, WEBP hoặc PDF, tối đa 8 MB. Bắt buộc có
+                ảnh/PDF minh chứng hoặc URL minh chứng.
               </small>
             </label>
 
@@ -337,10 +452,26 @@ export default function GuideCompetenciesPanel() {
             </label>
           </div>
 
-          <button type="submit" disabled={saving}>
-            <ShieldCheck size={17} />
-            {saving ? "Đang lưu..." : "Lưu hồ sơ năng lực"}
-          </button>
+          <div className="competency-form-actions">
+            {editingId && (
+              <button
+                type="button"
+                className="competency-cancel-button"
+                onClick={resetCompetencyForm}
+                disabled={saving}
+              >
+                Hủy chỉnh sửa
+              </button>
+            )}
+            <button type="submit" disabled={saving}>
+              <ShieldCheck size={17} />
+              {saving
+                ? "Đang lưu..."
+                : editingId
+                  ? "Cập nhật hồ sơ năng lực"
+                  : "Lưu hồ sơ năng lực"}
+            </button>
+          </div>
         </form>
 
         <div className="competency-list-card">
@@ -427,6 +558,26 @@ export default function GuideCompetenciesPanel() {
                           Xem minh chứng
                           <ExternalLink size={13} />
                         </a>
+                      )}
+
+                      {status === "pending" && (
+                        <div className="competency-pending-actions">
+                          <button
+                            type="button"
+                            onClick={() => editCompetency(item)}
+                          >
+                            <Pencil size={14} />
+                            Sửa
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            onClick={() => deleteCompetency(item)}
+                          >
+                            <Trash2 size={14} />
+                            Xóa
+                          </button>
+                        </div>
                       )}
 
                       {status === "rejected" &&
@@ -658,9 +809,15 @@ export default function GuideCompetenciesPanel() {
           box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
 
-        .competency-form-card > button {
-          min-height: 42px;
+        .competency-form-actions {
           margin-top: 17px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .competency-form-actions button {
+          min-height: 42px;
           border: 0;
           border-radius: 10px;
           padding: 0 16px;
@@ -674,9 +831,40 @@ export default function GuideCompetenciesPanel() {
           cursor: pointer;
         }
 
-        .competency-form-card > button:disabled {
+        .competency-form-actions .competency-cancel-button {
+          background: #e2e8f0;
+          color: #475569;
+        }
+
+        .competency-form-actions button:disabled {
           opacity: 0.65;
           cursor: not-allowed;
+        }
+
+        .competency-pending-actions {
+          margin-top: 10px;
+          display: flex;
+          gap: 8px;
+        }
+
+        .competency-pending-actions button {
+          border: 1px solid #bfdbfe;
+          border-radius: 8px;
+          padding: 6px 9px;
+          background: #eff6ff;
+          color: #1d4ed8;
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 11px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .competency-pending-actions button.danger {
+          border-color: #fecaca;
+          background: #fef2f2;
+          color: #dc2626;
         }
 
         .competency-items {

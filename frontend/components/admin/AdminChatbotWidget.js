@@ -258,28 +258,6 @@ export default function AdminChatbotWidget({ user }) {
             </div>
           </header>
 
-          {conversationList.length ? (
-            <div style={styles.historyBox}>
-              {conversationList.slice(0, 8).map((item) => {
-                const active = String(item.id) === String(conversationId || "");
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => loadConversation(item.id)}
-                    disabled={loadingHistory}
-                    style={{
-                      ...styles.historyItem,
-                      ...(active ? styles.historyItemActive : {}),
-                    }}
-                  >
-                    {item.title || "Hội thoại admin"}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-
           <div style={styles.quickBox}>
             {QUICK_PROMPTS.map((item) => (
               <button
@@ -365,12 +343,12 @@ const styles = {
     border: 0,
     borderRadius: 999,
     padding: "12px 16px",
-    background: "linear-gradient(135deg, #2563eb, #7c3aed)",
+    background: "#2563eb",
     color: "#fff",
     display: "flex",
     alignItems: "center",
     gap: 10,
-    boxShadow: "0 18px 40px rgba(37, 99, 235, 0.28)",
+    boxShadow: "0 12px 28px rgba(15, 23, 42, 0.18)",
     fontWeight: 800,
   },
   floatingIcon: {
@@ -390,17 +368,17 @@ const styles = {
     width: "min(440px, calc(100vw - 32px))",
     height: "min(700px, calc(100vh - 120px))",
     background: "#ffffff",
-    border: "1px solid #dbeafe",
-    borderRadius: 22,
+    border: "1px solid #e2e8f0",
+    borderRadius: 18,
     zIndex: 1000,
     overflow: "hidden",
-    boxShadow: "0 24px 80px rgba(15, 23, 42, 0.22)",
+    boxShadow: "0 20px 55px rgba(15, 23, 42, 0.18)",
     display: "flex",
     flexDirection: "column",
   },
   header: {
     padding: "16px 18px",
-    background: "linear-gradient(135deg, #eff6ff, #f5f3ff)",
+    background: "#ffffff",
     borderBottom: "1px solid #e2e8f0",
     display: "flex",
     justifyContent: "space-between",
@@ -454,7 +432,7 @@ const styles = {
     fontWeight: 800,
   },
   quickBox: {
-    padding: "10px 12px",
+    padding: "12px",
     display: "flex",
     gap: 8,
     overflowX: "auto",

@@ -1,12 +1,15 @@
 import { Type } from "class-transformer";
 import {
+  ArrayMinSize,
   IsArray,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from "class-validator";
@@ -25,6 +28,8 @@ export class SaveAccommodationItemDto {
   supplierId?: number | null;
 
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(160)
   name!: string;
 
   @IsString()
@@ -40,10 +45,12 @@ export class SaveAccommodationItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(255)
   address?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   description?: string;
 
   @IsOptional()
@@ -54,10 +61,12 @@ export class SaveAccommodationItemDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   imageUrl?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   amenities?: string;
 
   @IsOptional()
@@ -68,6 +77,7 @@ export class SaveAccommodationItemDto {
 
 export class SaveAccommodationsDto {
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => SaveAccommodationItemDto)
   items!: SaveAccommodationItemDto[];

@@ -1,27 +1,31 @@
 import {
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsEmail,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from "class-validator";
 import { Type } from "class-transformer";
 
 export class CheckoutPaymentGuestDto {
   @IsString()
+  @MinLength(2)
   @MaxLength(150)
   fullName!: string;
 
-  @IsString()
+  @IsDateString()
   dateOfBirth!: string;
 
   @IsString()
-  @MaxLength(20)
+  @IsIn(["male", "female", "other"])
   gender!: string;
 
   @IsIn(["adult", "child"])
@@ -34,14 +38,17 @@ export class CheckoutPaymentGuestDto {
 
 export class CheckoutPaymentDto {
   @IsInt()
+  @Min(1)
   departureId!: number;
 
   @IsOptional()
   @IsInt()
+  @Min(1)
   pickupPointId?: number;
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   voucherCode?: string;
 
   @IsInt()
@@ -53,16 +60,23 @@ export class CheckoutPaymentDto {
   childCount!: number;
 
   @IsString()
+  @MinLength(2)
+  @MaxLength(150)
   contactName!: string;
 
   @IsEmail()
+  @MaxLength(190)
   contactEmail!: string;
 
   @IsString()
+  @Matches(/^[0-9+\-\s]{8,20}$/, {
+    message: "Số điện thoại không hợp lệ.",
+  })
   contactPhone!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   note?: string;
 
   @IsArray()

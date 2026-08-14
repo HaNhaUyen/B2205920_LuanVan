@@ -88,6 +88,16 @@ type MemoryState = {
   bookingContext?: ChatBookingContext | null;
   bookingDraft?: ChatBookingDraft | null;
   refundDraft?: ChatRefundDraft | null;
+  lastFailedTourSearch?: {
+    destinationId?: string | null;
+    destinationName?: string | null;
+    durationDays?: number | null;
+    durationNights?: number | null;
+    departureFrom?: string | null;
+    departureTo?: string | null;
+    departureRangeLabel?: string | null;
+    requestedThemes?: string[];
+  } | null;
   lastBookingCode?: string | null;
   lastBookingPaymentStatus?: string | null;
 };
@@ -274,34 +284,154 @@ const ACTION_SCORE: Record<string, number> = {
 };
 
 const DESTINATION_ALIASES: Record<string, string[]> = {
-  "Phú Quốc": ["phu quoc", "phú quốc", "dao ngoc", "đảo ngọc"],
-  "Nha Trang": ["nha trang"],
-  "Đà Lạt": ["da lat", "đà lạt", "dalat", "san may", "săn mây"],
+  "Phú Quốc": [
+    "phu quoc",
+    "phú quốc",
+    "phuquoc",
+    "dao ngoc",
+    "đảo ngọc",
+    "daongoc",
+  ],
+  "Nha Trang": ["nha trang", "nhatrang"],
+  "Đà Lạt": ["da lat", "đà lạt", "dalat", "san may", "săn mây", "sanmay"],
   "Đà Nẵng": ["da nang", "đà nẵng", "danang"],
-  "Hội An": ["hoi an", "hội an", "pho co", "phố cổ"],
+  "Hội An": ["hoi an", "hội an", "hoian", "pho co", "phố cổ", "phoco"],
   "Sa Pa": ["sa pa", "sapa"],
-  "Quy Nhơn": ["quy nhon", "quy nhơn"],
-  "Hạ Long": ["ha long", "hạ long", "vinh ha long", "vịnh hạ long"],
+  "Quy Nhơn": ["quy nhon", "quy nhơn", "quynhon"],
+  "Vũng Tàu": [
+    "vung tau",
+    "vũng tàu",
+    "vungtau",
+    "ba ria vung tau",
+    "bà rịa vũng tàu",
+    "bariavungtau",
+  ],
+  "Hạ Long": [
+    "ha long",
+    "hạ long",
+    "halong",
+    "vinh ha long",
+    "vịnh hạ long",
+    "vinhhalong",
+  ],
   "Cần Thơ": [
     "can tho",
     "cần thơ",
+    "cantho",
     "mien tay",
     "miền tây",
+    "mientay",
     "cho noi",
     "chợ nổi",
+    "chonoi",
   ],
-  Huế: ["hue", "huế", "co do", "cố đô"],
-  "Ninh Bình": ["ninh binh", "ninh bình", "trang an", "tràng an"],
-  "An Giang": ["an giang", "châu đốc", "chau doc", "núi sam", "nui sam"],
+  Huế: ["hue", "huế", "co do", "cố đô", "codo"],
+  "Ninh Bình": [
+    "ninh binh",
+    "ninh bình",
+    "ninhbinh",
+    "trang an",
+    "tràng an",
+    "trangan",
+  ],
+  "An Giang": [
+    "an giang",
+    "angiang",
+    "châu đốc",
+    "chau doc",
+    "chaudoc",
+    "núi sam",
+    "nui sam",
+    "nuisam",
+    "xứ sở thần tiên",
+    "xu so than tien",
+    "xusothantien",
+    "núi cấm",
+    "nui cam",
+    "nuicam",
+  ],
   "Tây Ninh": [
     "tay ninh",
     "tây ninh",
+    "tayninh",
     "núi bà đen",
     "nui ba den",
+    "nuibaden",
     "bà đen",
     "ba den",
+    "baden",
     "tòa thánh cao đài",
     "toa thanh cao dai",
+    "toathanhcaodai",
+  ],
+  "Buôn Ma Thuộc": [
+    "buôn ma thuộc",
+    "buon ma thuoc",
+    "buonmathuoc",
+    "núi đá voi",
+    "nui da voi",
+    "nuidavoi",
+  ],
+  "Cà Mau": [
+    "cà mau",
+    "ca mau",
+    "camau",
+    "u minh hạ",
+    "u minh ha",
+    "uminhha",
+    "mũi cà mau",
+    "mui ca mau",
+    "muicamau",
+    "hòn đá bạc",
+    "hon da bac",
+    "hondabac",
+  ],
+  "Côn Đảo": [
+    "côn đảo",
+    "con dao",
+    "condao",
+    "nhà tù côn đảo",
+    "nha tu con dao",
+    "nhatucondao",
+    "hòn bảy cạnh",
+    "hon bay canh",
+    "hon bai canh",
+    "đầm trầu",
+    "dam trau",
+    "damtrau",
+  ],
+  "Hà Giang": [
+    "hà giang",
+    "ha giang",
+    "hagiang",
+    "lũng cú",
+    "lung cu",
+    "lungcu",
+    "ruộng bậc thang",
+    "ruong bac thang",
+    "ruongbacthang",
+  ],
+  "Mộc Châu": [
+    "mộc châu",
+    "moc chau",
+    "mocchau",
+    "rừng thông bản áng",
+    "rung thong ban ang",
+    "rungthongbanang",
+    "thác dải yếm",
+    "thac dai yem",
+    "thacdaiyem",
+  ],
+  "Mũi Né": [
+    "mũi né",
+    "mui ne",
+    "muine",
+    "đồi cát đỏ",
+    "doi cat do",
+    "doicatdo",
+    "suối tiên",
+    "suoi tien",
+    "suoitien",
   ],
 };
 
@@ -331,6 +461,24 @@ export class ChatbotService {
       user,
       userMessage,
     );
+
+    // ADMIN HARD GATE: câu hỏi quản trị phải được xử lý trước hard tour search.
+    // Tránh các cụm thời gian như "tháng này" trong câu hỏi doanh thu bị parser tour
+    // hiểu nhầm thành điều kiện tìm lịch khởi hành. Người dùng thường vẫn đi luồng cũ.
+    const earlyAdminGateAnswer = await this.tryHandleAdminAdvancedQuestion(
+      userMessage,
+      user,
+      conversation.id,
+    );
+    if (earlyAdminGateAnswer) return earlyAdminGateAnswer;
+
+    // GỢI Ý THAY THẾ: chỉ dùng tiêu chí của lần tìm tour vừa thất bại.
+    // Không đưa câu này qua NLU/personal_recommendation để tránh gọi Hybrid Recommender.
+    const alternativeTourAnswer = await this.tryHandleAlternativeTourSuggestion(
+      userMessage,
+      conversation,
+    );
+    if (alternativeTourAnswer) return alternativeTourAnswer;
 
     // ================================================================
     // HARD ROUTE V3 - TOUR SEARCH THEO TIÊU CHÍ CỨNG
@@ -392,18 +540,29 @@ export class ChatbotService {
       }
     }
 
-    const landmarkAnswer = await this.tryHandleLandmarkTourSearch(
-      userMessage,
-      conversation.id,
+    // Nếu đang ở một bước của luồng đặt tour, các tên địa danh xuất hiện trong
+    // tên điểm đón (ví dụ "Bưu điện Hội An") chỉ là dữ liệu của booking hiện tại.
+    // Không cho landmark search giành route và biến câu chọn điểm đón thành tìm tour.
+    const earlyBookingMemory = this.toMemoryState(conversation.memoryJson);
+    const normalizedBeforeLandmark = this.stripText(userMessage);
+    const isActiveBookingSubstepBeforeLandmark = Boolean(
+      earlyBookingMemory.bookingDraft?.started &&
+      (/\b(chon diem don|diem don ma|ma diem don|pickup)\b/.test(
+        normalizedBeforeLandmark,
+      ) ||
+        /\b(voucher|ma giam gia|khong dung voucher|dung voucher|ap voucher)\b/.test(
+          normalizedBeforeLandmark,
+        ) ||
+        this.isPartySizeMessage(userMessage) ||
+        /\b(xac nhan|dong y|thanh toan|qr|vietqr|sepay|chuyen khoan)\b/.test(
+          normalizedBeforeLandmark,
+        )),
     );
-    if (landmarkAnswer) return landmarkAnswer;
 
-    const adminGateAnswer = await this.tryHandleAdminAdvancedQuestion(
-      userMessage,
-      user,
-      conversation.id,
-    );
-    if (adminGateAnswer) return adminGateAnswer;
+    const landmarkAnswer = isActiveBookingSubstepBeforeLandmark
+      ? null
+      : await this.tryHandleLandmarkTourSearch(userMessage, conversation.id);
+    if (landmarkAnswer) return landmarkAnswer;
 
     const recentMessages = await this.prisma.chatMessage.findMany({
       where: { conversationId: conversation.id },
@@ -424,6 +583,19 @@ export class ChatbotService {
       ? this.toMemoryState((dto as any).memory)
       : {};
     let currentMemory = this.mergeMemory(dbMemory, clientMemory);
+
+    // Các state điều khiển luồng đặt tour phải lấy DB làm nguồn sự thật.
+    // Frontend có thể gửi memory của response trước đó chậm hơn DB; nếu cho client
+    // ghi đè bookingContext/bookingDraft thì "chọn lịch số 2" có thể bị resolve
+    // theo candidateTours cũ và dẫn tới preview một ngày khởi hành khác.
+    if (dbMemory.bookingDraft?.started || dbMemory.bookingContext) {
+      currentMemory.bookingDraft = dbMemory.bookingDraft;
+      currentMemory.bookingContext = dbMemory.bookingContext;
+      currentMemory.lastDepartureOptions = dbMemory.lastDepartureOptions;
+      currentMemory.candidateTours = dbMemory.candidateTours;
+      currentMemory.selectedCandidateTourId = dbMemory.selectedCandidateTourId;
+    }
+
     const recentForNlu = recentMessages.map((item: any) => ({
       role: item.role,
       content: item.content,
@@ -470,6 +642,22 @@ export class ChatbotService {
       preliminaryMemory,
       recentForNlu,
     );
+
+    // HARD GUARD cho 3 thao tác chỉnh draft ngay tại màn hình preview booking.
+    // Đây là thao tác của state-machine, không phụ thuộc Groq/OpenRouter NLU.
+    // Chỉ áp dụng khi bookingDraft đang mở, nên không ảnh hưởng luồng đổi booking
+    // đã tạo (có mã BK) hoặc các câu hỏi voucher/điểm đón thông thường.
+    const isActiveBookingDraftEdit = Boolean(
+      preliminaryMemory.bookingDraft?.started &&
+      preliminaryMemory.bookingDraft?.tourId &&
+      (this.isChangePartySizeUiRequest(userMessage) ||
+        this.isChangePickupUiRequest(userMessage) ||
+        this.isChangeVoucherUiRequest(userMessage)),
+    );
+
+    if (isActiveBookingDraftEdit) {
+      fallbackIntent = "booking_create";
+    }
 
     const isBareVoucherCodeDuringBooking = Boolean(
       preliminaryMemory.bookingDraft?.started &&
@@ -774,6 +962,7 @@ export class ChatbotService {
       answer: string;
       memory?: Partial<MemoryState>;
       bookingCheckout?: BookingCheckoutCard;
+      suggestedReplies?: string[];
     } | null = null;
 
     let refundFlow: {
@@ -944,7 +1133,9 @@ export class ChatbotService {
     } else {
       answer = await this.generateLlmAnswer(promptContext);
     }
-    const suggestedReplies = this.buildSuggestedReplies(promptContext);
+    const suggestedReplies =
+      bookingFlow?.suggestedReplies ||
+      this.buildSuggestedReplies(promptContext);
 
     // Khi state-machine booking đang trả lời, không gửi kèm voucher/booking cũ
     // không liên quan về frontend. Nếu không, sau câu “1 người lớn” giao diện có
@@ -1309,6 +1500,16 @@ export class ChatbotService {
       return "admin_revenue_time_compare";
     }
 
+    // Phải bắt câu hỏi giữ chỗ trước nhóm "booking nào" chung.
+    // Nếu không, "Booking nào sắp hết hạn giữ chỗ?" sẽ rơi vào thống kê trạng thái.
+    if (
+      /\b(sap het han giu cho|sap het han thanh toan|booking nao sap het han|booking sap het han|giu cho sap het han|het han giu cho trong 30 phut)\b/.test(
+        n,
+      )
+    ) {
+      return "admin_expiring_holds";
+    }
+
     if (
       /\b(bao nhieu booking|booking nao|don nao|cho thanh toan|cho xac nhan|pending|confirmed|cancelled|da huy|trang thai booking|trang thai don)\b/.test(
         n,
@@ -1361,6 +1562,8 @@ export class ChatbotService {
         return this.buildAdminRevenueCompareAnswer();
       case "admin_booking_status":
         return this.buildAdminBookingStatusAnswer(message);
+      case "admin_expiring_holds":
+        return this.buildAdminExpiringHoldsAnswer();
       case "admin_booking_without_guide":
         return this.buildAdminBookingWithoutGuideAnswer();
       case "admin_tour_anomaly":
@@ -1562,6 +1765,51 @@ export class ChatbotService {
       ),
       "",
       "Ưu tiên phân công theo ngày khởi hành gần nhất.",
+    ].join("\n");
+  }
+
+  private async buildAdminExpiringHoldsAnswer() {
+    const now = new Date();
+    const next30 = new Date(now.getTime() + 30 * 60 * 1000);
+
+    const [count, rows] = await Promise.all([
+      this.prisma.booking.count({
+        where: {
+          bookingStatus: "pending_payment" as any,
+          holdExpiresAt: { gte: now, lte: next30 },
+        },
+      }),
+      this.prisma.booking.findMany({
+        where: {
+          bookingStatus: "pending_payment" as any,
+          holdExpiresAt: { gte: now, lte: next30 },
+        },
+        include: {
+          tour: true,
+          user: { select: { fullName: true, email: true } },
+          payments: { take: 1, orderBy: { createdAt: "desc" } },
+        },
+        orderBy: { holdExpiresAt: "asc" },
+        take: 10,
+      }),
+    ]);
+
+    if (!count) {
+      return "✅ Hiện không có booking nào sắp hết hạn giữ chỗ trong 30 phút tới.";
+    }
+
+    return [
+      `⚠ Có ${count} booking sắp hết hạn giữ chỗ trong 30 phút tới.`,
+      "",
+      "Các booking cần theo dõi trước:",
+      ...rows.map((booking: any, index: number) => {
+        const payment = booking.payments?.[0];
+        return `${index + 1}. ${booking.bookingCode} - ${booking.tour?.name || "Tour"} - ${booking.user?.fullName || booking.contactName || "Khách"} - ${this.formatCurrency(Number(booking.finalAmount || 0))} - hết hạn ${`${this.formatDate(booking.holdExpiresAt)} ${this.formatTimeForChat(booking.holdExpiresAt)}`}${payment?.internalTransactionCode ? ` - mã TT ${payment.internalTransactionCode}` : ""}`;
+      }),
+      "",
+      count > rows.length
+        ? `Đang hiển thị ${rows.length}/${count} booking gần hết hạn sớm nhất.`
+        : "Admin nên ưu tiên kiểm tra giao dịch nếu khách báo đã chuyển khoản trước khi thời gian giữ chỗ kết thúc.",
     ].join("\n");
   }
 
@@ -1992,79 +2240,61 @@ export class ChatbotService {
   private async buildAdminOperationAlertAnswer() {
     const now = new Date();
     const next30 = new Date(now.getTime() + 30 * 60 * 1000);
-    const next7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const [
-      expiring,
-      pendingPayment,
-      waitingConfirmation,
-      refundPending,
-      noGuide,
-      paidToday,
-      revenueMonth,
-    ] = await Promise.all([
-      this.prisma.booking.count({
-        where: {
-          bookingStatus: "pending_payment" as any,
-          holdExpiresAt: { gte: now, lte: next30 },
-        },
-      }),
-      this.prisma.booking.count({
-        where: { bookingStatus: "pending_payment" as any },
-      }),
-      this.prisma.booking.count({
-        where: { bookingStatus: "waiting_confirmation" as any },
-      }),
-      this.prisma.refundRequest.count({ where: { status: "pending" as any } }),
-      this.prisma.booking.count({
-        where: {
-          bookingStatus: { in: ["confirmed", "waiting_confirmation"] as any },
-          guideAssignments: {
-            none: { status: { in: ["assigned", "confirmed"] as any } },
+
+    const [expiring, waitingConfirmation, refundPending, noGuideUpcoming] =
+      await Promise.all([
+        this.prisma.booking.count({
+          where: {
+            bookingStatus: "pending_payment" as any,
+            holdExpiresAt: { gte: now, lte: next30 },
           },
-        },
-      }),
-      this.prisma.payment.count({
-        where: {
-          paymentStatus: "paid" as any,
-          paidAt: {
-            gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+        }),
+        this.prisma.booking.count({
+          where: { bookingStatus: "waiting_confirmation" as any },
+        }),
+        this.prisma.refundRequest.count({
+          where: { status: "pending" as any },
+        }),
+        this.prisma.booking.count({
+          where: {
+            bookingStatus: { in: ["confirmed", "waiting_confirmation"] as any },
+            departure: { departureDate: { gte: now } },
+            guideAssignments: {
+              none: { status: { in: ["assigned", "confirmed"] as any } },
+            },
           },
-        },
-      }),
-      this.prisma.payment.aggregate({
-        _sum: { amount: true },
-        where: {
-          paymentStatus: "paid" as any,
-          paidAt: { gte: this.startOfMonth(now), lte: this.endOfMonth(now) },
-        },
-      }),
-    ]);
+        }),
+      ]);
+
+    const totalNeedAction =
+      expiring + waitingConfirmation + refundPending + noGuideUpcoming;
+
+    if (!totalNeedAction) {
+      return [
+        "✅ Hiện chưa có công việc vận hành ưu tiên cần Admin xử lý ngay.",
+        "- Không có booking sắp hết hạn giữ chỗ trong 30 phút.",
+        "- Không có giao dịch chờ xác nhận thanh toán.",
+        "- Không có yêu cầu hoàn tiền chờ duyệt.",
+        "- Không có booking tương lai thiếu hướng dẫn viên.",
+      ].join("\n");
+    }
 
     return [
-      "Tổng quan vận hành:",
-      `- Booking sắp hết hạn giữ chỗ 30 phút: ${expiring}`,
-      `- Booking chờ thanh toán: ${pendingPayment}`,
-      `- Booking chờ xác nhận thanh toán: ${waitingConfirmation}`,
-      `- Refund chờ duyệt: ${refundPending}`,
-      `- Booking chưa phân công HDV: ${noGuide}`,
-      `- Booking đã thanh toán hôm nay: ${paidToday}`,
-      `- Doanh thu tháng này: ${this.formatCurrency(Number(revenueMonth._sum.amount || 0))}`,
-      "",
-      "Cảnh báo:",
+      "Các việc Admin cần ưu tiên xử lý hiện tại:",
       expiring
-        ? `⚠ ${expiring} booking sắp hết hạn giữ chỗ.`
-        : "✅ Không có booking sắp hết hạn giữ chỗ trong 30 phút.",
+        ? `1. ⚠ ${expiring} booking sắp hết hạn giữ chỗ trong 30 phút.`
+        : "1. ✅ Không có booking sắp hết hạn giữ chỗ trong 30 phút.",
       waitingConfirmation
-        ? `⚠ ${waitingConfirmation} booking đang chờ xác nhận thanh toán.`
-        : "✅ Không có booking chờ xác nhận thanh toán.",
+        ? `2. ⚠ ${waitingConfirmation} giao dịch đang chờ xác nhận thanh toán.`
+        : "2. ✅ Không có giao dịch chờ xác nhận thanh toán.",
       refundPending
-        ? `⚠ ${refundPending} yêu cầu hoàn tiền đang chờ duyệt.`
-        : "✅ Không có refund pending.",
-      noGuide
-        ? `⚠ ${noGuide} booking đã xác nhận/chờ xác nhận nhưng chưa có HDV.`
-        : "✅ Booking đã phân công HDV ổn định.",
+        ? `3. ⚠ ${refundPending} yêu cầu hoàn tiền đang chờ duyệt.`
+        : "3. ✅ Không có yêu cầu hoàn tiền chờ duyệt.",
+      noGuideUpcoming
+        ? `4. ⚠ ${noGuideUpcoming} booking có ngày khởi hành từ hiện tại trở đi nhưng chưa có HDV.`
+        : "4. ✅ Các booking tương lai đã có HDV phù hợp.",
       "",
-      "Thứ tự xử lý: giữ chỗ sắp hết hạn → thanh toán chờ xác nhận → refund → phân công HDV.",
+      "Thứ tự xử lý: giữ chỗ sắp hết hạn → đối soát thanh toán → hoàn tiền → phân công HDV theo ngày khởi hành gần nhất.",
     ].join("\n");
   }
 
@@ -2231,6 +2461,49 @@ export class ChatbotService {
       refundDraft:
         source.refundDraft && typeof source.refundDraft === "object"
           ? (source.refundDraft as ChatRefundDraft)
+          : null,
+      lastFailedTourSearch:
+        source.lastFailedTourSearch &&
+        typeof source.lastFailedTourSearch === "object" &&
+        !Array.isArray(source.lastFailedTourSearch)
+          ? {
+              destinationId: (source.lastFailedTourSearch as any).destinationId
+                ? String((source.lastFailedTourSearch as any).destinationId)
+                : null,
+              destinationName: (source.lastFailedTourSearch as any)
+                .destinationName
+                ? String((source.lastFailedTourSearch as any).destinationName)
+                : null,
+              durationDays:
+                typeof (source.lastFailedTourSearch as any).durationDays ===
+                "number"
+                  ? Number((source.lastFailedTourSearch as any).durationDays)
+                  : null,
+              durationNights:
+                typeof (source.lastFailedTourSearch as any).durationNights ===
+                "number"
+                  ? Number((source.lastFailedTourSearch as any).durationNights)
+                  : null,
+              departureFrom: (source.lastFailedTourSearch as any).departureFrom
+                ? String((source.lastFailedTourSearch as any).departureFrom)
+                : null,
+              departureTo: (source.lastFailedTourSearch as any).departureTo
+                ? String((source.lastFailedTourSearch as any).departureTo)
+                : null,
+              departureRangeLabel: (source.lastFailedTourSearch as any)
+                .departureRangeLabel
+                ? String(
+                    (source.lastFailedTourSearch as any).departureRangeLabel,
+                  )
+                : null,
+              requestedThemes: Array.isArray(
+                (source.lastFailedTourSearch as any).requestedThemes,
+              )
+                ? (source.lastFailedTourSearch as any).requestedThemes
+                    .map(String)
+                    .filter(Boolean)
+                : [],
+            }
           : null,
       lastBookingCode:
         typeof source.lastBookingCode === "string"
@@ -2505,6 +2778,34 @@ export class ChatbotService {
     return Math.max(0, Math.min(amount, Math.round(discount)));
   }
 
+  /**
+   * Hiển thị mô tả mức giảm của voucher.
+   * Chỉ dùng để format text, không thay đổi logic tính/validate voucher.
+   */
+  private formatVoucherDiscount(voucher: any) {
+    if (!voucher) return "";
+
+    const discountType = String(
+      voucher.discountType || voucher.discount_type || "percent",
+    ).toLowerCase();
+
+    const discountValue = Number(
+      voucher.discountValue || voucher.discount_value || 0,
+    );
+
+    const maxDiscount = Number(
+      voucher.maxDiscount || voucher.max_discount || 0,
+    );
+
+    if (discountType === "fixed" || discountType === "amount") {
+      return `Giảm ${this.formatCurrency(discountValue)}`;
+    }
+
+    return `Giảm ${discountValue}%${
+      maxDiscount ? ` tối đa ${this.formatCurrency(maxDiscount)}` : ""
+    }`;
+  }
+
   private async validateVoucherForBooking(
     user: AuthUser,
     voucherCode: string,
@@ -2599,6 +2900,77 @@ export class ChatbotService {
     };
   }
 
+  private async findEligibleVouchersForBooking(
+    user: AuthUser,
+    amount: number,
+  ): Promise<
+    Array<{
+      code: string;
+      name: string;
+      description: string | null;
+      discountText: string;
+      minOrderAmount: number;
+      endDate: string | null;
+      status: string;
+      discountAmount: number;
+    }>
+  > {
+    if (!user?.userId || amount <= 0) return [];
+
+    const db = this.prisma as any;
+    if (!db.userVoucher) return [];
+
+    const now = new Date();
+
+    const rows = await db.userVoucher.findMany({
+      where: {
+        userId: user.userId,
+        status: "available",
+        voucher: {
+          status: "active",
+          startDate: { lte: now },
+          endDate: { gte: now },
+        },
+      },
+      include: { voucher: true },
+      take: 50,
+    });
+
+    return rows
+      .map((row: any) => {
+        const voucher = row?.voucher;
+        if (!voucher) return null;
+
+        const minOrderAmount = Number(voucher.minOrderAmount || 0);
+        const discountAmount = this.calculateVoucherDiscount(voucher, amount);
+
+        // Chỉ voucher THỰC SỰ áp dụng được cho giá trị booking hiện tại:
+        // - đơn đạt minOrderAmount
+        // - tính ra discount > 0
+        if (amount < minOrderAmount || discountAmount <= 0) {
+          return null;
+        }
+
+        return {
+          code: String(voucher.code || "").toUpperCase(),
+          name: String(voucher.name || voucher.code || "Voucher"),
+          description: voucher.description ? String(voucher.description) : null,
+          discountText: this.formatVoucherDiscount(voucher),
+          minOrderAmount,
+          endDate: voucher.endDate
+            ? new Date(voucher.endDate).toISOString()
+            : null,
+          status: String(voucher.status || "active"),
+          discountAmount,
+        };
+      })
+      .filter(Boolean)
+      .sort(
+        (a: any, b: any) =>
+          Number(b.discountAmount || 0) - Number(a.discountAmount || 0),
+      );
+  }
+
   private async findBestVoucherForBooking(user: AuthUser, amount: number) {
     if (!user?.userId || amount <= 0) return null;
     const db = this.prisma as any;
@@ -2680,7 +3052,7 @@ export class ChatbotService {
         : null,
       `Tổng cần thanh toán: ${this.formatCurrency(finalAmount)}`,
       "",
-      "Bạn nhắn “xác nhận đặt” để mình tạo booking và gửi mã QR. Nếu muốn đổi số khách, nhắn ví dụ: “đổi thành 2 người lớn, 1 trẻ em”.",
+      "Bạn kiểm tra lại thông tin rồi chọn “Xác nhận đặt” bên dưới. Nếu cần chỉnh, bạn có thể đổi số khách, điểm đón hoặc voucher trước khi tạo booking.",
     ]
       .filter(Boolean)
       .join("\n");
@@ -2689,7 +3061,23 @@ export class ChatbotService {
   private extractMemory(message: string, current: MemoryState): MemoryState {
     const normalized = this.stripText(message);
 
-    const parsedDestination = this.detectDestination(normalized);
+    const isActiveBookingSubstep =
+      Boolean(current.bookingDraft?.started && current.bookingDraft?.tourId) &&
+      (/\b(chon diem don|diem don ma|ma diem don|pickup)\b/.test(normalized) ||
+        /\b(voucher|ma giam gia|khong dung voucher|dung voucher|ap voucher)\b/.test(
+          normalized,
+        ) ||
+        this.isPartySizeMessage(message) ||
+        /\b(xac nhan thong tin hanh khach|nguoi lon\s*\d+\s*ho ten|tre em\s*\d+\s*ho ten)\b/.test(
+          normalized,
+        ) ||
+        /\b(xac nhan dat|xac nhan booking|thanh toan|qr|vietqr|sepay|chuyen khoan)\b/.test(
+          normalized,
+        ));
+
+    const parsedDestination = isActiveBookingSubstep
+      ? null
+      : this.detectDestination(normalized);
     const isUnsupportedDestination =
       this.mentionsUnsupportedDestination(normalized);
 
@@ -2742,10 +3130,12 @@ export class ChatbotService {
     return {
       destination: isUnsupportedDestination
         ? null
-        : (parsedDestination ??
-          (isMonthOnlySearchContinuation || isSearchRefinement
-            ? (current.destination ?? null)
-            : null)),
+        : isActiveBookingSubstep
+          ? (current.destination ?? null)
+          : (parsedDestination ??
+            (isMonthOnlySearchContinuation || isSearchRefinement
+              ? (current.destination ?? null)
+              : null)),
 
       budgetMax:
         parsedBudget ??
@@ -2950,17 +3340,48 @@ export class ChatbotService {
     let guests = Array.isArray(draft.guests) ? [...draft.guests] : [];
     const raw = String(message || "");
 
+    // Form chatbot gửi mỗi hành khách thành 1 dòng có cấu trúc.
+    // Parser này chạy trước, parser câu tự nhiên cũ bên dưới vẫn được giữ lại.
+    const structuredGuestPattern =
+      /(?:^|\n)\s*(người\s*lớn|nguoi\s*lon|adult|trẻ\s*em|tre\s*em|child)\s*(\d+)\s*:\s*họ\s*tên\s*=\s*([^|\n]+)\|\s*ngày\s*sinh\s*=\s*(\d{4}-\d{2}-\d{2})\s*\|\s*giới\s*tính\s*=\s*(male|female|other)\s*\|\s*(?:cccd|hộ\s*chiếu|ho\s*chieu|id)\s*=\s*([A-Za-z0-9]{6,20})/gimu;
+
+    let structuredMatch: RegExpExecArray | null;
+
+    while ((structuredMatch = structuredGuestPattern.exec(raw))) {
+      const typeRaw = this.stripText(structuredMatch[1]);
+      const guestType: "adult" | "child" = /tre em|child/.test(typeRaw)
+        ? "child"
+        : "adult";
+      const index = Number(structuredMatch[2]);
+      const fullName = this.normalizeGuestFullName(structuredMatch[3]);
+
+      if (index > 0 && fullName) {
+        guests = this.upsertGuestDraft(guests, {
+          guestType,
+          index,
+          fullName,
+          dateOfBirth: String(structuredMatch[4] || "").trim(),
+          gender: String(structuredMatch[5] || "")
+            .trim()
+            .toLowerCase(),
+          idNumber: String(structuredMatch[6] || "").trim(),
+        });
+      }
+    }
+
     const adultPattern =
-      /(?:người\s*lớn|nguoi\s*lon|adult)\s*(\d+)\s*(?:tên\s*là|ten\s*la|:|-)?\s*([^,\n;]+)/gi;
+      /(?:người\s*lớn|nguoi\s*lon|adult)\s*(\d+)\s*(?:tên\s*là|ten\s*la|:|-)?\s*([^,\n;|]+)/gi;
 
     const childPattern =
-      /(?:trẻ\s*em|tre\s*em|bé|be|child)\s*(\d+)\s*(?:tên\s*là|ten\s*la|:|-)?\s*([^,\n;]+)/gi;
+      /(?:trẻ\s*em|tre\s*em|bé|be|child)\s*(\d+)\s*(?:tên\s*là|ten\s*la|:|-)?\s*([^,\n;|]+)/gi;
 
     let match: RegExpExecArray | null;
 
     while ((match = adultPattern.exec(raw))) {
       const index = Number(match[1]);
-      const fullName = this.normalizeGuestFullName(match[2]);
+      const fullName = this.normalizeGuestFullName(match[2])
+        .replace(/^họ\s*tên\s*=\s*/i, "")
+        .trim();
 
       if (index > 0 && fullName) {
         guests = this.upsertGuestDraft(guests, {
@@ -2973,7 +3394,9 @@ export class ChatbotService {
 
     while ((match = childPattern.exec(raw))) {
       const index = Number(match[1]);
-      const fullName = this.normalizeGuestFullName(match[2]);
+      const fullName = this.normalizeGuestFullName(match[2])
+        .replace(/^họ\s*tên\s*=\s*/i, "")
+        .trim();
 
       if (index > 0 && fullName) {
         guests = this.upsertGuestDraft(guests, {
@@ -2985,14 +3408,16 @@ export class ChatbotService {
     }
 
     const secondAdultMatch = raw.match(
-      /(?:người\s*thứ\s*hai|nguoi\s*thu\s*hai|người\s*2|nguoi\s*2)\s*(?:tên\s*là|ten\s*la|:|-)?\s*([^,\n;]+)/i,
+      /(?:người\s*thứ\s*hai|nguoi\s*thu\s*hai|người\s*2|nguoi\s*2)\s*(?:tên\s*là|ten\s*la|:|-)?\s*([^,\n;|]+)/i,
     );
 
     if (secondAdultMatch?.[1]) {
       guests = this.upsertGuestDraft(guests, {
         guestType: "adult",
         index: 2,
-        fullName: this.normalizeGuestFullName(secondAdultMatch[1]),
+        fullName: this.normalizeGuestFullName(secondAdultMatch[1])
+          .replace(/^họ\s*tên\s*=\s*/i, "")
+          .trim(),
       });
     }
 
@@ -3011,35 +3436,34 @@ export class ChatbotService {
       index: number;
     }> = [];
 
-    for (let i = 2; i <= adultCount; i += 1) {
-      const found = guests.find(
-        (item) =>
-          item.guestType === "adult" &&
-          item.index === i &&
-          this.normalizeGuestFullName(item.fullName),
+    const isComplete = (item?: ChatGuestDraft | null) =>
+      Boolean(
+        item &&
+        this.normalizeGuestFullName(item.fullName) &&
+        String(item.dateOfBirth || "").trim() &&
+        ["male", "female", "other"].includes(
+          String(item.gender || "")
+            .trim()
+            .toLowerCase(),
+        ) &&
+        /^[A-Za-z0-9]{6,20}$/.test(String(item.idNumber || "").trim()),
       );
 
-      if (!found) {
-        missing.push({
-          guestType: "adult",
-          index: i,
-        });
+    for (let i = 1; i <= adultCount; i += 1) {
+      const found = guests.find(
+        (item) => item.guestType === "adult" && item.index === i,
+      );
+      if (!isComplete(found)) {
+        missing.push({ guestType: "adult", index: i });
       }
     }
 
     for (let i = 1; i <= childCount; i += 1) {
       const found = guests.find(
-        (item) =>
-          item.guestType === "child" &&
-          item.index === i &&
-          this.normalizeGuestFullName(item.fullName),
+        (item) => item.guestType === "child" && item.index === i,
       );
-
-      if (!found) {
-        missing.push({
-          guestType: "child",
-          index: i,
-        });
+      if (!isComplete(found)) {
+        missing.push({ guestType: "child", index: i });
       }
     }
 
@@ -3065,20 +3489,9 @@ export class ChatbotService {
         childCount ? `, ${childCount} trẻ em` : ""
       }.`,
       "",
-      "Để tạo booking đúng thông tin hành khách, bạn cho mình thêm tên người đi cùng nha:",
-      "",
-      ...missing.map((item) =>
-        item.guestType === "adult"
-          ? `- Người lớn ${item.index}:`
-          : `- Trẻ em ${item.index}:`,
-      ),
-      "",
-      "Bạn có thể nhắn theo mẫu:",
-      ...missing.map((item) =>
-        item.guestType === "adult"
-          ? `Người lớn ${item.index}: Nguyễn Văn A`
-          : `Trẻ em ${item.index}: Bé An`,
-      ),
+      "Vui lòng kiểm tra và bổ sung thông tin hành khách trong biểu mẫu bên dưới.",
+      "Người lớn 1 là người đặt tour: thông tin có sẵn trong hồ sơ đã được điền tự động; mục nào còn thiếu bạn chỉ cần nhập bổ sung.",
+      "Mỗi hành khách cần đủ: họ tên, ngày sinh, giới tính và CCCD/hộ chiếu.",
     ].join("\n");
   }
 
@@ -3091,7 +3504,14 @@ export class ChatbotService {
     const guests = Array.isArray(draft.guests) ? draft.guests : [];
     const lines: string[] = [];
 
-    lines.push(`- Người lớn 1: ${contactName}`);
+    const firstAdult = guests.find(
+      (item) => item.guestType === "adult" && item.index === 1,
+    );
+    lines.push(
+      `- Người lớn 1: ${
+        this.normalizeGuestFullName(firstAdult?.fullName) || contactName
+      }`,
+    );
 
     for (let i = 2; i <= adultCount; i += 1) {
       const guest = guests.find(
@@ -3141,14 +3561,21 @@ export class ChatbotService {
       idNumber?: string;
     }> = [];
 
+    const firstAdult = draftGuests.find(
+      (item) => item.guestType === "adult" && item.index === 1,
+    );
+
     guests.push({
-      fullName: contactName,
-      dateOfBirth: accountBirthDate
-        ? new Date(accountBirthDate).toISOString().slice(0, 10)
-        : undefined,
-      gender: accountGender || undefined,
+      fullName:
+        this.normalizeGuestFullName(firstAdult?.fullName) || contactName,
+      dateOfBirth:
+        firstAdult?.dateOfBirth ||
+        (accountBirthDate
+          ? new Date(accountBirthDate).toISOString().slice(0, 10)
+          : undefined),
+      gender: firstAdult?.gender || accountGender || undefined,
       guestType: "adult",
-      idNumber: accountIdentityNumber || undefined,
+      idNumber: firstAdult?.idNumber || accountIdentityNumber || undefined,
     });
 
     for (let i = 2; i <= adultCount; i += 1) {
@@ -3197,6 +3624,13 @@ export class ChatbotService {
       );
 
     const rawMessage = String(message || "").trim();
+
+    // Tin nhắn được gửi từ form thông tin hành khách.
+    // Không được dùng các số CCCD/ngày sinh trong tin nhắn này để suy ra số khách.
+    const structuredPassengerFormSignal =
+      /xac nhan thong tin hanh khach/i.test(normalized) &&
+      /(?:nguoi lon|tre em)\s*\d+\s*:\s*ho ten/i.test(normalized);
+
     const bareVoucherCodeSignal = Boolean(
       current.bookingDraft?.started &&
       /^(?=.{3,30}$)(?=.*[A-Z])[A-Z0-9_-]+$/i.test(rawMessage) &&
@@ -3281,15 +3715,19 @@ export class ChatbotService {
     );
     if (pickupOrderMatch) draft.pickupPointId = pickupOrderMatch[1];
 
-    const adultMatch = normalized.match(
-      /(\d+)\s*(?:nguoi lon|người lớn|adult|nguoi truong thanh|người trưởng thành|nl)/,
-    );
-    const childMatch = normalized.match(
-      /(\d+)\s*(?:tre em|trẻ em|child|em be|bé|em bé|be|te)/,
-    );
-    const peopleMatch = normalized.match(
-      /(\d+)\s*(?:nguoi|người|khach|khách)\b/,
-    );
+    const adultMatch = structuredPassengerFormSignal
+      ? null
+      : normalized.match(
+          /(?:^|\b)(\d{1,2})\s*(?:nguoi lon|người lớn|adult|nguoi truong thanh|người trưởng thành|nl)\b/,
+        );
+    const childMatch = structuredPassengerFormSignal
+      ? null
+      : normalized.match(
+          /(?:^|\b)(\d{1,2})\s*(?:tre em|trẻ em|child|em be|bé|em bé|be|te)\b/,
+        );
+    const peopleMatch = structuredPassengerFormSignal
+      ? null
+      : normalized.match(/(?:^|\b)(\d{1,2})\s*(?:nguoi|người|khach|khách)\b/);
 
     const previousAdultCount =
       current.bookingDraft?.adultCount == null
@@ -3300,11 +3738,24 @@ export class ChatbotService {
         ? null
         : Number(current.bookingDraft.childCount);
 
-    if (adultMatch) draft.adultCount = Number(adultMatch[1]);
-    else if (peopleMatch && !childMatch)
-      draft.adultCount = Number(peopleMatch[1]);
+    if (adultMatch) {
+      const parsedAdultCount = Number(adultMatch[1]);
+      if (parsedAdultCount >= 1 && parsedAdultCount <= 20) {
+        draft.adultCount = parsedAdultCount;
+      }
+    } else if (peopleMatch && !childMatch) {
+      const parsedPeopleCount = Number(peopleMatch[1]);
+      if (parsedPeopleCount >= 1 && parsedPeopleCount <= 20) {
+        draft.adultCount = parsedPeopleCount;
+      }
+    }
 
-    if (childMatch) draft.childCount = Number(childMatch[1]);
+    if (childMatch) {
+      const parsedChildCount = Number(childMatch[1]);
+      if (parsedChildCount >= 0 && parsedChildCount <= 20) {
+        draft.childCount = parsedChildCount;
+      }
+    }
     if (draft.childCount == null) draft.childCount = 0;
 
     const countChanged =
@@ -3322,7 +3773,7 @@ export class ChatbotService {
       draft.guests = (Array.isArray(draft.guests) ? draft.guests : []).filter(
         (guest) =>
           guest.guestType === "adult"
-            ? guest.index >= 2 && guest.index <= nextAdultCount
+            ? guest.index >= 1 && guest.index <= nextAdultCount
             : guest.index >= 1 && guest.index <= nextChildCount,
       );
 
@@ -3333,7 +3784,7 @@ export class ChatbotService {
     draft.guests = this.parseGuestDetailsFromMessage(message, draft);
 
     if (
-      /\b(xac nhan thong tin khach|xac nhan hanh khach|du thong tin khach|dung thong tin khach|ok thong tin khach)\b/.test(
+      /\b(xac nhan thong tin hanh khach|xac nhan thong tin khach|xac nhan hanh khach|du thong tin khach|dung thong tin khach|ok thong tin khach)\b/.test(
         normalized,
       )
     ) {
@@ -3588,10 +4039,21 @@ export class ChatbotService {
   private isPartySizeMessage(message: string) {
     const normalized = this.stripText(message);
 
+    // Tin nhắn form hành khách có CCCD/ngày sinh và nhãn "Người lớn 1",
+    // không phải là câu thay đổi số lượng khách.
+    if (
+      /xac nhan thong tin hanh khach/.test(normalized) &&
+      /(?:nguoi lon|tre em)\s*\d+\s*ho ten/.test(normalized)
+    ) {
+      return false;
+    }
+
     return (
-      /\b\d+\s*(?:nguoi lon|nguoi truong thanh|adult|nl)\b/.test(normalized) ||
-      /\b\d+\s*(?:tre em|em be|be|child|te)\b/.test(normalized) ||
-      /\b\d+\s*(?:nguoi|khach)\b/.test(normalized)
+      /\b\d{1,2}\s*(?:nguoi lon|nguoi truong thanh|adult|nl)\b/.test(
+        normalized,
+      ) ||
+      /\b\d{1,2}\s*(?:tre em|em be|be|child|te)\b/.test(normalized) ||
+      /\b\d{1,2}\s*(?:nguoi|khach)\b/.test(normalized)
     );
   }
 
@@ -5020,6 +5482,7 @@ export class ChatbotService {
 
     const asksCheapest = this.isCheapestTourQuestion(normalized);
     const destinationName = this.detectDestination(normalized);
+    const requestedThemes = this.detectTravelThemes(normalized);
 
     const exactDurationDays = this.parseDurationDays(normalized);
     const exactDurationNights = this.parseDurationNights(normalized);
@@ -5038,6 +5501,7 @@ export class ChatbotService {
     const hasHardTourCriteria = Boolean(
       asksCheapest ||
       destinationName ||
+      requestedThemes.length > 0 ||
       hasDurationCriterion ||
       departureDateRange,
     );
@@ -5048,6 +5512,7 @@ export class ChatbotService {
       exactDurationDays,
       exactDurationNights,
       destinationName,
+      requestedThemes,
       departureDateRange: departureDateRange?.label || null,
       hasDurationCriterion,
       hasHardTourCriteria,
@@ -5075,7 +5540,10 @@ export class ChatbotService {
     if (effectiveDestinationName && !destination) return null;
 
     const hasOtherHardCriteria = Boolean(
-      destination || hasDurationCriterion || departureDateRange,
+      destination ||
+      requestedThemes.length > 0 ||
+      hasDurationCriterion ||
+      departureDateRange,
     );
 
     const mode =
@@ -5108,6 +5576,7 @@ export class ChatbotService {
             departureFrom: departureDateRange?.from || null,
             departureTo: departureDateRange?.to || null,
             sortByPrice: asksCheapest,
+            requestedThemes,
           });
 
     const answer =
@@ -5124,12 +5593,36 @@ export class ChatbotService {
             durationDays: exactDurationDays,
             durationNights: exactDurationNights,
             departureRangeLabel: departureDateRange?.label || null,
+            requestedThemes,
           });
     const memory: MemoryState = {
       ...input.memory,
       destination: destination?.name || effectiveDestinationName || null,
       budgetMax: asksCheapest ? (input.memory.budgetMax ?? null) : null,
       departureMonth: null,
+      lastFailedTourSearch: !cards.length
+        ? {
+            destinationId: destination?.id ? String(destination.id) : null,
+            destinationName:
+              destination?.name || effectiveDestinationName || null,
+            durationDays:
+              exactDurationDays !== null
+                ? exactDurationDays
+                : (input.memory.durationDays ?? null),
+            durationNights:
+              exactDurationNights !== null
+                ? exactDurationNights
+                : (input.memory.durationNights ?? null),
+            departureFrom: departureDateRange?.from
+              ? departureDateRange.from.toISOString()
+              : null,
+            departureTo: departureDateRange?.to
+              ? departureDateRange.to.toISOString()
+              : null,
+            departureRangeLabel: departureDateRange?.label || null,
+            requestedThemes,
+          }
+        : null,
       durationDays:
         exactDurationDays !== null
           ? exactDurationDays
@@ -5270,6 +5763,324 @@ export class ChatbotService {
       suggestedReplies: cards.length
         ? ["Chọn tour số 1", "Xem lịch gần nhất", "Tìm tour khác"]
         : ["Gợi ý thay thế", "Đổi thời lượng", "Tìm điểm đến khác"],
+    };
+  }
+
+  private isAlternativeTourSuggestionMessage(message: string) {
+    const normalized = this.stripText(message);
+    return /^(goi y thay the|goi y gan nhat|goi y tour thay the|tour thay the)$/.test(
+      normalized,
+    );
+  }
+
+  private getCardDuration(card: TourCard) {
+    const normalized = this.stripText(card.durationText || "");
+    return {
+      days: this.parseDurationDays(normalized),
+      nights: this.parseDurationNights(normalized),
+    };
+  }
+
+  private cardDepartureTimestamp(card: TourCard) {
+    const value = card.departures?.[0]?.departureDate || card.departureDate;
+    if (!value) return Number.MAX_SAFE_INTEGER;
+    const time = new Date(value).getTime();
+    return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+  }
+
+  private async tryHandleAlternativeTourSuggestion(
+    message: string,
+    conversation: any,
+  ) {
+    if (!this.isAlternativeTourSuggestionMessage(message)) return null;
+
+    const currentMemory = this.toMemoryState(conversation.memoryJson);
+    const failed = currentMemory.lastFailedTourSearch;
+    if (!failed) return null;
+
+    const destinationId =
+      failed.destinationId && /^\d+$/.test(failed.destinationId)
+        ? BigInt(failed.destinationId)
+        : null;
+    const durationDays = failed.durationDays ?? null;
+    const durationNights = failed.durationNights ?? null;
+    const departureFrom = failed.departureFrom
+      ? new Date(failed.departureFrom)
+      : null;
+    const departureTo = failed.departureTo
+      ? new Date(failed.departureTo)
+      : null;
+
+    const hasValidFrom =
+      departureFrom && !Number.isNaN(departureFrom.getTime());
+    const hasValidTo = departureTo && !Number.isNaN(departureTo.getTime());
+    const safeFrom = hasValidFrom ? departureFrom : null;
+    const safeTo = hasValidTo ? departureTo : null;
+
+    const groups: Array<{
+      title: string;
+      cards: TourCard[];
+    }> = [];
+
+    // Ưu tiên 1: giữ đúng điểm đến + khoảng ngày, chỉ nới thời lượng.
+    if (destinationId && (safeFrom || safeTo)) {
+      let sameDestinationSameTime = await this.findToursByHardCriteria({
+        destinationId,
+        durationDays: null,
+        durationNights: null,
+        departureFrom: safeFrom,
+        departureTo: safeTo,
+        sortByPrice: false,
+        requestedThemes: [],
+      });
+
+      if (durationDays !== null || durationNights !== null) {
+        sameDestinationSameTime = sameDestinationSameTime.filter((card) => {
+          const parsed = this.getCardDuration(card);
+          const sameDays =
+            durationDays === null || parsed.days === durationDays;
+          const sameNights =
+            durationNights === null || parsed.nights === durationNights;
+          return !(sameDays && sameNights);
+        });
+      }
+
+      if (sameDestinationSameTime.length) {
+        groups.push({
+          title: `Cùng ${failed.destinationName || "điểm đến"} và đúng khoảng ngày, khác thời lượng`,
+          cards: sameDestinationSameTime,
+        });
+      }
+    }
+
+    // Ưu tiên 2: giữ đúng thời lượng + khoảng ngày, chỉ nới điểm đến.
+    if (
+      (durationDays !== null || durationNights !== null) &&
+      (safeFrom || safeTo)
+    ) {
+      let sameDurationSameTime = await this.findToursByHardCriteria({
+        destinationId: null,
+        durationDays,
+        durationNights,
+        departureFrom: safeFrom,
+        departureTo: safeTo,
+        sortByPrice: false,
+        requestedThemes: [],
+      });
+
+      if (failed.destinationName) {
+        const failedDestination = this.stripText(failed.destinationName);
+        sameDurationSameTime = sameDurationSameTime.filter(
+          (card) =>
+            this.stripText(card.destination || "") !== failedDestination,
+        );
+      }
+
+      if (sameDurationSameTime.length) {
+        groups.push({
+          title: `Cùng ${durationDays ?? "?"} ngày${durationNights !== null ? ` ${durationNights} đêm` : ""} và đúng khoảng ngày, khác điểm đến`,
+          cards: sameDurationSameTime,
+        });
+      }
+    }
+
+    // Ưu tiên 3: giữ đúng điểm đến + thời lượng, tìm ngày gần nhất ngoài khoảng đã yêu cầu.
+    if (
+      destinationId &&
+      (durationDays !== null || durationNights !== null) &&
+      safeFrom &&
+      safeTo
+    ) {
+      const beforeTo = new Date(safeFrom.getTime() - 1);
+      const afterFrom = new Date(safeTo.getTime() + 1);
+      const now = new Date();
+
+      const [beforeCards, afterCards] = await Promise.all([
+        beforeTo.getTime() >= now.getTime()
+          ? this.findToursByHardCriteria({
+              destinationId,
+              durationDays,
+              durationNights,
+              departureFrom: now,
+              departureTo: beforeTo,
+              sortByPrice: false,
+              requestedThemes: [],
+            })
+          : Promise.resolve([]),
+        this.findToursByHardCriteria({
+          destinationId,
+          durationDays,
+          durationNights,
+          departureFrom: afterFrom,
+          departureTo: null,
+          sortByPrice: false,
+          requestedThemes: [],
+        }),
+      ]);
+
+      const nearestDateCards = [...beforeCards, ...afterCards]
+        .sort((a, b) => {
+          const aTime = this.cardDepartureTimestamp(a);
+          const bTime = this.cardDepartureTimestamp(b);
+          const distance = (time: number) =>
+            time < safeFrom.getTime()
+              ? safeFrom.getTime() - time
+              : time - safeTo.getTime();
+          return distance(aTime) - distance(bTime);
+        })
+        .slice(0, this.getMaxTourResults());
+
+      if (nearestDateCards.length) {
+        groups.push({
+          title: `Cùng ${failed.destinationName || "điểm đến"} và đúng thời lượng, ngày khởi hành gần nhất`,
+          cards: nearestDateCards,
+        });
+      }
+    }
+
+    const seenTourIds = new Set<string>();
+    const visibleGroups = groups
+      .map((group) => ({
+        ...group,
+        cards: group.cards.filter((card) => {
+          if (seenTourIds.has(card.tourId)) return false;
+          seenTourIds.add(card.tourId);
+          return true;
+        }),
+      }))
+      .filter((group) => group.cards.length > 0);
+
+    const allCards = visibleGroups
+      .flatMap((group) => group.cards)
+      .slice(0, this.getMaxTourResults());
+    const allowedIds = new Set(allCards.map((card) => card.tourId));
+    const finalGroups = visibleGroups
+      .map((group) => ({
+        ...group,
+        cards: group.cards.filter((card) => allowedIds.has(card.tourId)),
+      }))
+      .filter((group) => group.cards.length > 0);
+
+    let globalIndex = 0;
+    const answer = allCards.length
+      ? [
+          "Mình ưu tiên các tour gần nhất với tiêu chí bạn vừa tìm:",
+          "",
+          ...finalGroups.flatMap((group) => [
+            `${group.title}:`,
+            ...group.cards.map((card) => {
+              globalIndex += 1;
+              const departure = card.departures?.[0];
+              return [
+                `${globalIndex}. ${card.name}: ${this.formatCurrency(card.priceAdult)}/người`,
+                `   - Điểm đến: ${card.destination}`,
+                `   - Thời lượng: ${card.durationText}`,
+                departure?.departureDate
+                  ? `   - Khởi hành: ${this.formatDate(departure.departureDate)}`
+                  : null,
+                departure ? `   - Còn: ${departure.remainingSlots} chỗ` : null,
+              ]
+                .filter(Boolean)
+                .join("\n");
+            }),
+            "",
+          ]),
+          "Bạn có thể chọn một tour trong danh sách hoặc tìm lại với tiêu chí khác.",
+        ].join("\n")
+      : [
+          "Mình đã thử nới từng tiêu chí của lần tìm trước nhưng hiện vẫn chưa có tour thay thế phù hợp.",
+          "Bạn có thể đổi thời lượng, đổi điểm đến hoặc chọn khoảng ngày khác.",
+        ].join("\n");
+
+    const memory: MemoryState = {
+      ...currentMemory,
+      intent: "tour_search",
+      lastTourId: allCards[0]?.tourId || null,
+      lastTourName: allCards[0]?.name || null,
+      lastTourOptions: allCards.map((card) => ({
+        tourId: card.tourId,
+        departureId:
+          Array.isArray(card.departures) && card.departures.length > 1
+            ? null
+            : card.departureId,
+        name: card.name,
+      })),
+      lastDepartureOptions: this.flattenDepartureOptionsFromCards(allCards),
+      candidateTours: allCards
+        .filter(
+          (card) => Array.isArray(card.departures) && card.departures.length,
+        )
+        .map((card) => ({
+          tourId: card.tourId,
+          departureIds: card.departures!.map(
+            (departure) => departure.departureId,
+          ),
+          departures: card.departures!,
+        })),
+      selectedCandidateTourId: null,
+      bookingDraft: null,
+      bookingContext: this.buildTourListBookingContext(allCards),
+    };
+
+    const suggestedReplies = allCards.length
+      ? ["Chọn tour số 1", "Tìm lại theo tiêu chí ban đầu", "Tìm tour khác"]
+      : ["Đổi thời lượng", "Tìm điểm đến khác", "Đổi khoảng ngày"];
+
+    await this.prisma.chatMessage.create({
+      data: {
+        conversationId: conversation.id,
+        role: "user",
+        content: message,
+        intent: "tour_search",
+        meta: { intent: "tour_search", mode: "alternative_tour_search" },
+      },
+    });
+
+    await this.prisma.chatConversation.update({
+      where: { id: conversation.id },
+      data: {
+        lastIntent: "tour_search",
+        memoryJson: memory as unknown as object,
+        summary: allCards.length
+          ? `${allCards.length} tour thay thế gần tiêu chí lần tìm trước`
+          : "Không có tour thay thế gần tiêu chí lần tìm trước",
+      },
+    });
+
+    await this.prisma.chatMessage.create({
+      data: {
+        conversationId: conversation.id,
+        role: "assistant",
+        content: answer,
+        intent: "tour_search",
+        meta: {
+          intent: "tour_search",
+          mode: "alternative_tour_search",
+          cards: allCards,
+          suggestedReplies,
+        },
+      },
+    });
+
+    return {
+      conversationId: conversation.id.toString(),
+      intent: "tour_search",
+      nlu: null,
+      confidence: {
+        level: "high",
+        shouldAnswer: true,
+        reasons: ["alternative_tour_search"],
+      },
+      answer,
+      memory,
+      cards: allCards,
+      tours: allCards,
+      vouchers: [],
+      bookings: [],
+      pickupPoints: [],
+      bookingCheckout: null,
+      refundRequest: null,
+      suggestedReplies,
     };
   }
 
@@ -5556,6 +6367,64 @@ export class ChatbotService {
     }
   }
 
+  private matchesHardTravelThemes(tour: any, requestedThemes: string[]) {
+    if (!Array.isArray(requestedThemes) || requestedThemes.length === 0) {
+      return true;
+    }
+
+    const text = this.stripText(
+      [
+        tour?.name,
+        tour?.shortDescription,
+        tour?.fullDescription,
+        tour?.tourTheme,
+        tour?.destination?.name,
+        tour?.destination?.province,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+
+    return requestedThemes.every((theme) => {
+      if (theme === "beach") {
+        return /\b(bien|dao|tam bien|nghi bien|hai san|phu quoc|nha trang|ha long|quy nhon|da nang|hoi an|vung tau|con dao|mui ne)\b/.test(
+          text,
+        );
+      }
+      if (theme === "mountain") {
+        return /\b(nui|san may|da lat|dalat|sa pa|sapa|moc chau|ha giang|cao nguyen|doi thong|mang den)\b/.test(
+          text,
+        );
+      }
+      if (theme === "culture") {
+        return /\b(van hoa|lich su|di tich|pho co|hoi an|hue|co do|chua|den|lang nghe|bao tang)\b/.test(
+          text,
+        );
+      }
+      if (theme === "family") {
+        return /\b(gia dinh|tre em|tre nho|family|ca nha|nhe nhang)\b/.test(
+          text,
+        );
+      }
+      if (theme === "eco") {
+        return /\b(sinh thai|mien tay|song nuoc|cho noi|vuon trai cay|can tho|ca mau|an giang|thien nhien)\b/.test(
+          text,
+        );
+      }
+      if (theme === "luxury") {
+        return /\b(cao cap|luxury|premium|resort|5 sao|4 sao|nghi duong)\b/.test(
+          text,
+        );
+      }
+      if (theme === "adventure") {
+        return /\b(kham pha|mao hiem|adventure|trek|trekking|leo nui|van dong)\b/.test(
+          text,
+        );
+      }
+      return true;
+    });
+  }
+
   private async findToursByHardCriteria(criteria: {
     destinationId?: bigint | null;
     durationDays?: number | null;
@@ -5563,6 +6432,7 @@ export class ChatbotService {
     departureFrom?: Date | null;
     departureTo?: Date | null;
     sortByPrice?: boolean;
+    requestedThemes?: string[];
   }): Promise<TourCard[]> {
     const now = new Date();
 
@@ -5610,7 +6480,14 @@ export class ChatbotService {
       take: 100,
     });
 
-    const departures = rows
+    const hardFilteredRows =
+      Array.isArray(criteria.requestedThemes) && criteria.requestedThemes.length
+        ? rows.filter((tour: any) =>
+            this.matchesHardTravelThemes(tour, criteria.requestedThemes || []),
+          )
+        : rows;
+
+    const departures = hardFilteredRows
       .flatMap((tour: any) =>
         (tour.departures || [])
           .filter(
@@ -5714,6 +6591,7 @@ export class ChatbotService {
     durationDays: number | null;
     durationNights: number | null;
     departureRangeLabel: string | null;
+    requestedThemes?: string[];
   }) {
     const {
       cards,
@@ -5721,9 +6599,23 @@ export class ChatbotService {
       durationDays,
       durationNights,
       departureRangeLabel,
+      requestedThemes = [],
     } = input;
 
+    const themeLabels: Record<string, string> = {
+      beach: "biển/đảo",
+      mountain: "núi/khí hậu mát",
+      culture: "văn hóa/lịch sử",
+      family: "gia đình",
+      eco: "sinh thái",
+      luxury: "nghỉ dưỡng cao cấp",
+      adventure: "khám phá/mạo hiểm",
+    };
+
     const filters = [
+      requestedThemes.length
+        ? `chủ đề ${requestedThemes.map((theme) => themeLabels[theme] || theme).join(", ")}`
+        : null,
       destinationName ? `điểm đến ${destinationName}` : null,
       durationDays !== null && durationNights !== null
         ? `${durationDays} ngày ${durationNights} đêm`
@@ -6460,10 +7352,38 @@ export class ChatbotService {
       context?.state === "WAITING_DEPARTURE_SELECTION" &&
       !this.isBookingContextExpired(context);
 
-    const selectedTourId = waitingDeparture
-      ? context?.selectedTourId
-      : memory.selectedCandidateTourId;
+    // Khi chatbot vừa hiển thị danh sách lịch đã được lọc theo trạng thái/chỗ trống
+    // và loại các lịch trùng booking, phải resolve "lịch số N" đúng trên chính
+    // displayedDepartures mà người dùng đang nhìn thấy. Không dùng candidateTours
+    // ở bước này vì candidateTours có thể còn chứa lịch cũ/chưa qua bộ lọc xung đột.
+    if (waitingDeparture && context?.selectedTourId) {
+      const displayedDepartures = Array.isArray(context.displayedDepartures)
+        ? context.displayedDepartures
+        : [];
 
+      if (!displayedDepartures.length) return null;
+
+      const ordinal = this.extractOrdinalSelection(
+        message,
+        displayedDepartures.length,
+      );
+      if (ordinal == null) return null;
+
+      const index = ordinal - 1;
+      if (index < 0 || index >= displayedDepartures.length) return null;
+
+      const departure = displayedDepartures[index];
+      if (!departure?.departureId) return null;
+
+      return {
+        tourId: String(context.selectedTourId),
+        departureId: String(departure.departureId),
+        index: ordinal,
+        startDate: departure.departureDate || null,
+      };
+    }
+
+    const selectedTourId = memory.selectedCandidateTourId;
     if (!selectedTourId) return null;
 
     const group = (memory.candidateTours || []).find(
@@ -6471,8 +7391,6 @@ export class ChatbotService {
     );
     if (!group?.departures?.length) return null;
 
-    // Khi state đang chờ chọn lịch, các câu ngắn "1", "số 1", "chọn 1",
-    // "lịch đầu tiên" đều phải được hiểu là chọn departure, không cần gọi LLM.
     const ordinal = this.extractOrdinalSelection(
       message,
       group.departures.length,
@@ -6614,7 +7532,21 @@ export class ChatbotService {
     if (!user?.userId) return [];
     const bookingCode = this.extractBookingCode(userMessage);
     const rows = await this.prisma.booking.findMany({
-      where: { userId: user.userId, ...(bookingCode ? { bookingCode } : {}) },
+      where: {
+        userId: user.userId,
+        ...(bookingCode
+          ? { bookingCode }
+          : {
+              bookingStatus: {
+                notIn: [
+                  "cancelled",
+                  "cancelled_by_customer",
+                  "cancelled_by_operator",
+                  "expired",
+                ],
+              },
+            }),
+      },
       include: {
         tour: { include: { destination: true } },
         departure: true,
@@ -6750,6 +7682,27 @@ export class ChatbotService {
     return map[found] || found;
   }
 
+  private isChangePartySizeUiRequest(message: string) {
+    const normalized = this.stripText(message);
+    return /\b(doi so khach|doi so luong khach|doi so nguoi|thay doi so khach)\b/.test(
+      normalized,
+    );
+  }
+
+  private isChangePickupUiRequest(message: string) {
+    const normalized = this.stripText(message);
+    return /\b(doi diem don|chon lai diem don|thay doi diem don)\b/.test(
+      normalized,
+    );
+  }
+
+  private isChangeVoucherUiRequest(message: string) {
+    const normalized = this.stripText(message);
+    return /\b(doi voucher|chon lai voucher|thay doi voucher|doi ma giam gia)\b/.test(
+      normalized,
+    );
+  }
+
   private async processBookingFlow(
     ctx: PromptContext,
     memory: MemoryState,
@@ -6758,6 +7711,7 @@ export class ChatbotService {
     answer: string;
     memory?: Partial<MemoryState>;
     bookingCheckout?: BookingCheckoutCard;
+    suggestedReplies?: string[];
   } | null> {
     if (ctx.intent !== "booking_create") {
       return null;
@@ -6815,9 +7769,54 @@ export class ChatbotService {
       draft.confirmed = false;
     }
 
-    const explicitDestination = this.detectDestination(
-      this.stripText(ctx.userMessage),
-    );
+    if (this.isChangePartySizeUiRequest(ctx.userMessage)) {
+      draft.adultCount = null;
+      draft.childCount = 0;
+      draft.confirmed = false;
+      draft.passengerInfoConfirmed = false;
+      draft.guests = [];
+
+      return {
+        answer: "Bạn chọn lại số lượng người lớn và trẻ em bên dưới nha.",
+        memory: { bookingDraft: draft },
+      };
+    }
+
+    if (this.isChangePickupUiRequest(ctx.userMessage)) {
+      draft.pickupPointId = null;
+      draft.confirmed = false;
+    }
+
+    if (this.isChangeVoucherUiRequest(ctx.userMessage)) {
+      draft.voucherCode = null;
+      draft.skipVoucher = false;
+      draft.confirmed = false;
+    }
+
+    const normalizedBookingMessage = this.stripText(ctx.userMessage);
+
+    const isBookingSubstepAction =
+      Boolean(draft.started && draft.tourId) &&
+      (/\b(chon diem don|diem don ma|ma diem don|pickup)\b/.test(
+        normalizedBookingMessage,
+      ) ||
+        /\b(voucher|ma giam gia|khong dung voucher|dung voucher|ap voucher)\b/.test(
+          normalizedBookingMessage,
+        ) ||
+        this.isPartySizeMessage(ctx.userMessage) ||
+        /\b(xac nhan thong tin hanh khach|nguoi lon\s*\d+\s*ho ten|tre em\s*\d+\s*ho ten)\b/.test(
+          normalizedBookingMessage,
+        ) ||
+        /\b(xac nhan dat|xac nhan booking|thanh toan|qr|vietqr|sepay|chuyen khoan)\b/.test(
+          normalizedBookingMessage,
+        ));
+
+    // Chỉ coi tên địa danh là "đổi điểm đến/tour" khi user thực sự đang
+    // tìm/chọn tour mới. Tên tỉnh nằm trong tên/địa chỉ điểm đón không được
+    // phép đổi tour đang đặt.
+    const explicitDestination = isBookingSubstepAction
+      ? null
+      : this.detectDestination(normalizedBookingMessage);
 
     const activeBookingContext =
       bookingContext && !this.isBookingContextExpired(bookingContext)
@@ -6861,86 +7860,88 @@ export class ChatbotService {
         selectedTourOption,
         memory,
       );
-      if (candidateTour && candidateTour.departures.length > 1) {
-        const candidateDepartures = candidateTour.departures.slice(
-          0,
-          this.getMaxDeparturesPerTour(),
+
+      // Không dùng danh sách lịch cache trên TourCard để đặt.
+      // Sau khi bấm "Đặt tour", luôn query lại lịch thật đang mở và
+      // loại lịch trùng với booking hiện có của người dùng.
+      const selectedTourId = BigInt(selectedTourOption.tourId);
+      const validDepartures = await this.findBookableDepartureOptions(
+        selectedTourId,
+        user?.userId || null,
+      );
+
+      const departureOptions = validDepartures
+        .slice(0, this.getMaxDeparturesPerTour())
+        .map((departure: any, index: number) =>
+          this.toDepartureMemoryOption(selectedTourId, departure, index),
         );
 
-        // QUAN TRỌNG: khi đã chọn tour có nhiều lịch, phải chuyển state ngay
-        // sang WAITING_DEPARTURE_SELECTION và lưu đúng danh sách lịch đang hiển thị.
-        // Nếu chỉ lưu selectedCandidateTourId rồi return, lượt sau "chọn lịch số 1"
-        // vẫn bị hiểu theo WAITING_TOUR_SELECTION và quay lại chọn tour số 1.
-        const departureOptions = candidateDepartures.map(
-          (departure, index) => ({
-            tourId: String(candidateTour.tourId),
-            departureId: String(departure.departureId),
-            index: index + 1,
-            startDate: departure.departureDate || null,
-            endDate: departure.endDate || null,
-            adultPrice: Number(departure.adultPrice || 0),
-            availableSlots: Number(departure.remainingSlots || 0),
-            status: String(departure.status || ""),
-          }),
-        );
+      const nextBookingContext: ChatBookingContext = {
+        ...(bookingContext || this.buildTourListBookingContext([])),
+        state: "WAITING_DEPARTURE_SELECTION",
+        displayedTours: bookingContext?.displayedTours?.length
+          ? bookingContext.displayedTours
+          : (memory.lastTourOptions || []).map((item, index) => ({
+              index: index + 1,
+              tourId: item.tourId,
+              name: item.name,
+            })),
+        selectedTourId: String(selectedTourId),
+        selectedTourName: String(selectedTourOption.name || ""),
+        selectedTourSlug: bookingContext?.displayedTours?.find(
+          (item) => String(item.tourId) === String(selectedTourId),
+        )?.slug,
+        displayedDepartures: departureOptions.map((item) => ({
+          index: item.index,
+          departureId: item.departureId,
+          departureDate: item.startDate,
+          availableSeats: item.availableSlots,
+          status: item.status,
+          adultPrice: item.adultPrice,
+        })),
+        selectedDepartureId: undefined,
+        selectedDepartureDate: undefined,
+        updatedAt: new Date().toISOString(),
+      };
 
-        const nextBookingContext: ChatBookingContext = {
-          ...(bookingContext || this.buildTourListBookingContext([])),
-          state: "WAITING_DEPARTURE_SELECTION",
-          displayedTours: bookingContext?.displayedTours?.length
-            ? bookingContext.displayedTours
-            : (memory.lastTourOptions || []).map((item, index) => ({
-                index: index + 1,
-                tourId: item.tourId,
-                name: item.name,
-              })),
-          selectedTourId: String(candidateTour.tourId),
-          selectedTourName: String(selectedTourOption.name || ""),
-          selectedTourSlug: bookingContext?.displayedTours?.find(
-            (item) => String(item.tourId) === String(candidateTour.tourId),
-          )?.slug,
-          displayedDepartures: departureOptions.map((item) => ({
-            index: item.index,
-            departureId: item.departureId,
-            departureDate: item.startDate,
-            availableSeats: item.availableSlots,
-            status: item.status,
-            adultPrice: item.adultPrice,
-          })),
-          selectedDepartureId: undefined,
-          selectedDepartureDate: undefined,
-          updatedAt: new Date().toISOString(),
-        };
-
-        const lines = departureOptions.map((departure) => {
-          const date = departure.startDate
-            ? this.formatDate(departure.startDate)
-            : "chưa rõ ngày";
-          return `${departure.index}. ${date}, còn ${departure.availableSlots} chỗ, trạng thái ${departure.status}.`;
-        });
-
+      if (!departureOptions.length) {
         return {
           answer: [
-            `Tour này có ${departureOptions.length} lịch khởi hành phù hợp.`,
-            `Bạn vui lòng chọn ${this.buildChoiceRangeText(
-              departureOptions.length,
-              "lịch",
-            )} của tour này.`,
-            "",
-            ...lines,
+            `Tour ${selectedTourOption.name || ""} hiện không có lịch khởi hành nào bạn có thể đặt.`,
+            "Các lịch đã hết hạn/đóng bán/hết chỗ hoặc bị trùng thời gian với tour bạn đã đặt sẽ không được hiển thị.",
+            "Bạn có thể chọn tour khác hoặc kiểm tra lại các booking hiện có.",
           ].join("\n"),
           memory: {
             bookingDraft: {
               ...draft,
-              tourId: String(candidateTour.tourId),
+              tourId: String(selectedTourId),
               departureId: null,
             },
-            selectedCandidateTourId: String(candidateTour.tourId),
-            lastDepartureOptions: departureOptions,
+            selectedCandidateTourId: String(selectedTourId),
+            lastDepartureOptions: [],
             bookingContext: nextBookingContext,
           },
         };
       }
+
+      // Luôn để user chọn lịch bằng nút, kể cả chỉ còn đúng 1 lịch hợp lệ.
+      return {
+        answer: [
+          `Mình tìm thấy ${departureOptions.length} lịch khởi hành hiện còn hợp lệ cho tour này.`,
+          "Các lịch trùng với tour/booking đang còn hiệu lực của bạn đã được loại bỏ.",
+          "Bạn chọn một lịch bên dưới để tiếp tục đặt tour nha.",
+        ].join("\n"),
+        memory: {
+          bookingDraft: {
+            ...draft,
+            tourId: String(selectedTourId),
+            departureId: null,
+          },
+          selectedCandidateTourId: String(selectedTourId),
+          lastDepartureOptions: departureOptions,
+          bookingContext: nextBookingContext,
+        },
+      };
     }
 
     // Ưu tiên xử lý “chọn lịch số 1/2/3” trước khi validate departure cũ.
@@ -7012,7 +8013,12 @@ export class ChatbotService {
 
     // Nếu câu hiện tại có nhắc rõ điểm đến, ưu tiên tour tìm được từ câu hiện tại.
     // Không dùng lastTourId cũ để tránh đặt Nha Trang nhưng tạo nhầm Phú Quốc.
-    if (explicitDestination && ctx.tours[0]?.tourId) {
+    if (
+      explicitDestination &&
+      ctx.tours[0]?.tourId &&
+      (this.isFreshTourSearchRequest(ctx.userMessage) ||
+        this.hasExplicitTourSelectionSignal(ctx.userMessage))
+    ) {
       draft.tourId = ctx.tours[0].tourId;
       if (!selectedCandidateDeparture && !selectedDepartureOption) {
         draft.departureId = ctx.tours[0].departureId;
@@ -7081,13 +8087,16 @@ export class ChatbotService {
       };
     }
 
-    if (!account.phone || !account.identityNumber) {
+    if (!account.phone) {
       return {
         answer:
-          "Để đặt tour qua chatbot, bạn cần cập nhật số điện thoại và CCCD trong hồ sơ trước. Đây là ràng buộc để xuất thông tin booking và giữ chỗ đúng người.",
+          "Để đặt tour qua chatbot, bạn cần cập nhật số điện thoại trong hồ sơ trước để Travela có thể liên hệ và giữ chỗ đúng người.",
         memory: { bookingDraft: draft },
       };
     }
+
+    // CCCD/ngày sinh/giới tính nếu hồ sơ còn thiếu sẽ được nhập trực tiếp
+    // tại form thông tin hành khách của chatbot, giống form đặt tour thường.
 
     const tourId =
       draft.tourId && /^\d+$/.test(draft.tourId) ? BigInt(draft.tourId) : null;
@@ -7112,7 +8121,11 @@ export class ChatbotService {
       };
     }
 
-    if (explicitDestination) {
+    if (
+      explicitDestination &&
+      (this.isFreshTourSearchRequest(ctx.userMessage) ||
+        this.hasExplicitTourSelectionSignal(ctx.userMessage))
+    ) {
       const tourDestination = this.stripText(tour.destination?.name || "");
       const requestedDestination = this.stripText(explicitDestination);
       if (
@@ -7128,7 +8141,10 @@ export class ChatbotService {
       }
     }
 
-    const openDepartures = await this.findBookableDepartureOptions(tour.id);
+    const openDepartures = await this.findBookableDepartureOptions(
+      tour.id,
+      user?.userId || null,
+    );
     const departureOptionsForMemory = openDepartures
       .slice(0, this.getMaxDeparturesPerTour())
       .map((item: any, index: number) =>
@@ -7191,20 +8207,10 @@ export class ChatbotService {
       }
     }
 
-    if (!departure && openDepartures.length === 1) {
-      departure = openDepartures[0];
-      draft.departureId = String(departure.id);
-      departureBookingContext.state = "WAITING_BOOKING_CONFIRMATION";
-      departureBookingContext.selectedDepartureId = String(departure.id);
-      departureBookingContext.selectedDepartureDate = departure.departureDate
-        ? new Date(departure.departureDate).toISOString()
-        : null;
-    }
-
-    if (!departure && openDepartures.length > 1) {
+    if (!departure && openDepartures.length >= 1) {
       const reason = selectedDepartureExpired
-        ? "Lịch khởi hành bạn chọn trước đó đã qua ngày đặt hợp lệ hoặc không còn mở để giữ chỗ."
-        : "Tour này có nhiều lịch khởi hành còn mở.";
+        ? "Lịch khởi hành bạn chọn trước đó không còn hợp lệ hoặc đang trùng với booking hiện có."
+        : "Các lịch bên dưới đang mở, còn chỗ và không trùng với booking hiện có của bạn.";
       return {
         answer: [
           reason,
@@ -7274,6 +8280,35 @@ export class ChatbotService {
       };
     }
 
+    // Đồng bộ Người lớn 1 với hồ sơ của người đặt tour.
+    // Dữ liệu user đã nhập trong chatbot luôn được ưu tiên;
+    // hồ sơ chỉ dùng để điền sẵn các field đang thiếu.
+    const existingFirstAdult = (
+      Array.isArray(draft.guests) ? draft.guests : []
+    ).find((guest) => guest.guestType === "adult" && Number(guest.index) === 1);
+
+    const accountBirthDate = account.birthDate
+      ? new Date(account.birthDate).toISOString().slice(0, 10)
+      : null;
+
+    draft.guests = this.upsertGuestDraft(
+      Array.isArray(draft.guests) ? draft.guests : [],
+      {
+        guestType: "adult",
+        index: 1,
+        fullName:
+          this.normalizeGuestFullName(existingFirstAdult?.fullName) ||
+          this.normalizeGuestFullName(account.fullName) ||
+          this.normalizeGuestFullName(user?.fullName) ||
+          null,
+        dateOfBirth:
+          existingFirstAdult?.dateOfBirth || accountBirthDate || null,
+        gender: existingFirstAdult?.gender || account.gender || null,
+        idNumber:
+          existingFirstAdult?.idNumber || account.identityNumber || null,
+      },
+    );
+
     const missingPassengerSlots = this.getMissingPassengerSlots(
       draft,
       adultCount,
@@ -7315,17 +8350,29 @@ export class ChatbotService {
               } (mã điểm đón: ${String(point.id)})`,
           ),
           "",
-          `Bạn muốn chọn điểm đón nào? Bạn hãy nhắn: “chọn điểm đón mã ...”.`,
-          `Nếu có voucher, bạn cũng có thể nhắn kèm mã voucher, ví dụ: “chọn điểm đón mã ${String(pickupOptions[0]?.id || "...")}, dùng voucher ${draft.voucherCode || "SILVER2X"}, thanh toán chuyển khoản”.`,
+          `Bạn chọn một điểm đón bằng nút bên dưới để tiếp tục nha.`,
+          `Bạn vẫn có thể nhập mã điểm đón bằng tay nếu muốn.`,
         ].join("\n"),
         memory: { bookingDraft: draft },
+        suggestedReplies: pickupOptions.slice(0, 8).map((point: any) => {
+          const time = point.pickupTime
+            ? ` - ${this.formatTimeForChat(point.pickupTime)}`
+            : "";
+          return `Chọn điểm đón mã ${String(point.id)} - ${point.name}${time}`;
+        }),
       };
     }
 
     if (!draft.voucherCode && !draft.skipVoucher) {
-      const availableVouchers = await this.findRelevantVouchers(
-        "booking_create",
+      const currentBookingAmount = this.calculateBookingAmount(
+        departure,
+        adultCount,
+        childCount,
+      );
+
+      const availableVouchers = await this.findEligibleVouchersForBooking(
         user,
+        currentBookingAmount,
       );
 
       if (availableVouchers.length) {
@@ -7344,10 +8391,18 @@ export class ChatbotService {
                 }`,
             ),
             "",
-            `Bạn muốn dùng voucher nào? Bạn có thể nhắn: “dùng voucher ${availableVouchers[0].code}”.`,
-            `Nếu không dùng voucher, hãy nhắn: “không dùng voucher”.`,
+            `Bạn chọn voucher bằng nút bên dưới, hoặc chọn “Không dùng voucher” để tiếp tục.`,
           ].join("\n"),
           memory: { bookingDraft: draft },
+          suggestedReplies: [
+            ...availableVouchers
+              .slice(0, 6)
+              .map(
+                (voucher) =>
+                  `Dùng voucher ${voucher.code} - ${voucher.discountText}`,
+              ),
+            "Không dùng voucher",
+          ],
         };
       }
 
@@ -7359,6 +8414,7 @@ export class ChatbotService {
           `Nếu không dùng voucher, hãy nhắn: “không dùng voucher”.`,
         ].join("\n"),
         memory: { bookingDraft: draft },
+        suggestedReplies: ["Không dùng voucher", "Tôi muốn nhập mã voucher"],
       };
     }
 
@@ -7429,9 +8485,9 @@ export class ChatbotService {
       );
 
       if (!validation.valid) {
-        const availableVouchers = await this.findRelevantVouchers(
-          "booking_create",
+        const availableVouchers = await this.findEligibleVouchersForBooking(
           user,
+          originalAmount,
         );
 
         // Chỉ bỏ voucher sai; giữ nguyên tour, lịch, số khách, hành khách,
@@ -7459,7 +8515,7 @@ export class ChatbotService {
             "",
             ...(availableVouchers.length
               ? [
-                  "Voucher khả dụng trong tài khoản:",
+                  "Voucher đáp ứng điều kiện của booking hiện tại:",
                   ...availableVouchers.map(
                     (voucher, index) =>
                       `${index + 1}. ${voucher.code} - ${voucher.discountText}`,
@@ -7468,7 +8524,7 @@ export class ChatbotService {
                   `Bạn có thể nhắn “dùng voucher ${availableVouchers[0].code}”, chỉ nhắn mã như “${availableVouchers[0].code}”, hoặc nhắn “không dùng voucher”.`,
                 ]
               : [
-                  "Hiện mình chưa thấy voucher khả dụng khác trong tài khoản.",
+                  "Hiện không còn voucher nào khác đáp ứng điều kiện của booking này.",
                   "Bạn có thể nhắn “không dùng voucher” để tiếp tục.",
                 ]),
           ].join("\n"),
@@ -7477,6 +8533,15 @@ export class ChatbotService {
             lastDepartureOptions: departureOptionsForMemory,
             bookingContext: departureBookingContext,
           },
+          suggestedReplies: [
+            ...availableVouchers
+              .slice(0, 6)
+              .map(
+                (voucher) =>
+                  `Dùng voucher ${voucher.code} - ${voucher.discountText}`,
+              ),
+            "Không dùng voucher",
+          ],
         };
       }
 
@@ -7515,6 +8580,12 @@ export class ChatbotService {
           bookingDraft: { ...draft, confirmed: false },
           lastDepartureOptions: departureOptionsForMemory,
         },
+        suggestedReplies: [
+          "Xác nhận đặt",
+          "Đổi số khách",
+          "Đổi điểm đón",
+          "Đổi voucher",
+        ],
       };
     }
 
@@ -10051,6 +11122,25 @@ YÊU CẦU TRẢ LỜI:
 
   private buildSuggestedReplies(ctx: PromptContext): string[] {
     if (ctx.intent === "booking_create") {
+      const bookingContext = ctx.memory.bookingContext;
+
+      if (
+        bookingContext?.state === "WAITING_DEPARTURE_SELECTION" &&
+        Array.isArray(bookingContext.displayedDepartures) &&
+        bookingContext.displayedDepartures.length
+      ) {
+        return bookingContext.displayedDepartures
+          .slice(0, 5)
+          .map((departure) => {
+            const date = departure.departureDate
+              ? this.formatDate(departure.departureDate)
+              : "đang cập nhật";
+            return `Chọn lịch số ${departure.index} - ${date} - còn ${Number(
+              departure.availableSeats || 0,
+            )} chỗ`;
+          });
+      }
+
       if (
         ctx.memory.bookingDraft?.started &&
         !ctx.memory.bookingDraft?.confirmed
@@ -10062,11 +11152,26 @@ YÊU CẦU TRẢ LỜI:
           "Dùng voucher tốt nhất",
         ];
       }
+
       return [
         "Kiểm tra booking của tôi",
         "Tôi muốn đổi số khách",
         "Tôi muốn chọn lịch khác",
       ];
+    }
+
+    if (ctx.intent === "refund_create") {
+      const draft = ctx.memory.refundDraft || {};
+
+      if (draft.started && !draft.confirmed) {
+        return [
+          "Xác nhận hoàn tiền",
+          "Chính sách hoàn tiền",
+          "Kiểm tra booking của tôi",
+        ];
+      }
+
+      return ["Chính sách hoàn tiền", "Kiểm tra booking của tôi"];
     }
 
     if (ctx.intent === "voucher_check")
@@ -10492,7 +11597,120 @@ YÊU CẦU TRẢ LỜI:
     return this.getAvailableSlots(departure) > 0;
   }
 
-  private async findBookableDepartureOptions(tourId: bigint) {
+  private rangesOverlap(startA: Date, endA: Date, startB: Date, endB: Date) {
+    return (
+      startA.getTime() <= endB.getTime() && endA.getTime() >= startB.getTime()
+    );
+  }
+
+  private async findActiveBookingDateRanges(userId: bigint | null) {
+    if (!userId) return [];
+
+    const rows = await this.prisma.booking.findMany({
+      where: {
+        userId,
+      },
+      select: {
+        id: true,
+        bookingCode: true,
+        bookingStatus: true,
+        departureId: true,
+        departure: {
+          select: {
+            id: true,
+            departureDate: true,
+            endDate: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+
+    return rows
+      .filter((booking: any) => {
+        const status = String(booking.bookingStatus || "").toLowerCase();
+
+        // Chỉ các booking còn hiệu lực mới chặn lịch khác.
+        return ![
+          "cancelled",
+          "canceled",
+          "cancelled_by_operator",
+          "canceled_by_operator",
+          "expired",
+          "refunded",
+          "completed",
+          "failed",
+          "rejected",
+        ].includes(status);
+      })
+      .map((booking: any) => {
+        const start = booking.departure?.departureDate
+          ? new Date(booking.departure.departureDate)
+          : null;
+        const end = booking.departure?.endDate
+          ? new Date(booking.departure.endDate)
+          : start;
+
+        return {
+          bookingId: booking.id,
+          bookingCode: booking.bookingCode,
+          departureId: booking.departureId,
+          start,
+          end,
+        };
+      })
+      .filter(
+        (item: any) =>
+          item.start &&
+          item.end &&
+          !Number.isNaN(item.start.getTime()) &&
+          !Number.isNaN(item.end.getTime()),
+      );
+  }
+
+  private async filterDeparturesAgainstUserBookings(
+    departures: any[],
+    userId: bigint | null,
+  ) {
+    if (!userId || !departures.length) return departures;
+
+    const occupiedRanges = await this.findActiveBookingDateRanges(userId);
+    if (!occupiedRanges.length) return departures;
+
+    return departures.filter((departure: any) => {
+      const start = departure?.departureDate
+        ? new Date(departure.departureDate)
+        : null;
+      const end = departure?.endDate ? new Date(departure.endDate) : start;
+
+      if (
+        !start ||
+        !end ||
+        Number.isNaN(start.getTime()) ||
+        Number.isNaN(end.getTime())
+      ) {
+        return false;
+      }
+
+      return !occupiedRanges.some((booking: any) => {
+        // Chính departure đã có booking cũng phải loại.
+        if (
+          booking.departureId &&
+          String(booking.departureId) === String(departure.id)
+        ) {
+          return true;
+        }
+
+        return this.rangesOverlap(start, end, booking.start, booking.end);
+      });
+    });
+  }
+
+  private async findBookableDepartureOptions(
+    tourId: bigint,
+    userId: bigint | null = null,
+  ) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -10506,7 +11724,11 @@ YÊU CẦU TRẢ LỜI:
       take: 20,
     });
 
-    return rows.filter((item: any) => this.isDepartureBookable(item));
+    const bookable = rows.filter((item: any) => this.isDepartureBookable(item));
+
+    // Khi đang đặt tour qua chatbot, loại luôn những lịch giao nhau
+    // với booking còn hiệu lực của chính khách hàng.
+    return this.filterDeparturesAgainstUserBookings(bookable, userId);
   }
 
   private toDepartureMemoryOption(

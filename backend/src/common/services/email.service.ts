@@ -31,12 +31,22 @@ export class EmailService {
   async sendMail(input: SendMailInput) {
     const transporter = this.createTransporter();
     const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'Travela <no-reply@travela.local>';
-    return transporter.sendMail({
+    const result = await transporter.sendMail({
       from,
       to: input.to,
       subject: input.subject,
       html: input.html,
       text: input.text,
     });
+
+    console.log("[EMAIL SEND RESULT]", {
+      to: input.to,
+      accepted: result.accepted,
+      rejected: result.rejected,
+      response: result.response,
+      messageId: result.messageId,
+    });
+
+    return result;
   }
 }

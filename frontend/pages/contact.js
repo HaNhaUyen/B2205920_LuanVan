@@ -48,8 +48,36 @@ export default function ContactPage() {
 
   const onContactSubmit = async (event) => {
     event.preventDefault();
+    const fullName = String(form.fullName || "").trim();
+    const phone = String(form.phone || "").replace(/\D/g, "");
+    const email = String(form.email || "")
+      .trim()
+      .toLowerCase();
+    const subject = String(form.subject || "").trim();
+    const message = String(form.message || "").trim();
+
+    if (!fullName) return showToast("Vui lòng nhập họ và tên.", "error");
+    if (!phone) return showToast("Vui lòng nhập số điện thoại.", "error");
+    if (!email) return showToast("Vui lòng nhập email.", "error");
+    if (!subject) return showToast("Vui lòng nhập chủ đề quan tâm.", "error");
+    if (!message) return showToast("Vui lòng nhập nội dung chi tiết.", "error");
+
+    if (fullName.length < 2 || fullName.length > 150)
+      return showToast("Họ tên phải từ 2 đến 150 ký tự.", "error");
+    if (!/^0\d{9}$/.test(phone))
+      return showToast(
+        "Số điện thoại phải gồm 10 chữ số và bắt đầu bằng 0.",
+        "error",
+      );
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      return showToast("Email không đúng định dạng.", "error");
+    if (subject.length < 3 || subject.length > 200)
+      return showToast("Chủ đề phải từ 3 đến 200 ký tự.", "error");
+    if (message.length < 5 || message.length > 3000)
+      return showToast("Nội dung liên hệ phải từ 5 đến 3000 ký tự.", "error");
     setSending(true);
     try {
+      const payload = { ...form, fullName, phone, email, subject, message };
       await apiFetch("/contacts", {
         method: "POST",
         body: JSON.stringify(form),
@@ -238,6 +266,7 @@ export default function ContactPage() {
 
             <form
               onSubmit={onContactSubmit}
+              noValidate
               style={{ display: "grid", gap: "24px" }}
             >
               <div

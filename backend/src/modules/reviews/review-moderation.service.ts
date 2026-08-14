@@ -147,7 +147,7 @@ export class ReviewModerationService {
         process.env.GROQ_MODEL ||
         this.configService.get<string>("CHATBOT_MODEL") ||
         process.env.CHATBOT_MODEL ||
-        "llama-3.1-8b-instant",
+        "openai/gpt-oss-20b",
     };
   }
 

@@ -1,11 +1,19 @@
-import { IsIn, IsOptional, IsString, MaxLength } from "class-validator";
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 
 export class UpsertDestinationDto {
   @IsString()
+  @MinLength(2)
   @MaxLength(150)
   name!: string;
 
   @IsString()
+  @MinLength(2)
   @MaxLength(100)
   province!: string;
 
@@ -16,6 +24,7 @@ export class UpsertDestinationDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   description?: string;
 
   @IsOptional()

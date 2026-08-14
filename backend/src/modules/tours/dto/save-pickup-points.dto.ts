@@ -1,9 +1,12 @@
 import {
+  ArrayMinSize,
   IsArray,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
   ValidateNested,
@@ -29,16 +32,21 @@ export class PickupPointItemDto {
   province?: string;
 
   @IsString()
+  @IsNotEmpty()
   @MaxLength(160)
   name!: string;
 
   @IsString()
+  @IsNotEmpty()
   @MaxLength(255)
   address!: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(20)
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, {
+    message: "Giờ đón phải có định dạng HH:mm.",
+  })
   pickupTime?: string;
 
   @IsOptional()
@@ -53,6 +61,7 @@ export class PickupPointItemDto {
 
 export class SavePickupPointsDto {
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => PickupPointItemDto)
   items!: PickupPointItemDto[];

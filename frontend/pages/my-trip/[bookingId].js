@@ -48,6 +48,12 @@ export default function PersonalizedTrip() {
   );
   const requestChange = async (e) => {
     e.preventDefault();
+    const newDepartureId = Number(change.newDepartureId);
+    const reason = String(change.reason || "").trim();
+    if (!Number.isInteger(newDepartureId) || newDepartureId <= 0)
+      return showToast("Vui lòng chọn lịch khởi hành mới hợp lệ.", "error");
+    if (reason.length < 5 || reason.length > 1000)
+      return showToast("Lý do đổi lịch phải từ 5 đến 1000 ký tự.", "error");
     try {
       await apiFetch("/operations-v2/departure-changes", {
         method: "POST",

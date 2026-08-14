@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { apiFetch } from "@/lib/api";
+import { updateStoredUser } from "@/lib/storage";
 
 const steps = [
   ["schedule", "Lịch trình", "Lịch, số khách và điểm đón"],
@@ -115,9 +117,31 @@ const stepBtn = {
 };
 
 function isGuestDone(guest) {
-  return Boolean(
-    guest?.fullName && guest?.dateOfBirth && guest?.gender && guest?.idNumber,
-  );
+  const fullName = String(guest?.fullName || "").trim();
+  const dateOfBirth = String(guest?.dateOfBirth || "").trim();
+  const gender = String(guest?.gender || "").trim();
+  const idNumber = String(guest?.idNumber || "").trim();
+  const idType =
+    guest?.idType ||
+    (guest?.guestType === "adult" ? "id_card" : "birth_certificate");
+
+  if (!fullName || !dateOfBirth || !gender || !idNumber) {
+    return false;
+  }
+
+  if (idType === "id_card") {
+    return /^\d{12}$/.test(idNumber);
+  }
+
+  if (idType === "passport") {
+    return /^[A-Z]\d{7}$/.test(idNumber);
+  }
+
+  if (idType === "birth_certificate") {
+    return /^\d{12}$/.test(idNumber);
+  }
+
+  return false;
 }
 
 function toLocalDateOnly(value) {
@@ -166,6 +190,20 @@ function findDepartureConflict(departure, activeBookingPeriods = []) {
   return (
     (Array.isArray(activeBookingPeriods) ? activeBookingPeriods : []).find(
       (period) => {
+        // Cho phép đặt thêm đúng cùng lịch khởi hành đã đặt trước đó.
+        // Chỉ departure khác nhưng giao thời gian mới được xem là xung đột.
+        const currentDepartureId =
+          departure?.id ?? departure?.departureId ?? departure?.departure_id;
+        const bookedDepartureId = period?.departureId ?? period?.departure_id;
+
+        if (
+          currentDepartureId != null &&
+          bookedDepartureId != null &&
+          String(currentDepartureId) === String(bookedDepartureId)
+        ) {
+          return false;
+        }
+
         const oldStart = toLocalDateOnly(
           period?.startDate || period?.departureDate,
         );
@@ -225,19 +263,113 @@ export default function BookingWizardModal({
   });
   const [confirmed, setConfirmed] = useState(false);
   const [errors, setErrors] = useState({});
+  const [profileContact, setProfileContact] = useState({
+    fullName: currentUser?.fullName || "",
+    email: currentUser?.email || "",
+    phone: currentUser?.phone || "",
+  });
+  const [savingContactProfile, setSavingContactProfile] = useState(false);
+  const [ownerProfile, setOwnerProfile] = useState({
+    fullName: currentUser?.fullName || "",
+    birthDate: currentUser?.birthDate || "",
+    gender: currentUser?.gender || "",
+    identityNumber: currentUser?.identityNumber || "",
+  });
+  const [savingOwnerProfile, setSavingOwnerProfile] = useState(false);
+  const [validatedGuestIndexes, setValidatedGuestIndexes] = useState({});
 
   // Mỗi lần mở wizard, đồng bộ thông tin liên hệ mới nhất từ hồ sơ.
   // Điều này tránh việc modal giữ dữ liệu cũ từ localStorage hoặc lần mở trước.
   useEffect(() => {
     if (!open) return;
 
+    const profileFullName = String(currentUser?.fullName || "").trim();
+    const profileEmail = String(currentUser?.email || "").trim();
+    const profilePhone = String(currentUser?.phone || "").trim();
+
+    setProfileContact({
+      fullName: profileFullName,
+      email: profileEmail,
+      phone: profilePhone,
+    });
+
     setContact((prev) => ({
-      contactName: currentUser?.fullName || prev.contactName || "",
-      contactEmail: currentUser?.email || prev.contactEmail || "",
-      contactPhone: currentUser?.phone || prev.contactPhone || "",
+      contactName: profileFullName || prev.contactName || "",
+      contactEmail: profileEmail || prev.contactEmail || "",
+      contactPhone: profilePhone || prev.contactPhone || "",
       note: prev.note || "",
     }));
   }, [open, currentUser?.fullName, currentUser?.email, currentUser?.phone]);
+
+  // Bước Hành khách: người đầu tiên là chủ tài khoản.
+  // Nếu hồ sơ đã có thông tin thì tự điền vào vé và khóa không cho sửa/xóa.
+  useEffect(() => {
+    if (!open) return;
+
+    const nextOwnerProfile = {
+      fullName: String(currentUser?.fullName || "").trim(),
+      birthDate: currentUser?.birthDate
+        ? String(currentUser.birthDate).slice(0, 10)
+        : "",
+      gender: String(currentUser?.gender || "")
+        .trim()
+        .toLowerCase(),
+      identityNumber: String(currentUser?.identityNumber || "").trim(),
+    };
+
+    setOwnerProfile(nextOwnerProfile);
+
+    const ownerIndex = (
+      Array.isArray(bookingGuests) ? bookingGuests : []
+    ).findIndex((guest) => guest?.isAccountOwner);
+
+    if (ownerIndex < 0) return;
+
+    if (nextOwnerProfile.fullName) {
+      handleGuestChange(
+        ownerIndex,
+        "fullName",
+      )({
+        target: { value: nextOwnerProfile.fullName },
+      });
+    }
+    if (nextOwnerProfile.birthDate) {
+      handleGuestChange(
+        ownerIndex,
+        "dateOfBirth",
+      )({
+        target: { value: nextOwnerProfile.birthDate },
+      });
+    }
+    if (nextOwnerProfile.gender) {
+      handleGuestChange(
+        ownerIndex,
+        "gender",
+      )({
+        target: { value: nextOwnerProfile.gender },
+      });
+    }
+    if (nextOwnerProfile.identityNumber) {
+      handleGuestChange(
+        ownerIndex,
+        "idType",
+      )({
+        target: { value: "id_card" },
+      });
+      handleGuestChange(
+        ownerIndex,
+        "idNumber",
+      )({
+        target: { value: nextOwnerProfile.identityNumber },
+      });
+    }
+  }, [
+    open,
+    currentUser?.fullName,
+    currentUser?.birthDate,
+    currentUser?.gender,
+    currentUser?.identityNumber,
+  ]);
 
   const selectedDeparture = useMemo(
     () =>
@@ -261,10 +393,75 @@ export default function BookingWizardModal({
     0,
   );
 
+  const contactNameLocked = Boolean(
+    String(profileContact.fullName || "").trim(),
+  );
+  const contactEmailLocked = Boolean(String(profileContact.email || "").trim());
+  const contactPhoneLocked = Boolean(String(profileContact.phone || "").trim());
+
+  const ownerFullNameLocked = Boolean(
+    String(ownerProfile.fullName || "").trim(),
+  );
+  const ownerBirthDateLocked = Boolean(
+    String(ownerProfile.birthDate || "").trim(),
+  );
+  const ownerGenderLocked = Boolean(String(ownerProfile.gender || "").trim());
+  const ownerIdentityLocked = Boolean(
+    String(ownerProfile.identityNumber || "").trim(),
+  );
+
   if (!open) return null;
 
   const setPassenger = (field, value) =>
     handlePassengerChange(field)({ target: { value } });
+
+  const validateGuestDocumentOnDemand = (index, guest) => {
+    const isOwner = Boolean(guest?.isAccountOwner);
+    const idType =
+      guest?.idType ||
+      (guest?.guestType === "adult" ? "id_card" : "birth_certificate");
+    const id = String(guest?.idNumber || "").trim();
+
+    let documentError = "";
+
+    if (isOwner && idType !== "id_card") {
+      documentError = "Chủ tài khoản phải sử dụng CCCD để đồng bộ vào hồ sơ.";
+    } else if (!id) {
+      documentError = isOwner
+        ? "Vui lòng nhập CCCD của chủ tài khoản."
+        : "Vui lòng nhập số giấy tờ.";
+    } else if (idType === "id_card" && !/^\d{12}$/.test(id)) {
+      documentError = "CCCD phải gồm đúng 12 chữ số.";
+    } else if (idType === "passport" && !/^[A-Z]\d{7}$/.test(id)) {
+      documentError =
+        "Số hộ chiếu phải gồm đúng 8 ký tự: 1 chữ cái in hoa đứng đầu và 7 chữ số.";
+    } else if (idType === "birth_certificate" && !/^\d{12}$/.test(id)) {
+      documentError = "Số giấy khai sinh phải gồm đúng 12 chữ số.";
+    } else if (id.length > 50) {
+      documentError = "Số giấy tờ tối đa 50 ký tự.";
+    }
+
+    setErrors((prev) => {
+      const nextErrors = { ...prev };
+
+      if (documentError) {
+        nextErrors[`guest-id-format-${index}`] = documentError;
+      } else {
+        delete nextErrors[`guest-id-format-${index}`];
+      }
+
+      return nextErrors;
+    });
+
+    const done = !documentError && isGuestDone(guest);
+
+    setValidatedGuestIndexes((prev) => ({
+      ...prev,
+      [index]: done,
+    }));
+
+    return done;
+  };
 
   const validateCurrent = () => {
     const next = {};
@@ -283,25 +480,125 @@ export default function BookingWizardModal({
         next.slots = "Số khách vượt quá số chỗ còn lại.";
     }
     if (step === 1) {
-      if (!contact.contactName.trim())
-        next.contactName = "Vui lòng nhập họ tên.";
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.contactEmail))
-        next.contactEmail = "Email không hợp lệ.";
-      if (!/^[0-9+\-\s]{8,20}$/.test(contact.contactPhone))
-        next.contactPhone = "Số điện thoại không hợp lệ.";
+      const contactName = String(contact.contactName || "").trim();
+      const contactEmail = String(contact.contactEmail || "")
+        .trim()
+        .toLowerCase();
+      const contactPhone = String(contact.contactPhone || "").trim();
+
+      if (!contactName) {
+        next.contactName = "Vui lòng nhập họ và tên người liên hệ.";
+      } else if (contactName.length < 2 || contactName.length > 150) {
+        next.contactName = "Họ tên liên hệ phải từ 2 đến 150 ký tự.";
+      }
+
+      if (!contactPhone) {
+        next.contactPhone = "Vui lòng nhập số điện thoại liên hệ.";
+      } else if (!contactPhoneLocked && !/^0\d{9}$/.test(contactPhone)) {
+        next.contactPhone =
+          "Số điện thoại phải gồm đúng 10 chữ số và bắt đầu bằng 0.";
+      }
+
+      if (!contactEmail) {
+        next.contactEmail = "Vui lòng nhập email liên hệ.";
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+        next.contactEmail = "Email không đúng định dạng.";
+      }
+
+      if (String(contact.note || "").length > 1000)
+        next.note = "Ghi chú tối đa 1000 ký tự.";
     }
     if (step === 2) {
       const ids = new Set();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const nextValidatedGuestIndexes = {};
+
       bookingGuests.forEach((guest, index) => {
-        if (!isGuestDone(guest))
-          next[`guest-${index}`] =
-            "Vui lòng điền đủ họ tên, ngày sinh, giới tính và số giấy tờ.";
-        const id = String(guest.idNumber || "").trim();
-        if (id && ids.has(id))
+        const isOwner = Boolean(guest?.isAccountOwner);
+        const guestName = String(guest?.fullName || "").trim();
+        const guestDob = String(guest?.dateOfBirth || "").trim();
+        const guestGender = String(guest?.gender || "")
+          .trim()
+          .toLowerCase();
+        const idType =
+          guest?.idType ||
+          (guest?.guestType === "adult" ? "id_card" : "birth_certificate");
+        const id = String(guest?.idNumber || "").trim();
+
+        if (!guestName) {
+          next[`guest-name-${index}`] = isOwner
+            ? "Vui lòng nhập họ và tên chủ tài khoản."
+            : "Vui lòng nhập họ và tên hành khách.";
+        } else if (guestName.length < 2 || guestName.length > 150) {
+          next[`guest-name-${index}`] =
+            "Họ tên hành khách phải từ 2 đến 150 ký tự.";
+        }
+
+        if (!guestDob) {
+          next[`guest-dob-${index}`] = isOwner
+            ? "Vui lòng chọn ngày sinh của chủ tài khoản."
+            : "Vui lòng chọn ngày sinh hành khách.";
+        } else {
+          const dob = new Date(`${guestDob}T00:00:00`);
+          if (Number.isNaN(dob.getTime()) || dob > today) {
+            next[`guest-dob-${index}`] =
+              "Ngày sinh không hợp lệ hoặc nằm trong tương lai.";
+          }
+        }
+
+        if (!guestGender) {
+          next[`guest-gender-${index}`] = isOwner
+            ? "Vui lòng chọn giới tính của chủ tài khoản."
+            : "Vui lòng chọn giới tính hành khách.";
+        } else if (!["male", "female", "other"].includes(guestGender)) {
+          next[`guest-gender-${index}`] = "Giới tính hành khách không hợp lệ.";
+        }
+
+        if (isOwner && idType !== "id_card") {
+          next[`guest-id-format-${index}`] =
+            "Chủ tài khoản phải sử dụng CCCD để đồng bộ vào hồ sơ.";
+        } else if (!id) {
+          next[`guest-id-format-${index}`] = isOwner
+            ? "Vui lòng nhập CCCD của chủ tài khoản."
+            : "Vui lòng nhập số giấy tờ.";
+        } else if (idType === "id_card" && !/^\d{12}$/.test(id)) {
+          next[`guest-id-format-${index}`] = "CCCD phải gồm đúng 12 chữ số.";
+        } else if (idType === "passport" && !/^[A-Z]\d{7}$/.test(id)) {
+          next[`guest-id-format-${index}`] =
+            "Số hộ chiếu phải gồm đúng 8 ký tự: 1 chữ cái in hoa đứng đầu và 7 chữ số.";
+        } else if (idType === "birth_certificate" && !/^\d{12}$/.test(id)) {
+          next[`guest-id-format-${index}`] =
+            "Số giấy khai sinh phải gồm đúng 12 chữ số.";
+        } else if (id.length > 50) {
+          next[`guest-id-format-${index}`] = "Số giấy tờ tối đa 50 ký tự.";
+        }
+
+        const normalizedId = id.toLowerCase();
+        if (id && ids.has(normalizedId)) {
           next[`guest-id-${index}`] =
-            "Số giấy tờ bị trùng với hành khách khác.";
-        if (id) ids.add(id);
+            "Số giấy tờ bị trùng với hành khách khác trong booking.";
+        }
+        if (id) ids.add(normalizedId);
+
+        if (!guestName || !guestDob || !guestGender || !id) {
+          next[`guest-${index}`] = isOwner
+            ? "Vui lòng hoàn thiện đầy đủ thông tin chủ tài khoản."
+            : "Vui lòng hoàn thiện đầy đủ thông tin hành khách.";
+        }
+
+        nextValidatedGuestIndexes[index] =
+          !next[`guest-name-${index}`] &&
+          !next[`guest-dob-${index}`] &&
+          !next[`guest-gender-${index}`] &&
+          !next[`guest-id-format-${index}`] &&
+          !next[`guest-id-${index}`] &&
+          !next[`guest-${index}`] &&
+          isGuestDone(guest);
       });
+
+      setValidatedGuestIndexes(nextValidatedGuestIndexes);
     }
     if (step === 4 && !confirmed)
       next.confirmed = "Bạn cần xác nhận thông tin trước khi thanh toán.";
@@ -309,9 +606,201 @@ export default function BookingWizardModal({
     return Object.keys(next).length === 0;
   };
 
-  const nextStep = () =>
-    validateCurrent() &&
+  const saveMissingContactToProfile = async () => {
+    const payload = {};
+
+    if (!contactNameLocked) {
+      payload.fullName = String(contact.contactName || "").trim();
+    }
+    if (!contactEmailLocked) {
+      payload.email = String(contact.contactEmail || "")
+        .trim()
+        .toLowerCase();
+    }
+    if (!contactPhoneLocked) {
+      payload.phone = String(contact.contactPhone || "").trim();
+    }
+
+    if (!Object.keys(payload).length) return true;
+
+    setSavingContactProfile(true);
+    try {
+      const updatedUser = await apiFetch("/auth/me", {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+
+      const nextProfile = {
+        fullName: String(
+          updatedUser?.fullName || contact.contactName || "",
+        ).trim(),
+        email: String(updatedUser?.email || contact.contactEmail || "")
+          .trim()
+          .toLowerCase(),
+        phone: String(updatedUser?.phone || contact.contactPhone || "").trim(),
+      };
+
+      setProfileContact(nextProfile);
+      setContact((prev) => ({
+        ...prev,
+        contactName: nextProfile.fullName,
+        contactEmail: nextProfile.email,
+        contactPhone: nextProfile.phone,
+      }));
+
+      if (updatedUser) {
+        updateStoredUser(updatedUser);
+      }
+
+      return true;
+    } catch (error) {
+      const message =
+        error?.message ||
+        "Không thể cập nhật thông tin liên hệ vào hồ sơ. Vui lòng thử lại.";
+
+      const normalized = String(message).toLowerCase();
+
+      if (normalized.includes("số điện thoại")) {
+        setErrors((prev) => ({ ...prev, contactPhone: message }));
+      } else if (normalized.includes("email")) {
+        setErrors((prev) => ({ ...prev, contactEmail: message }));
+      } else if (
+        normalized.includes("họ tên") ||
+        normalized.includes("họ và tên")
+      ) {
+        setErrors((prev) => ({ ...prev, contactName: message }));
+      } else {
+        setErrors((prev) => ({ ...prev, contactProfile: message }));
+      }
+
+      return false;
+    } finally {
+      setSavingContactProfile(false);
+    }
+  };
+
+  const saveMissingOwnerToProfile = async () => {
+    const ownerIndex = (
+      Array.isArray(bookingGuests) ? bookingGuests : []
+    ).findIndex((guest) => guest?.isAccountOwner);
+
+    if (ownerIndex < 0) {
+      setErrors((prev) => ({
+        ...prev,
+        ownerProfile:
+          "Không tìm thấy thông tin chủ tài khoản trong danh sách hành khách.",
+      }));
+      return false;
+    }
+
+    const ownerGuest = bookingGuests[ownerIndex] || {};
+    const payload = {};
+
+    if (!ownerFullNameLocked) {
+      payload.fullName = String(ownerGuest.fullName || "").trim();
+    }
+    if (!ownerBirthDateLocked) {
+      payload.birthDate = String(ownerGuest.dateOfBirth || "").trim();
+    }
+    if (!ownerGenderLocked) {
+      payload.gender = String(ownerGuest.gender || "")
+        .trim()
+        .toLowerCase();
+    }
+    if (!ownerIdentityLocked) {
+      payload.identityNumber = String(ownerGuest.idNumber || "").trim();
+    }
+
+    if (!Object.keys(payload).length) return true;
+
+    setSavingOwnerProfile(true);
+    try {
+      const updatedUser = await apiFetch("/auth/me", {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+
+      const nextOwnerProfile = {
+        fullName: String(
+          updatedUser?.fullName || ownerGuest.fullName || "",
+        ).trim(),
+        birthDate: updatedUser?.birthDate
+          ? String(updatedUser.birthDate).slice(0, 10)
+          : String(ownerGuest.dateOfBirth || "").trim(),
+        gender: String(updatedUser?.gender || ownerGuest.gender || "")
+          .trim()
+          .toLowerCase(),
+        identityNumber: String(
+          updatedUser?.identityNumber || ownerGuest.idNumber || "",
+        ).trim(),
+      };
+
+      setOwnerProfile(nextOwnerProfile);
+
+      if (updatedUser) {
+        updateStoredUser(updatedUser);
+      }
+
+      return true;
+    } catch (error) {
+      const message =
+        error?.message ||
+        "Không thể cập nhật thông tin chủ tài khoản vào hồ sơ. Vui lòng thử lại.";
+      const normalized = String(message).toLowerCase();
+
+      if (
+        normalized.includes("cccd") ||
+        normalized.includes("căn cước") ||
+        normalized.includes("identity")
+      ) {
+        setErrors((prev) => ({
+          ...prev,
+          [`guest-id-format-${ownerIndex}`]: message,
+        }));
+      } else if (normalized.includes("ngày sinh")) {
+        setErrors((prev) => ({
+          ...prev,
+          [`guest-dob-${ownerIndex}`]: message,
+        }));
+      } else if (normalized.includes("giới tính")) {
+        setErrors((prev) => ({
+          ...prev,
+          [`guest-gender-${ownerIndex}`]: message,
+        }));
+      } else if (
+        normalized.includes("họ tên") ||
+        normalized.includes("họ và tên")
+      ) {
+        setErrors((prev) => ({
+          ...prev,
+          [`guest-name-${ownerIndex}`]: message,
+        }));
+      } else {
+        setErrors((prev) => ({ ...prev, ownerProfile: message }));
+      }
+
+      return false;
+    } finally {
+      setSavingOwnerProfile(false);
+    }
+  };
+
+  const nextStep = async () => {
+    if (!validateCurrent()) return;
+
+    if (step === 1) {
+      const saved = await saveMissingContactToProfile();
+      if (!saved) return;
+    }
+
+    if (step === 2) {
+      const saved = await saveMissingOwnerToProfile();
+      if (!saved) return;
+    }
+
     setStep((value) => Math.min(value + 1, steps.length - 1));
+  };
+
   const previousStep = () => setStep((value) => Math.max(value - 1, 0));
 
   return (
@@ -583,14 +1072,23 @@ export default function BookingWizardModal({
                       error={errors.contactName}
                     >
                       <input
-                        style={inputStyle}
+                        style={{
+                          ...inputStyle,
+                          background: contactNameLocked ? "#f1f5f9" : "#ffffff",
+                          color: contactNameLocked ? "#64748b" : "#0f172a",
+                          cursor: contactNameLocked ? "not-allowed" : "text",
+                        }}
                         placeholder="Vd: Nguyễn Văn A"
                         value={contact.contactName}
-                        onChange={(e) =>
-                          setContact({
-                            ...contact,
-                            contactName: e.target.value,
-                          })
+                        readOnly={contactNameLocked}
+                        onChange={
+                          contactNameLocked
+                            ? undefined
+                            : (e) =>
+                                setContact({
+                                  ...contact,
+                                  contactName: e.target.value,
+                                })
                         }
                       />
                     </Field>
@@ -600,14 +1098,30 @@ export default function BookingWizardModal({
                       error={errors.contactPhone}
                     >
                       <input
-                        style={inputStyle}
+                        style={{
+                          ...inputStyle,
+                          background: contactPhoneLocked
+                            ? "#f1f5f9"
+                            : "#ffffff",
+                          color: contactPhoneLocked ? "#64748b" : "#0f172a",
+                          cursor: contactPhoneLocked ? "not-allowed" : "text",
+                        }}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={contactPhoneLocked ? undefined : 10}
                         placeholder="Vd: 0901234567"
                         value={contact.contactPhone}
-                        onChange={(e) =>
-                          setContact({
-                            ...contact,
-                            contactPhone: e.target.value,
-                          })
+                        readOnly={contactPhoneLocked}
+                        onChange={
+                          contactPhoneLocked
+                            ? undefined
+                            : (e) =>
+                                setContact({
+                                  ...contact,
+                                  contactPhone: e.target.value
+                                    .replace(/\D/g, "")
+                                    .slice(0, 10),
+                                })
                         }
                       />
                     </Field>
@@ -618,16 +1132,31 @@ export default function BookingWizardModal({
                     error={errors.contactEmail}
                   >
                     <input
-                      style={inputStyle}
+                      style={{
+                        ...inputStyle,
+                        background: contactEmailLocked ? "#f1f5f9" : "#ffffff",
+                        color: contactEmailLocked ? "#64748b" : "#0f172a",
+                        cursor: contactEmailLocked ? "not-allowed" : "text",
+                      }}
                       type="email"
                       placeholder="Địa chỉ email nhận vé"
                       value={contact.contactEmail}
-                      onChange={(e) =>
-                        setContact({ ...contact, contactEmail: e.target.value })
+                      readOnly={contactEmailLocked}
+                      onChange={
+                        contactEmailLocked
+                          ? undefined
+                          : (e) =>
+                              setContact({
+                                ...contact,
+                                contactEmail: e.target.value,
+                              })
                       }
                     />
                   </Field>
-                  <Field label="Yêu cầu đặc biệt (không bắt buộc)">
+                  <Field
+                    label="Yêu cầu đặc biệt (không bắt buộc)"
+                    error={errors.note}
+                  >
                     <textarea
                       style={{ ...inputStyle, resize: "vertical" }}
                       rows={3}
@@ -638,6 +1167,12 @@ export default function BookingWizardModal({
                       }
                     />
                   </Field>
+
+                  {errors.contactProfile ? (
+                    <small style={{ color: "#ef4444", fontWeight: 600 }}>
+                      {errors.contactProfile}
+                    </small>
+                  ) : null}
                 </div>
               )}
 
@@ -646,7 +1181,9 @@ export default function BookingWizardModal({
                   {bookingGuests.map((guest, index) => (
                     <details
                       key={`${guest.guestType}-${guest.index}`}
-                      open={index === 0 || !isGuestDone(guest)}
+                      open={
+                        index === 0 || validatedGuestIndexes[index] !== true
+                      }
                       style={guestCard}
                     >
                       <summary
@@ -674,8 +1211,14 @@ export default function BookingWizardModal({
                             <Badge tone="blue">Người đặt tour</Badge>
                           )}
                         </div>
-                        <Badge tone={isGuestDone(guest) ? "green" : "amber"}>
-                          {isGuestDone(guest)
+                        <Badge
+                          tone={
+                            validatedGuestIndexes[index] === true
+                              ? "green"
+                              : "amber"
+                          }
+                        >
+                          {validatedGuestIndexes[index] === true
                             ? "✓ Đã đủ thông tin"
                             : "⚠ Cần hoàn thiện"}
                         </Badge>
@@ -718,25 +1261,96 @@ export default function BookingWizardModal({
                           </div>
                         ) : null}
                         <div style={grid2}>
-                          <Field label="Họ và tên đúng giấy tờ" required>
+                          <Field
+                            label="Họ và tên đúng giấy tờ"
+                            required
+                            error={errors[`guest-name-${index}`]}
+                          >
                             <input
-                              style={inputStyle}
+                              style={{
+                                ...inputStyle,
+                                background:
+                                  guest.isAccountOwner && ownerFullNameLocked
+                                    ? "#f1f5f9"
+                                    : "#ffffff",
+                                color:
+                                  guest.isAccountOwner && ownerFullNameLocked
+                                    ? "#64748b"
+                                    : "#0f172a",
+                                cursor:
+                                  guest.isAccountOwner && ownerFullNameLocked
+                                    ? "not-allowed"
+                                    : "text",
+                              }}
                               value={guest.fullName || ""}
-                              onChange={handleGuestChange(index, "fullName")}
+                              readOnly={
+                                guest.isAccountOwner && ownerFullNameLocked
+                              }
+                              onChange={
+                                guest.isAccountOwner && ownerFullNameLocked
+                                  ? undefined
+                                  : handleGuestChange(index, "fullName")
+                              }
                             />
                           </Field>
-                          <Field label="Ngày sinh" required>
+                          <Field
+                            label="Ngày sinh"
+                            required
+                            error={errors[`guest-dob-${index}`]}
+                          >
                             <input
-                              style={inputStyle}
+                              style={{
+                                ...inputStyle,
+                                background:
+                                  guest.isAccountOwner && ownerBirthDateLocked
+                                    ? "#f1f5f9"
+                                    : "#ffffff",
+                                color:
+                                  guest.isAccountOwner && ownerBirthDateLocked
+                                    ? "#64748b"
+                                    : "#0f172a",
+                                cursor:
+                                  guest.isAccountOwner && ownerBirthDateLocked
+                                    ? "not-allowed"
+                                    : "text",
+                              }}
                               type="date"
                               value={guest.dateOfBirth || ""}
-                              onChange={handleGuestChange(index, "dateOfBirth")}
+                              readOnly={
+                                guest.isAccountOwner && ownerBirthDateLocked
+                              }
+                              onChange={
+                                guest.isAccountOwner && ownerBirthDateLocked
+                                  ? undefined
+                                  : handleGuestChange(index, "dateOfBirth")
+                              }
                             />
                           </Field>
-                          <Field label="Giới tính" required>
+                          <Field
+                            label="Giới tính"
+                            required
+                            error={errors[`guest-gender-${index}`]}
+                          >
                             <select
-                              style={inputStyle}
+                              style={{
+                                ...inputStyle,
+                                background:
+                                  guest.isAccountOwner && ownerGenderLocked
+                                    ? "#f1f5f9"
+                                    : "#ffffff",
+                                color:
+                                  guest.isAccountOwner && ownerGenderLocked
+                                    ? "#64748b"
+                                    : "#0f172a",
+                                cursor:
+                                  guest.isAccountOwner && ownerGenderLocked
+                                    ? "not-allowed"
+                                    : "pointer",
+                              }}
                               value={guest.gender || ""}
+                              disabled={
+                                guest.isAccountOwner && ownerGenderLocked
+                              }
                               onChange={handleGuestChange(index, "gender")}
                             >
                               <option value="">Chọn giới tính</option>
@@ -747,11 +1361,37 @@ export default function BookingWizardModal({
                           </Field>
                           <Field label="Loại giấy tờ" required>
                             <select
-                              style={inputStyle}
-                              defaultValue={
-                                guest.guestType === "adult"
+                              style={{
+                                ...inputStyle,
+                                background: guest.isAccountOwner
+                                  ? "#f1f5f9"
+                                  : "#ffffff",
+                                color: guest.isAccountOwner
+                                  ? "#64748b"
+                                  : "#0f172a",
+                                cursor: guest.isAccountOwner
+                                  ? "not-allowed"
+                                  : "pointer",
+                              }}
+                              value={
+                                guest.isAccountOwner
                                   ? "id_card"
-                                  : "birth_certificate"
+                                  : guest.idType ||
+                                    (guest.guestType === "adult"
+                                      ? "id_card"
+                                      : "birth_certificate")
+                              }
+                              disabled={guest.isAccountOwner}
+                              onChange={
+                                guest.isAccountOwner
+                                  ? undefined
+                                  : (event) => {
+                                      setValidatedGuestIndexes((prev) => ({
+                                        ...prev,
+                                        [index]: false,
+                                      }));
+                                      handleGuestChange(index, "idType")(event);
+                                    }
                               }
                             >
                               <option value="id_card">CCCD / CMND</option>
@@ -764,12 +1404,103 @@ export default function BookingWizardModal({
                           <Field
                             label="Số giấy tờ"
                             required
-                            error={errors[`guest-id-${index}`]}
+                            error={
+                              errors[`guest-id-format-${index}`] ||
+                              errors[`guest-id-${index}`]
+                            }
                           >
                             <input
-                              style={inputStyle}
+                              style={{
+                                ...inputStyle,
+                                background:
+                                  guest.isAccountOwner && ownerIdentityLocked
+                                    ? "#f1f5f9"
+                                    : "#ffffff",
+                                color:
+                                  guest.isAccountOwner && ownerIdentityLocked
+                                    ? "#64748b"
+                                    : "#0f172a",
+                                cursor:
+                                  guest.isAccountOwner && ownerIdentityLocked
+                                    ? "not-allowed"
+                                    : "text",
+                              }}
+                              inputMode={
+                                guest.isAccountOwner ||
+                                (guest.idType || "") === "id_card" ||
+                                (guest.idType || "") === "birth_certificate"
+                                  ? "numeric"
+                                  : undefined
+                              }
+                              maxLength={
+                                guest.isAccountOwner ||
+                                (guest.idType || "") === "id_card" ||
+                                (guest.idType || "") === "birth_certificate"
+                                  ? 12
+                                  : (guest.idType || "") === "passport"
+                                    ? 8
+                                    : 50
+                              }
                               value={guest.idNumber || ""}
-                              onChange={handleGuestChange(index, "idNumber")}
+                              readOnly={
+                                guest.isAccountOwner && ownerIdentityLocked
+                              }
+                              onChange={
+                                guest.isAccountOwner && ownerIdentityLocked
+                                  ? undefined
+                                  : (event) => {
+                                      const currentIdType = guest.isAccountOwner
+                                        ? "id_card"
+                                        : guest.idType ||
+                                          (guest.guestType === "adult"
+                                            ? "id_card"
+                                            : "birth_certificate");
+                                      const rawValue = event.target.value;
+                                      const value =
+                                        currentIdType === "id_card" ||
+                                        currentIdType === "birth_certificate"
+                                          ? rawValue
+                                              .replace(/\D/g, "")
+                                              .slice(0, 12)
+                                          : currentIdType === "passport"
+                                            ? rawValue
+                                                .toUpperCase()
+                                                .replace(/[^A-Z0-9]/g, "")
+                                                .slice(0, 8)
+                                            : rawValue.slice(0, 50);
+
+                                      setValidatedGuestIndexes((prev) => ({
+                                        ...prev,
+                                        [index]: false,
+                                      }));
+
+                                      handleGuestChange(
+                                        index,
+                                        "idNumber",
+                                      )({
+                                        target: { value },
+                                      });
+                                    }
+                              }
+                              onKeyDown={
+                                guest.isAccountOwner && ownerIdentityLocked
+                                  ? undefined
+                                  : (event) => {
+                                      if (event.key !== "Enter") return;
+
+                                      event.preventDefault();
+
+                                      const currentGuest = {
+                                        ...guest,
+                                        idNumber: event.currentTarget.value,
+                                      };
+
+                                      validateGuestDocumentOnDemand(
+                                        index,
+                                        currentGuest,
+                                      );
+                                    }
+                              }
                             />
                           </Field>
                           <Field label="Quốc tịch">
@@ -793,6 +1524,12 @@ export default function BookingWizardModal({
                       </div>
                     </details>
                   ))}
+
+                  {errors.ownerProfile ? (
+                    <small style={{ color: "#ef4444", fontWeight: 600 }}>
+                      {errors.ownerProfile}
+                    </small>
+                  ) : null}
                 </div>
               )}
 
@@ -1071,7 +1808,27 @@ export default function BookingWizardModal({
               </div>
             </div>
             {step < steps.length - 1 ? (
-              <button type="button" onClick={nextStep} style={primaryBtn}>
+              <button
+                type="button"
+                onClick={nextStep}
+                disabled={
+                  (step === 1 && savingContactProfile) ||
+                  (step === 2 && savingOwnerProfile)
+                }
+                style={{
+                  ...primaryBtn,
+                  opacity:
+                    (step === 1 && savingContactProfile) ||
+                    (step === 2 && savingOwnerProfile)
+                      ? 0.7
+                      : 1,
+                  cursor:
+                    (step === 1 && savingContactProfile) ||
+                    (step === 2 && savingOwnerProfile)
+                      ? "not-allowed"
+                      : "pointer",
+                }}
+              >
                 Tiếp tục
               </button>
             ) : (

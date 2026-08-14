@@ -457,11 +457,29 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
 
   private async ensureTargetUser(dto: UpsertNotificationDto) {
     if (!dto.targetUserId) return null;
+
     const user = await this.prisma.user.findUnique({
       where: { id: BigInt(dto.targetUserId) },
     });
-    if (!user)
+
+    if (!user) {
       throw new BadRequestException("Người nhận thông báo không tồn tại.");
+    }
+
+    const targetRole = String(dto.targetRole || "").toLowerCase();
+
+    if (targetRole === "guide" && String(user.role).toLowerCase() !== "guide") {
+      throw new BadRequestException(
+        "Tài khoản được chọn không phải hướng dẫn viên.",
+      );
+    }
+
+    if (targetRole === "user" && String(user.role).toLowerCase() !== "user") {
+      throw new BadRequestException(
+        "Tài khoản được chọn không phải khách hàng.",
+      );
+    }
+
     return user;
   }
 
@@ -493,28 +511,73 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
       where: { id: BigInt(id) },
     });
     if (!existing) throw new NotFoundException("Notification not found");
+
     await this.ensureTargetUser(dto);
-    return this.prisma.notification.update({
-      where: { id: BigInt(id) },
-      data: {
-        title: dto.title.trim(),
-        message: dto.message?.trim() || null,
-        content: dto.content.trim(),
-        targetRole: (dto.targetRole || existing.targetRole) as any,
-        targetUserId: dto.targetUserId ? BigInt(dto.targetUserId) : null,
-        isPublished: dto.isPublished ?? existing.isPublished,
-        metadata:
-          dto.metadata === undefined
-            ? (existing as any).metadata
-            : dto.metadata,
-      } as any,
-      include: {
-        createdByUser: { select: { id: true, fullName: true, email: true } },
-        targetUser: {
-          select: { id: true, fullName: true, email: true, role: true },
+
+    const nextTitle = dto.title.trim();
+    const nextMessage = dto.message?.trim() || null;
+    const nextContent = dto.content.trim();
+    const nextTargetRole = (dto.targetRole || existing.targetRole) as any;
+    const nextTargetUserId = dto.targetUserId ? BigInt(dto.targetUserId) : null;
+    const nextIsPublished = dto.isPublished ?? existing.isPublished;
+    const nextMetadata =
+      dto.metadata === undefined ? (existing as any).metadata : dto.metadata;
+
+    const substantiveChanged =
+      String(existing.title || "") !== nextTitle ||
+      String(existing.message || "") !== String(nextMessage || "") ||
+      String(existing.content || "") !== nextContent ||
+      String(existing.targetRole || "") !== String(nextTargetRole || "") ||
+      String(existing.targetUserId || "") !== String(nextTargetUserId || "") ||
+      JSON.stringify((existing as any).metadata || null) !==
+        JSON.stringify(nextMetadata || null);
+
+    /*
+     * Nếu Admin chỉ đổi trạng thái hiển thị/ẩn thì không gửi lại.
+     * Khi sửa nội dung/người nhận và thông báo vẫn đang hiển thị:
+     * - cập nhật thời gian thành hiện tại để thông báo nổi lên như thông báo mới;
+     * - xóa trạng thái đã đọc cũ để đúng user/HDV nhận lại nội dung vừa sửa.
+     * Không tạo bản ghi trùng nên danh sách Admin vẫn giữ đúng một thông báo.
+     */
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.notification.update({
+        where: { id: BigInt(id) },
+        data: {
+          title: nextTitle,
+          message: nextMessage,
+          content: nextContent,
+          targetRole: nextTargetRole,
+          targetUserId: nextTargetUserId,
+          isPublished: nextIsPublished,
+          metadata: nextMetadata,
+          ...(substantiveChanged && nextIsPublished
+            ? { createdAt: new Date() }
+            : {}),
+        } as any,
+        include: {
+          createdByUser: { select: { id: true, fullName: true, email: true } },
+          targetUser: {
+            select: { id: true, fullName: true, email: true, role: true },
+          },
+          _count: { select: { reads: true } },
         },
-        _count: { select: { reads: true } },
-      },
+      });
+
+      if (substantiveChanged && nextIsPublished) {
+        await tx.notificationRead.deleteMany({
+          where: {
+            notificationId: existing.id,
+          },
+        });
+      }
+
+      return {
+        ...updated,
+        _count:
+          substantiveChanged && nextIsPublished
+            ? { ...(updated as any)._count, reads: 0 }
+            : (updated as any)._count,
+      };
     });
   }
 
@@ -782,6 +845,12 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
       Array.isArray(dto.channels) && dto.channels.length
         ? dto.channels
         : ["notification"];
+    if (
+      !channels.every((channel: any) =>
+        ["notification", "email", "both"].includes(String(channel)),
+      )
+    )
+      throw new BadRequestException("Kênh gửi thông báo không hợp lệ.");
     const sendNotification =
       channels.includes("notification") || channels.includes("both");
     const sendEmail = channels.includes("email") || channels.includes("both");

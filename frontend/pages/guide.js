@@ -158,6 +158,7 @@ export default function GuidePage() {
 
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [guide, setGuide] = useState(null);
   const [dashboard, setDashboard] = useState(null);
@@ -269,6 +270,10 @@ export default function GuidePage() {
     setPage(1);
   }, [statusFilter, keyword, dateFilter]);
 
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [activeTab]);
+
   const filteredAssignments = useMemo(() => {
     return assignments.filter((item) => {
       const booking = item.booking || {};
@@ -334,6 +339,21 @@ export default function GuidePage() {
 
   const saveProfile = async (event) => {
     event.preventDefault();
+    const phone = String(profileForm.phone || "").replace(/\D/g, "");
+    const identityNumber = String(profileForm.identityNumber || "").replace(
+      /\D/g,
+      "",
+    );
+    const note = String(profileForm.note || "").trim();
+    if (phone && !/^0\d{9}$/.test(phone))
+      return showToast(
+        "Số điện thoại phải gồm 10 chữ số và bắt đầu bằng 0.",
+        "error",
+      );
+    if (identityNumber && !/^\d{12}$/.test(identityNumber))
+      return showToast("CCCD phải gồm đúng 12 chữ số.", "error");
+    if (note.length > 1000)
+      return showToast("Ghi chú tối đa 1000 ký tự.", "error");
 
     try {
       setSavingProfile(true);
@@ -452,6 +472,13 @@ export default function GuidePage() {
       "Nhập lý do bạn không thể nhận tour này (bận lịch, sức khỏe, việc cá nhân...):",
     );
     if (!reason?.trim()) return;
+    if (reason.trim().length < 5)
+      return showToast(
+        "Lý do không thể nhận tour cần ít nhất 5 ký tự.",
+        "error",
+      );
+    if (reason.trim().length > 500)
+      return showToast("Lý do không thể nhận tour tối đa 500 ký tự.", "error");
 
     try {
       setSavingStatus(true);
@@ -478,7 +505,9 @@ export default function GuidePage() {
 
   return (
     <section className="guide-page">
-      <aside className="guide-sidebar">
+      <aside
+        className={`guide-sidebar ${mobileSidebarOpen ? "mobile-open" : ""}`}
+      >
         <div className="brand">
           <div className="brand-logo">
             {guide?.fullName?.charAt(0)?.toUpperCase() || "G"}
@@ -527,10 +556,25 @@ export default function GuidePage() {
         </div>
       </aside>
 
+      {mobileSidebarOpen && (
+        <button
+          type="button"
+          className="guide-sidebar-backdrop"
+          aria-label="Đóng menu"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
       <main className="guide-main">
         <header className="guide-topbar">
           <div className="topbar-left">
-            <button type="button" className="menu-btn">
+            <button
+              type="button"
+              className="menu-btn"
+              aria-label={mobileSidebarOpen ? "Đóng menu" : "Mở menu"}
+              aria-expanded={mobileSidebarOpen}
+              onClick={() => setMobileSidebarOpen((open) => !open)}
+            >
               ☰
             </button>
 
@@ -2263,32 +2307,99 @@ export default function GuidePage() {
           }
         }
 
-        @media (max-width: 992px) {
+        @media (max-width: 1180px) {
           .profile-container {
             grid-template-columns: 1fr;
           }
 
           .guide-sidebar {
-            transform: translateX(-100%);
-            transition: 0.3s;
+            width: min(280px, 86vw);
+            transform: translateX(-105%);
+            transition: transform 0.28s ease;
+            z-index: 140;
+          }
+
+          .guide-sidebar.mobile-open {
+            transform: translateX(0);
+          }
+
+          .guide-sidebar-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 130;
+            border: 0;
+            padding: 0;
+            margin: 0;
+            background: rgba(15, 23, 42, 0.48);
+            backdrop-filter: blur(2px);
+            cursor: pointer;
           }
 
           .guide-main {
             margin-left: 0;
+            width: 100%;
+            min-width: 0;
           }
 
           .menu-btn {
-            display: block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            color: #0f172a;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            flex: 0 0 auto;
+            position: relative;
+            z-index: 2;
           }
 
           .modal-grid-4 {
             grid-template-columns: repeat(2, 1fr);
           }
+
+          .content-wrap {
+            max-width: none;
+          }
         }
 
         @media (max-width: 768px) {
+          .guide-topbar {
+            height: 64px;
+            padding: 0 14px;
+            gap: 10px;
+          }
+
+          .topbar-left {
+            min-width: 0;
+            gap: 10px;
+          }
+
+          .topbar-title {
+            font-size: 17px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+
+          .topbar-user {
+            gap: 8px;
+            flex: 0 0 auto;
+          }
+
+          .topbar-details {
+            display: none;
+          }
+
+          .topbar-avatar img {
+            width: 36px;
+            height: 36px;
+          }
+
           .content-wrap {
-            padding: 20px;
+            padding: 18px 14px 24px;
           }
 
           .stat-grid,

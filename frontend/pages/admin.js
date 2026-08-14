@@ -23,7 +23,6 @@ import {
   exportAdminTours,
   exportAdminSmartReport,
 } from "@/lib/exportExcel";
-import TourSupplierSelector from "@/components/admin/TourSupplierSelector";
 
 const adminTabs = [
   { key: "overview", label: "Tổng quan", href: "/admin" },
@@ -121,6 +120,8 @@ const initialDestinationFilter = {
 
 const initialDestinationForm = {
   id: "",
+  bookingCount: 0,
+  protectedBookingCount: 0,
   name: "",
   province: "",
   country: "Vietnam",
@@ -2192,6 +2193,18 @@ export default function AdminPage({ initialTab = "overview" }) {
       showToast("Vui lòng xác nhận đã hiểu phạm vi ảnh hưởng.", "error");
       return;
     }
+    if (
+      !["weather", "operational", "safety", "force_majeure", "other"].includes(
+        cancelDepartureForm.reasonType,
+      )
+    )
+      return showToast("Loại lý do hủy lịch không hợp lệ.", "error");
+    if (String(cancelDepartureForm.reason || "").trim().length > 1000)
+      return showToast("Lý do hủy tối đa 1000 ký tự.", "error");
+    if (!String(cancelDepartureForm.customerMessage || "").trim())
+      return showToast("Vui lòng nhập nội dung thông báo khách.", "error");
+    if (String(cancelDepartureForm.customerMessage).trim().length > 3000)
+      return showToast("Nội dung thông báo khách tối đa 3000 ký tự.", "error");
     setCancelDepartureSubmitting(true);
     try {
       const result = await apiFetch(
@@ -2245,6 +2258,16 @@ export default function AdminPage({ initialTab = "overview" }) {
   const submitCancelBooking = async (event) => {
     event.preventDefault();
     if (!cancelBookingTarget?.id) return;
+    if (
+      !["weather", "operational", "safety", "force_majeure", "other"].includes(
+        cancelBookingForm.reasonType,
+      )
+    )
+      return showToast("Loại lý do hủy booking không hợp lệ.", "error");
+    if (cancelBookingForm.reason.trim().length > 1000)
+      return showToast("Lý do hủy tối đa 1000 ký tự.", "error");
+    if (cancelBookingForm.customerMessage.trim().length > 3000)
+      return showToast("Nội dung thông báo khách tối đa 3000 ký tự.", "error");
     if (
       !cancelBookingForm.reason.trim() ||
       !cancelBookingForm.customerMessage.trim()
@@ -2319,6 +2342,11 @@ export default function AdminPage({ initialTab = "overview" }) {
       showToast("Vui lòng chọn điểm đón mới.", "error");
       return;
     }
+    if (
+      !Number.isInteger(Number(bookingPickupForm.pickupPointId)) ||
+      Number(bookingPickupForm.pickupPointId) <= 0
+    )
+      return showToast("Điểm đón không hợp lệ.", "error");
 
     setUpdatingBookingPickup(true);
     try {
@@ -2369,6 +2397,20 @@ export default function AdminPage({ initialTab = "overview" }) {
     setReplyOpen(true);
   };
   const submitReply = async () => {
+    if (
+      !replyForm.contactId ||
+      !Number.isInteger(Number(replyForm.contactId)) ||
+      Number(replyForm.contactId) <= 0
+    )
+      return showToast("Liên hệ cần phản hồi không hợp lệ.", "error");
+    if (!String(replyForm.replyMessage || "").trim())
+      return showToast("Vui lòng nhập nội dung phản hồi.", "error");
+    if (String(replyForm.replyMessage).trim().length > 3000)
+      return showToast("Nội dung phản hồi tối đa 3000 ký tự.", "error");
+    if (String(replyForm.subject || "").trim().length > 200)
+      return showToast("Tiêu đề phản hồi tối đa 200 ký tự.", "error");
+    if (!["replied", "resolved"].includes(replyForm.status))
+      return showToast("Trạng thái liên hệ không hợp lệ.", "error");
     setSubmitting(true);
     try {
       const { contactId, ...replyPayload } = replyForm;
@@ -2413,6 +2455,20 @@ export default function AdminPage({ initialTab = "overview" }) {
     setReviewReplyOpen(true);
   };
   const submitReviewReply = async () => {
+    if (
+      !reviewReplyForm.id ||
+      !Number.isInteger(Number(reviewReplyForm.id)) ||
+      Number(reviewReplyForm.id) <= 0
+    )
+      return showToast("Đánh giá không hợp lệ.", "error");
+    if (
+      !["pending", "approved", "hidden", "rejected"].includes(
+        reviewReplyForm.status,
+      )
+    )
+      return showToast("Trạng thái đánh giá không hợp lệ.", "error");
+    if (String(reviewReplyForm.adminReply || "").trim().length > 2000)
+      return showToast("Phản hồi đánh giá tối đa 2000 ký tự.", "error");
     setSubmitting(true);
     try {
       await apiFetch(`/admin/reviews/${reviewReplyForm.id}/reply`, {
@@ -2517,6 +2573,8 @@ export default function AdminPage({ initialTab = "overview" }) {
 
     setDestinationForm({
       id: String(item.id || ""),
+      bookingCount: Number(item.bookingCount || 0),
+      protectedBookingCount: Number(item.protectedBookingCount || 0),
       name: item.name || "",
       province: item.province || "",
       country: item.country || "Vietnam",
@@ -2533,10 +2591,30 @@ export default function AdminPage({ initialTab = "overview" }) {
   };
 
   const saveDestination = async () => {
-    if (!destinationForm.name.trim() || !destinationForm.province.trim()) {
-      showToast("Cần nhập tên điểm đến và tỉnh/thành.", "error");
-      return;
-    }
+    const destinationName = String(destinationForm.name || "").trim();
+    const destinationProvince = String(destinationForm.province || "").trim();
+    const destinationCountry = String(destinationForm.country || "").trim();
+
+    if (!destinationName)
+      return showToast("Vui lòng nhập tên điểm đến.", "error");
+    if (destinationName.length < 2 || destinationName.length > 160)
+      return showToast("Tên điểm đến phải từ 2 đến 160 ký tự.", "error");
+
+    if (!destinationProvince)
+      return showToast("Vui lòng nhập tỉnh/thành.", "error");
+    if (destinationProvince.length < 2 || destinationProvince.length > 100)
+      return showToast("Tỉnh/thành phải từ 2 đến 100 ký tự.", "error");
+
+    if (!destinationCountry)
+      return showToast("Vui lòng nhập quốc gia.", "error");
+    if (destinationCountry.length < 2 || destinationCountry.length > 100)
+      return showToast("Quốc gia phải từ 2 đến 100 ký tự.", "error");
+
+    if (String(destinationForm.description || "").trim().length > 5000)
+      return showToast("Mô tả điểm đến tối đa 5000 ký tự.", "error");
+
+    if (!["active", "inactive"].includes(destinationForm.status || "active"))
+      return showToast("Trạng thái điểm đến không hợp lệ.", "error");
 
     setSubmitting(true);
     try {
@@ -2578,6 +2656,20 @@ export default function AdminPage({ initialTab = "overview" }) {
       await Promise.all([loadDestinationsPage(), loadTours(), loadOverview()]);
     } catch (error) {
       showToast(error.message, "error");
+
+      if (
+        destinationForm.id &&
+        Number(destinationForm.protectedBookingCount || 0) > 0 &&
+        String(error?.message || "").includes("không thể thay đổi tên điểm đến")
+      ) {
+        const originalDestination = (destinationsData.items || []).find(
+          (item) => String(item.id) === String(destinationForm.id),
+        );
+
+        if (originalDestination) {
+          openDestinationModal(originalDestination);
+        }
+      }
     } finally {
       setSubmitting(false);
     }
@@ -2775,6 +2867,38 @@ export default function AdminPage({ initialTab = "overview" }) {
     );
   };
 
+  const isTourBookingLockError = (error) => {
+    const message = String(error?.message || "").toLowerCase();
+
+    return (
+      message.includes("booking") &&
+      (message.includes("không thể thay đổi") ||
+        message.includes("không thể chỉnh sửa") ||
+        message.includes("không thể xóa") ||
+        message.includes("đã phát sinh booking") ||
+        message.includes("đã được sử dụng trong booking"))
+    );
+  };
+
+  const restoreTourWizardAfterBookingLock = async (tourId, currentStep) => {
+    if (!tourId) return;
+
+    try {
+      /*
+       * Khi backend từ chối vì dữ liệu đã gắn với booking, tải lại đúng dữ liệu
+       * đang lưu trong DB để bỏ phần chỉnh sửa không hợp lệ trên form.
+       * Sau đó đưa Admin trở lại đúng bước đang thao tác.
+       */
+      await openTourWizard(tourId);
+      setTourStep(currentStep);
+    } catch (reloadError) {
+      console.error(
+        "Không thể khôi phục dữ liệu tour sau khi bị khóa bởi booking:",
+        reloadError,
+      );
+    }
+  };
+
   const openTourWizard = async (id) => {
     if (!id) {
       await loadTourCatalogs();
@@ -2917,6 +3041,211 @@ export default function AdminPage({ initialTab = "overview" }) {
     }
   };
 
+  const validateTourStep1Inputs = () => {
+    const name = String(tourForm.name || "").trim();
+    const destinationId = Number(tourForm.destinationId);
+    const durationDays = Number(tourForm.durationDays);
+    const durationNights = Number(tourForm.durationNights);
+
+    if (!name) return "Vui lòng nhập tên tour.";
+    if (name.length < 3 || name.length > 160)
+      return "Tên tour phải từ 3 đến 160 ký tự.";
+    if (!Number.isInteger(destinationId) || destinationId <= 0)
+      return "Vui lòng chọn điểm đến hợp lệ.";
+
+    const currentTour = (allTours || []).find(
+      (item) => String(item.id) === String(tourForm.id || ""),
+    );
+    const changedNameOrDestination =
+      !currentTour ||
+      normalizeSearchText(currentTour.name) !== normalizeSearchText(name) ||
+      String(currentTour.destinationId || currentTour.destination?.id || "") !==
+        String(tourForm.destinationId);
+
+    if (changedNameOrDestination) {
+      const duplicatedTourName = (allTours || []).find(
+        (item) =>
+          String(item.id) !== String(tourForm.id || "") &&
+          String(item.destinationId || item.destination?.id || "") ===
+            String(tourForm.destinationId) &&
+          normalizeSearchText(item.name) === normalizeSearchText(name),
+      );
+      if (duplicatedTourName)
+        return "Tên tour này đã tồn tại tại cùng điểm đến. Vui lòng đặt tên khác.";
+    }
+    if (!["group", "private"].includes(tourForm.tourType))
+      return "Loại tour không hợp lệ.";
+    if (!String(tourForm.tourTheme || "").trim())
+      return "Vui lòng chọn chủ đề tour.";
+    if (!Number.isInteger(durationDays) || durationDays <= 0)
+      return "Số ngày của tour phải là số nguyên lớn hơn 0.";
+    if (!Number.isInteger(durationNights) || durationNights < 0)
+      return "Số đêm của tour phải là số nguyên không âm.";
+    if (durationNights > durationDays)
+      return "Số đêm không được lớn hơn số ngày của tour.";
+    if (String(tourForm.shortDescription || "").length > 500)
+      return "Mô tả nổi bật tối đa 500 ký tự.";
+    if (String(tourForm.fullDescription || "").length > 10000)
+      return "Giới thiệu chi tiết tối đa 10.000 ký tự.";
+    return "";
+  };
+
+  const validateTourFinalInputs = () => {
+    const step1Error = validateTourStep1Inputs();
+    if (step1Error) return step1Error;
+
+    if (!Array.isArray(tourItinerary) || !tourItinerary.length)
+      return "Tour cần có ít nhất một nội dung lịch trình.";
+    for (let index = 0; index < tourItinerary.length; index += 1) {
+      const item = tourItinerary[index];
+      if (!String(item.title || "").trim())
+        return `Vui lòng nhập tiêu đề lịch trình ở dòng ${index + 1}.`;
+      if (String(item.title || "").trim().length > 200)
+        return `Tiêu đề lịch trình ở dòng ${index + 1} tối đa 200 ký tự.`;
+      if (
+        !Number.isInteger(Number(item.dayNumber)) ||
+        Number(item.dayNumber) < 1 ||
+        Number(item.dayNumber) > Number(tourForm.durationDays)
+      )
+        return `Ngày của lịch trình ở dòng ${index + 1} không hợp lệ.`;
+    }
+
+    if (!Array.isArray(tourDepartures) || !tourDepartures.length)
+      return "Tour cần có ít nhất một lịch khởi hành.";
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const seenRanges = new Set();
+    for (let index = 0; index < tourDepartures.length; index += 1) {
+      const item = tourDepartures[index];
+      const start = new Date(`${item.departureDate}T00:00:00`);
+      const end = new Date(`${item.endDate}T00:00:00`);
+      if (!item.departureDate || Number.isNaN(start.getTime()))
+        return `Ngày khởi hành ở lịch ${index + 1} không hợp lệ.`;
+      if (!item.endDate || Number.isNaN(end.getTime()))
+        return `Ngày kết thúc ở lịch ${index + 1} không hợp lệ.`;
+      if (end < start)
+        return `Ngày kết thúc ở lịch ${index + 1} không được trước ngày khởi hành.`;
+      if (!item.id && start < today)
+        return `Ngày khởi hành mới ở lịch ${index + 1} không được nằm trong quá khứ.`;
+      const adultPrice = Number(item.adultPrice);
+      const childPrice = Number(item.childPrice);
+      const totalSlots = Number(item.totalSlots);
+      if (!Number.isFinite(adultPrice) || adultPrice < 0)
+        return `Giá người lớn ở lịch ${index + 1} phải là số không âm.`;
+      if (!Number.isFinite(childPrice) || childPrice < 0)
+        return `Giá trẻ em ở lịch ${index + 1} phải là số không âm.`;
+      if (childPrice > adultPrice)
+        return `Giá trẻ em ở lịch ${index + 1} không được lớn hơn giá người lớn.`;
+      if (!Number.isInteger(totalSlots) || totalSlots <= 0)
+        return `Số chỗ ở lịch ${index + 1} phải là số nguyên lớn hơn 0.`;
+      if (
+        ![
+          "open",
+          "full",
+          "closed",
+          "departed",
+          "completed",
+          "cancelled",
+        ].includes(item.status || "open")
+      )
+        return `Trạng thái lịch ${index + 1} không hợp lệ.`;
+      const rangeKey = `${item.departureDate}|${item.endDate}`;
+      if (seenRanges.has(rangeKey))
+        return `Khoảng ngày ${item.departureDate} - ${item.endDate} đang bị khai báo trùng.`;
+      seenRanges.add(rangeKey);
+    }
+
+    const pickupRows = (tourPickupPoints || []).filter((item) =>
+      [item.name, item.address, item.province, item.note].some((value) =>
+        String(value || "").trim(),
+      ),
+    );
+    if (!pickupRows.length) return "Tour cần có ít nhất một điểm đón.";
+    for (let index = 0; index < pickupRows.length; index += 1) {
+      const item = pickupRows[index];
+      if (!String(item.name || "").trim())
+        return `Vui lòng nhập tên điểm đón ${index + 1}.`;
+      if (String(item.name).trim().length > 160)
+        return `Tên điểm đón ${index + 1} tối đa 160 ký tự.`;
+      if (!String(item.address || "").trim())
+        return `Vui lòng nhập địa chỉ điểm đón ${index + 1}.`;
+      if (String(item.address).trim().length > 255)
+        return `Địa chỉ điểm đón ${index + 1} tối đa 255 ký tự.`;
+      if (
+        item.pickupTime &&
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(item.pickupTime))
+      )
+        return `Giờ đón ở điểm đón ${index + 1} không hợp lệ.`;
+    }
+
+    const accommodationRows = (tourAccommodations || []).filter(
+      (item) =>
+        [item.name, item.address, item.description].some((value) =>
+          String(value || "").trim(),
+        ) ||
+        item.catalogId ||
+        item.supplierId,
+    );
+    if (!accommodationRows.length) return "Tour cần có ít nhất một chỗ ở.";
+    for (let index = 0; index < accommodationRows.length; index += 1) {
+      const item = accommodationRows[index];
+      if (!String(item.name || "").trim())
+        return `Vui lòng nhập tên chỗ ở ${index + 1}.`;
+      if (String(item.name).trim().length > 160)
+        return `Tên chỗ ở ${index + 1} tối đa 160 ký tự.`;
+      if (!["hotel", "homestay", "resort"].includes(item.accommodationType))
+        return `Loại chỗ ở ${index + 1} không hợp lệ.`;
+      const stars = Number(item.starRating);
+      if (!Number.isInteger(stars) || stars < 1 || stars > 5)
+        return `Số sao chỗ ở ${index + 1} phải từ 1 đến 5.`;
+      const price = Number(item.pricePerNight);
+      if (!Number.isFinite(price) || price < 0)
+        return `Giá mỗi đêm của chỗ ở ${index + 1} phải là số không âm.`;
+    }
+
+    const transportRows = (tourTransports || []).filter(
+      (item) =>
+        [
+          item.name,
+          item.provider,
+          item.origin,
+          item.destinationLabel,
+          item.description,
+        ].some((value) => String(value || "").trim()) ||
+        item.catalogId ||
+        item.supplierId,
+    );
+    if (!transportRows.length) return "Tour cần có ít nhất một phương tiện.";
+    const allowedTransportTypes = [
+      "bus",
+      "car",
+      "van",
+      "plane",
+      "train",
+      "ship",
+      "boat",
+      "motorbike",
+      "other",
+    ];
+    for (let index = 0; index < transportRows.length; index += 1) {
+      const item = transportRows[index];
+      if (!String(item.name || "").trim())
+        return `Vui lòng nhập tên phương tiện ${index + 1}.`;
+      if (String(item.name).trim().length > 160)
+        return `Tên phương tiện ${index + 1} tối đa 160 ký tự.`;
+      if (!allowedTransportTypes.includes(item.transportType))
+        return `Loại phương tiện ${index + 1} không hợp lệ.`;
+      const hours = Number(item.durationHours);
+      if (!Number.isFinite(hours) || hours < 0)
+        return `Thời lượng phương tiện ${index + 1} phải là số không âm.`;
+      const price = Number(item.price);
+      if (!Number.isFinite(price) || price < 0)
+        return `Chi phí phương tiện ${index + 1} phải là số không âm.`;
+    }
+
+    return "";
+  };
+
   const saveTourStep1 = async () => {
     if (!tourForm.name || !tourForm.destinationId) {
       return showToast("Cần nhập tên tour và điểm đến.", "error");
@@ -2992,6 +3321,10 @@ export default function AdminPage({ initialTab = "overview" }) {
       await loadTours();
     } catch (error) {
       showToast(error.message, "error");
+
+      if (tourForm.id && isTourBookingLockError(error)) {
+        await restoreTourWizardAfterBookingLock(tourForm.id, 1);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -3229,6 +3562,8 @@ export default function AdminPage({ initialTab = "overview" }) {
 
   const saveTourFinal = async () => {
     if (!tourForm.id) return showToast("Bạn cần lưu bước 1 trước.", "error");
+    const validationError = validateTourFinalInputs();
+    if (validationError) return showToast(validationError, "error");
     setSubmitting(true);
     try {
       const firstDeparture = tourDepartures?.[0] || createDepartureItem();
@@ -3266,7 +3601,7 @@ export default function AdminPage({ initialTab = "overview" }) {
           body: JSON.stringify({
             items: tourItinerary.map((item, index) => ({
               dayNumber: Number(item.dayNumber),
-              itemOrder: index + 1,
+              itemOrder: Number(item.itemOrder || index + 1),
               title: item.title,
               description: item.description || undefined,
               locationName: item.locationName || undefined,
@@ -3371,6 +3706,11 @@ export default function AdminPage({ initialTab = "overview" }) {
       await loadTours();
     } catch (error) {
       showToast(error.message, "error");
+
+      if (tourForm.id && isTourBookingLockError(error)) {
+        const failedStep = tourStep;
+        await restoreTourWizardAfterBookingLock(tourForm.id, failedStep);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -5752,6 +6092,12 @@ export default function AdminPage({ initialTab = "overview" }) {
             <label>Tên điểm đến</label>
             <input
               value={destinationForm.name}
+              readOnly={Number(destinationForm.protectedBookingCount || 0) > 0}
+              title={
+                Number(destinationForm.protectedBookingCount || 0) > 0
+                  ? "Điểm đến đang có booking đã thanh toán và chưa hoàn thành nên không thể đổi tên."
+                  : ""
+              }
               onChange={(e) =>
                 setDestinationForm((prev) => ({
                   ...prev,
@@ -5766,6 +6112,12 @@ export default function AdminPage({ initialTab = "overview" }) {
             <label>Tỉnh/Thành</label>
             <input
               value={destinationForm.province}
+              readOnly={Number(destinationForm.protectedBookingCount || 0) > 0}
+              title={
+                Number(destinationForm.protectedBookingCount || 0) > 0
+                  ? "Điểm đến đang có booking đã thanh toán và chưa hoàn thành nên không thể đổi tỉnh/thành."
+                  : ""
+              }
               onChange={(e) =>
                 setDestinationForm((prev) => ({
                   ...prev,
@@ -5780,6 +6132,12 @@ export default function AdminPage({ initialTab = "overview" }) {
             <label>Quốc gia</label>
             <input
               value={destinationForm.country}
+              readOnly={Number(destinationForm.protectedBookingCount || 0) > 0}
+              title={
+                Number(destinationForm.protectedBookingCount || 0) > 0
+                  ? "Điểm đến đang có booking đã thanh toán và chưa hoàn thành nên không thể đổi quốc gia."
+                  : ""
+              }
               onChange={(e) =>
                 setDestinationForm((prev) => ({
                   ...prev,
@@ -5935,13 +6293,6 @@ export default function AdminPage({ initialTab = "overview" }) {
               <div className="detail-card">
                 <h4>Mức ưu tiên</h4>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <StatusBadge
-                    tone={toneForPriority(
-                      bookingDetail.operationInsight?.priorityLevel,
-                    )}
-                  >
-                    {bookingDetail.operationInsight?.actionLabel || "Ổn định"}
-                  </StatusBadge>
                   {(bookingDetail.operationInsight?.flags || []).map((flag) => (
                     <StatusBadge key={flag.code} tone={flag.tone}>
                       {flag.label}
@@ -6788,6 +7139,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                 <input
                   type="number"
                   min="1"
+                  step="1"
                   value={tourForm.durationDays}
                   onChange={(e) =>
                     setTourForm((prev) => ({
@@ -6802,6 +7154,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                 <input
                   type="number"
                   min="0"
+                  step="1"
                   value={tourForm.durationNights}
                   onChange={(e) =>
                     setTourForm((prev) => ({
@@ -7294,7 +7647,6 @@ export default function AdminPage({ initialTab = "overview" }) {
                       }
                     >
                       <option value="open">Đang mở (Open)</option>
-                      <option value="full">Đã đầy (Full)</option>
                       <option value="closed">Đã đóng (Closed)</option>
                     </select>
                   </div>
@@ -7622,7 +7974,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                       }}
                     >
                       <div className="field">
-                        <label>Nguồn chỗ ở</label>
+                        <label>Chỗ ở / nhà cung cấp lưu trú</label>
                         <select
                           value={item.catalogId || ""}
                           onChange={(e) =>
@@ -7630,7 +7982,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                           }
                         >
                           <option value="">
-                            + Nhập / chỉnh chỗ ở thủ công
+                            + Nhập chỗ ở / nhà cung cấp mới
                           </option>
                           {(tourCatalogs.accommodations || []).map((option) => (
                             <option key={option.id} value={option.id}>
@@ -7640,51 +7992,10 @@ export default function AdminPage({ initialTab = "overview" }) {
                           ))}
                         </select>
                         <small style={{ color: "#64748b", lineHeight: 1.5 }}>
-                          Dữ liệu nhập mới sẽ được lưu và dùng lại cho tour sau.
+                          Chọn dữ liệu đã lưu hoặc nhập mới bên dưới. Dữ liệu
+                          nhập mới sẽ được lưu và dùng lại cho tour sau.
                         </small>
                       </div>
-
-                      {!item.catalogId ? (
-                        <TourSupplierSelector
-                          suppliers={suppliers}
-                          supplierType="hotel"
-                          value={
-                            item.isManualSupplier ? "manual" : item.supplierId
-                          }
-                          label="Nhà cung cấp lưu trú"
-                          placeholder="Chọn khách sạn / nơi lưu trú"
-                          onChange={({ supplierId, supplier, isManual }) => {
-                            setTourAccommodations((prev) =>
-                              prev.map((row, idx) => {
-                                if (idx !== index) return row;
-
-                                if (isManual) {
-                                  return {
-                                    ...row,
-                                    supplierId: "",
-                                    isManualSupplier: true,
-                                    name: "",
-                                    address: "",
-                                  };
-                                }
-
-                                return {
-                                  ...row,
-                                  supplierId,
-                                  isManualSupplier: false,
-                                  name: supplier?.name || "",
-                                  address: supplier?.address || "",
-                                  description:
-                                    supplier?.note ||
-                                    supplier?.description ||
-                                    row.description ||
-                                    "",
-                                };
-                              }),
-                            );
-                          }}
-                        />
-                      ) : null}
 
                       <div className="field">
                         <label>Tên chỗ ở</label>
@@ -7937,7 +8248,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                       }}
                     >
                       <div className="field">
-                        <label>Nguồn phương tiện</label>
+                        <label>Phương tiện / nhà cung cấp vận chuyển</label>
                         <select
                           value={item.catalogId || ""}
                           onChange={(e) =>
@@ -7945,7 +8256,7 @@ export default function AdminPage({ initialTab = "overview" }) {
                           }
                         >
                           <option value="">
-                            + Nhập / chỉnh phương tiện thủ công
+                            + Nhập phương tiện / nhà cung cấp mới
                           </option>
                           {(tourCatalogs.transports || []).map((option) => (
                             <option key={option.id} value={option.id}>
@@ -7956,49 +8267,10 @@ export default function AdminPage({ initialTab = "overview" }) {
                           ))}
                         </select>
                         <small style={{ color: "#64748b", lineHeight: 1.5 }}>
-                          Dữ liệu nhập mới sẽ được lưu và dùng lại cho tour sau.
+                          Chọn dữ liệu đã lưu hoặc nhập mới bên dưới. Dữ liệu
+                          nhập mới sẽ được lưu và dùng lại cho tour sau.
                         </small>
                       </div>
-
-                      {!item.catalogId ? (
-                        <TourSupplierSelector
-                          suppliers={suppliers}
-                          supplierType="transport"
-                          value={
-                            item.isManualSupplier ? "manual" : item.supplierId
-                          }
-                          label="Đơn vị vận chuyển"
-                          placeholder="Chọn nhà cung cấp vận chuyển"
-                          onChange={({ supplierId, supplier, isManual }) => {
-                            setTourTransports((prev) =>
-                              prev.map((row, idx) => {
-                                if (idx !== index) return row;
-
-                                if (isManual) {
-                                  return {
-                                    ...row,
-                                    supplierId: "",
-                                    isManualSupplier: true,
-                                    provider: "",
-                                  };
-                                }
-
-                                return {
-                                  ...row,
-                                  supplierId,
-                                  isManualSupplier: false,
-                                  provider: supplier?.name || "",
-                                  description:
-                                    supplier?.note ||
-                                    supplier?.description ||
-                                    row.description ||
-                                    "",
-                                };
-                              }),
-                            );
-                          }}
-                        />
-                      ) : null}
 
                       <div className="field">
                         <label>Tên phương tiện</label>

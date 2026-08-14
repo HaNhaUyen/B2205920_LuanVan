@@ -2,12 +2,14 @@ import {
   ArrayMinSize,
   IsArray,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateNested,
-} from 'class-validator';
-import { Type } from 'class-transformer';
+} from "class-validator";
+import { Type } from "class-transformer";
 
 export class ItineraryItemDto {
   @IsInt()
@@ -19,14 +21,18 @@ export class ItineraryItemDto {
   itemOrder!: number;
 
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
   title!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(3000)
   description?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   locationName?: string;
 }
 

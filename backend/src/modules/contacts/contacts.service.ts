@@ -481,7 +481,7 @@ Chủ đề: ${existing.subject}`,
             <div style="font-weight:700;margin-bottom:8px;">Tin nhắn bạn đã gửi</div>
             <div>${safeOriginal}</div>
           </div>
-          <p style="color:#64748b;font-size:13px;">Nếu cần trao đổi thêm, bạn có thể trả lời lại email này hoặc liên hệ qua ${input.contactEmail}${input.contactPhone ? ` / ${input.contactPhone}` : ""}.</p>
+          <p style="color:#64748b;font-size:13px;">Nếu cần trao đổi thêm, bạn có thể trả lời lại email.</p>
         </div>
       </div>
     `;

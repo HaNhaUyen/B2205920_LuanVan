@@ -1,5 +1,5 @@
 import { API_URL, AI_API_URL } from "./config";
-import { getToken } from "./storage";
+import { clearSession, getToken } from "./storage";
 import { emitDataChanged } from "./realtime";
 
 async function parsePayload(response) {
@@ -81,6 +81,14 @@ export async function apiFetch(path, options = {}) {
   const payload = await parsePayload(response);
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      clearSession();
+
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
+
     throw new Error(extractMessage(payload));
   }
 

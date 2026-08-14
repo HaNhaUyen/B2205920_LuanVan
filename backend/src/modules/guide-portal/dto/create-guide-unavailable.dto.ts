@@ -1,10 +1,19 @@
-import { IsIn, IsOptional, IsString, MaxLength } from "class-validator";
+import {
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from "class-validator";
 
 export class CreateGuideUnavailableDto {
   @IsIn(["unavailable", "leave", "training", "personal"])
   availabilityType!: "unavailable" | "leave" | "training" | "personal";
 
   @IsString()
+  @IsNotEmpty()
+  @MinLength(5)
   @MaxLength(500)
   reason!: string;
 

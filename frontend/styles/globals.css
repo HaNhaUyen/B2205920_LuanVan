@@ -6830,3 +6830,827 @@ html.dark-mode .app-user-tier {
 html:not(.dark-mode) .app-user-tier {
   color: #64748b !important;
 }
+
+/* ===== TRAVELA FINAL DARK MODE CONTRAST PATCH 2026-08-11 ===== */
+/* ===== TRAVELA FINAL DARK MODE CONTRAST PATCH 2026-08-11 =====
+   Chỉ sửa màu/nền/độ tương phản của dark mode.
+   Không thay layout, kích thước, vị trí hay logic chức năng.
+*/
+
+/* Nền chung các vùng light-mode còn bị inline style giữ màu trắng. */
+html.dark-mode .section-light {
+  background: #0b1220 !important;
+  color: #e5edf8 !important;
+}
+
+html.dark-mode .section-light[style*="background"],
+html.dark-mode .tour-detail-header-section,
+html.dark-mode .tour-detail-main-section,
+html.dark-mode .tour-detail-related-section,
+html.dark-mode .notifications-page {
+  background: #0b1220 !important;
+  color: #e5edf8 !important;
+}
+
+/* HOME / ABOUT: card không còn là mảng giấy trắng trong dark mode. */
+html.dark-mode .section-light .section-card,
+html.dark-mode .section-light .floating-card,
+html.dark-mode .section-light .value-card,
+html.dark-mode .about-flow-card,
+html.dark-mode .about-ecosystem-card {
+  background: linear-gradient(180deg, #121d2f 0%, #0f1929 100%) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  color: #e8f0fb !important;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24) !important;
+}
+
+html.dark-mode .section-light .section-title h2,
+html.dark-mode .section-light .section-card h2,
+html.dark-mode .section-light .section-card h3,
+html.dark-mode .section-light .floating-card h3,
+html.dark-mode .about-flow-card h2,
+html.dark-mode .about-ecosystem-card h3,
+html.dark-mode .about-ecosystem-card strong {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .section-light .section-title p,
+html.dark-mode .section-light .section-card p,
+html.dark-mode .section-light .floating-card p,
+html.dark-mode .about-flow-card p,
+html.dark-mode .about-ecosystem-card span {
+  color: #aebed3 !important;
+}
+
+/* TOUR LIST: sửa đúng lỗi card trắng + chữ trắng trong ảnh người dùng gửi. */
+html.dark-mode .tour-card,
+html.dark-mode .travel-tour-card,
+html.dark-mode .premium-tour-card {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  color: #e8f0fb !important;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24) !important;
+}
+
+html.dark-mode .tour-card .card-body,
+html.dark-mode .travel-tour-card .card-body,
+html.dark-mode .premium-tour-card .card-body {
+  background: #111b2d !important;
+  color: #e8f0fb !important;
+}
+
+html.dark-mode .tour-card h2,
+html.dark-mode .tour-card h3,
+html.dark-mode .tour-card h4,
+html.dark-mode .tour-card strong,
+html.dark-mode .travel-tour-card h2,
+html.dark-mode .travel-tour-card h3,
+html.dark-mode .travel-tour-card strong {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .tour-card p,
+html.dark-mode .tour-card .muted,
+html.dark-mode .tour-card .label,
+html.dark-mode .tour-card small,
+html.dark-mode .travel-tour-card p,
+html.dark-mode .travel-tour-card .muted {
+  color: #a9b9ce !important;
+}
+
+html.dark-mode .tour-card .chip,
+html.dark-mode .tour-card .badge,
+html.dark-mode .tour-card .pill,
+html.dark-mode .tour-card .stat-pill {
+  background: #172338 !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+  color: #dce8f8 !important;
+}
+
+html.dark-mode .tour-card .price-row,
+html.dark-mode .tour-card .card-actions {
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+/* Toolbar / empty states ở trang tours. */
+html.dark-mode .travel-results-toolbar,
+html.dark-mode .empty-state-card,
+html.dark-mode .mobile-filter-toggle {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  color: #e5edf8 !important;
+}
+
+html.dark-mode .travel-results-toolbar h2,
+html.dark-mode .empty-state-card h3,
+html.dark-mode .mobile-filter-toggle strong {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .travel-results-toolbar p,
+html.dark-mode .empty-state-card p {
+  color: #a9b9ce !important;
+}
+
+/* TOUR DETAIL: toàn bộ 3 vùng chính chuyển sang dark, không đổi layout. */
+html.dark-mode .tour-detail-header-section,
+html.dark-mode .tour-detail-main-section,
+html.dark-mode .tour-detail-related-section {
+  background: #0b1220 !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark-mode .tour-detail-header-section h1,
+html.dark-mode .tour-detail-main-section h1,
+html.dark-mode .tour-detail-main-section h2,
+html.dark-mode .tour-detail-main-section h3,
+html.dark-mode .tour-detail-main-section h4,
+html.dark-mode .tour-detail-main-section strong,
+html.dark-mode .tour-detail-related-section h2,
+html.dark-mode .tour-detail-related-section h3 {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .tour-detail-header-section p,
+html.dark-mode .tour-detail-header-section span:not([style*="background"]),
+html.dark-mode .tour-detail-main-section p,
+html.dark-mode .tour-detail-main-section li,
+html.dark-mode .tour-detail-main-section small,
+html.dark-mode .tour-detail-related-section p {
+  color: #b6c4d7 !important;
+}
+
+/* Các card chi tiết / sidebar đặt tour vẫn giữ nguyên hình dáng, chỉ tối bề mặt. */
+html.dark-mode .tour-detail-main-section .section-card,
+html.dark-mode .tour-detail-main-section .sticky-booking,
+html.dark-mode .tour-detail-main-section [style*="background: #fff"],
+html.dark-mode .tour-detail-related-section .section-card {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  color: #e5edf8 !important;
+}
+
+html.dark-mode .tour-detail-main-section [style*="background: #f8fafc"],
+html.dark-mode .tour-detail-main-section [style*="background: #f1f5f9"],
+html.dark-mode .tour-detail-header-section [style*="background: #f1f5f9"] {
+  background: #172338 !important;
+  color: #dce8f8 !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+html.dark-mode .input-modern {
+  background: #0b1423 !important;
+  color: #f8fafc !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+}
+
+html.dark-mode .input-modern:focus {
+  background: #0d1829 !important;
+  border-color: rgba(114, 180, 75, 0.72) !important;
+}
+
+/* "Thông tin cần biết" trong ảnh chi tiết tour. */
+html.dark-mode .booking-policy-preview {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22) !important;
+}
+
+html.dark-mode .booking-policy-preview__title,
+html.dark-mode .booking-policy-preview__details,
+html.dark-mode .booking-policy-preview__link {
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark-mode .booking-policy-preview__title span,
+html.dark-mode .booking-policy-preview__item p,
+html.dark-mode .booking-policy-preview__detail-group li {
+  color: #9fb0c8 !important;
+}
+
+html.dark-mode .booking-policy-preview__title strong,
+html.dark-mode .booking-policy-preview__item strong,
+html.dark-mode .booking-policy-preview__detail-title {
+  color: #eef5ff !important;
+}
+
+html.dark-mode .booking-policy-preview__detail-group {
+  background: #0d1727 !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+html.dark-mode .booking-policy-preview__link {
+  color: #86efac !important;
+}
+
+html.dark-mode .timeline-modern {
+  border-color: rgba(148, 163, 184, 0.36) !important;
+}
+
+html.dark-mode .timeline-dot {
+  border-color: #111b2d !important;
+}
+
+/* MY TOUR: nâng độ tương phản, nhưng giữ nguyên badge trạng thái và nghiệp vụ. */
+html.dark-mode .mytour-page .booking-card-modern,
+html.dark-mode .mytour-page .section-card,
+html.dark-mode .mytour-page .loyalty-card,
+html.dark-mode .mytour-page .fav-card {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+html.dark-mode .mytour-page .booking-code,
+html.dark-mode .mytour-page .date-pill {
+  background: #172338 !important;
+  color: #dce8f8 !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+html.dark-mode .mytour-page .booking-info-grid {
+  background: #0c1525 !important;
+}
+
+html.dark-mode .mytour-page .booking-info-grid .label,
+html.dark-mode .mytour-page .section-title p,
+html.dark-mode .mytour-page .loyalty-message {
+  color: #9fb0c8 !important;
+}
+
+html.dark-mode .mytour-page .booking-info-grid strong,
+html.dark-mode .mytour-page .booking-top h3,
+html.dark-mode .mytour-page .section-title h2 {
+  color: #f8fafc !important;
+}
+
+/* PROFILE: bổ sung những bề mặt inline trắng còn lọt qua patch cũ. */
+html.dark-mode .profile-page [style*="background: #fff"],
+html.dark-mode .profile-page [style*="backgroundColor: #fff"],
+html.dark-mode .profile-page [style*="background: rgb(255, 255, 255)"] {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+html.dark-mode .profile-page [style*="color: #0f172a"],
+html.dark-mode .profile-page [style*="color: #1e293b"],
+html.dark-mode .profile-page [style*="color: #334155"] {
+  color: #eef5ff !important;
+}
+
+html.dark-mode .profile-page [style*="color: #64748b"],
+html.dark-mode .profile-page [style*="color: #475569"] {
+  color: #9fb0c8 !important;
+}
+
+/* Refund/history table: chữ rõ hơn, không trắng trên trắng. */
+html.dark-mode .profile-page table,
+html.dark-mode .profile-page tbody,
+html.dark-mode .profile-page tr {
+  background: transparent !important;
+}
+
+html.dark-mode .profile-page table th {
+  background: #172338 !important;
+  color: #aebed3 !important;
+}
+
+html.dark-mode .profile-page table td {
+  background: #0f1929 !important;
+  color: #dce8f8 !important;
+}
+
+html.dark-mode .profile-page table tr:hover td {
+  background: #142137 !important;
+}
+
+/* NOTIFICATIONS PAGE: trước đây toàn bộ aside/article vẫn #fff do inline style. */
+html.dark-mode .notifications-page {
+  background: #0b1220 !important;
+}
+
+html.dark-mode .notifications-page aside,
+html.dark-mode .notifications-page article {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  color: #e5edf8 !important;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.24) !important;
+}
+
+html.dark-mode .notifications-page aside > div:first-child {
+  color: #a9b9ce !important;
+}
+
+html.dark-mode .notifications-page aside button {
+  background: #0d1727 !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+  color: #e5edf8 !important;
+}
+
+html.dark-mode .notifications-page aside button:hover {
+  background: #142137 !important;
+}
+
+html.dark-mode .notifications-page aside button[style*="rgb(240, 253, 244)"],
+html.dark-mode .notifications-page aside button[style*="#f0fdf4"] {
+  background: rgba(22, 163, 74, 0.13) !important;
+  border-color: rgba(74, 222, 128, 0.28) !important;
+}
+
+html.dark-mode .notifications-page aside button strong,
+html.dark-mode .notifications-page article h2 {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .notifications-page aside button span,
+html.dark-mode .notifications-page article div {
+  color: #b6c4d7 !important;
+}
+
+/* Notification bell/dropdown: tên class phổ biến trong layout hiện tại.
+   Chỉ tác động khi dark-mode đang bật. */
+html.dark-mode .notification-dropdown,
+html.dark-mode .notification-popover,
+html.dark-mode .notification-panel,
+html.dark-mode .notification-menu,
+html.dark-mode .notification-bell-dropdown,
+html.dark-mode .notifications-dropdown {
+  background: #111b2d !important;
+  color: #e5edf8 !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 20px 52px rgba(0, 0, 0, 0.34) !important;
+}
+
+html.dark-mode .notification-dropdown .notification-item,
+html.dark-mode .notification-popover .notification-item,
+html.dark-mode .notification-panel .notification-item,
+html.dark-mode .notification-menu .notification-item {
+  background: #0d1727 !important;
+  color: #dce8f8 !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+html.dark-mode .notification-dropdown .notification-item:hover,
+html.dark-mode .notification-popover .notification-item:hover,
+html.dark-mode .notification-panel .notification-item:hover,
+html.dark-mode .notification-menu .notification-item:hover {
+  background: #142137 !important;
+}
+
+/* Đừng làm mờ chữ đã đọc quá mức trong dark mode. */
+html.dark-mode .notifications-page aside button[style*="opacity: 0.58"],
+html.dark-mode .notification-item[style*="opacity"] {
+  opacity: 0.78 !important;
+}
+
+/* Select option phải cùng palette tối. */
+html.dark-mode select option {
+  background: #0b1423 !important;
+  color: #f8fafc !important;
+}
+
+/* ===== TARGETED DARK MODE FIX 2026-08-11 11:24 =====
+   Chỉ sửa các lỗi người dùng chỉ ra.
+   Không thay đổi logic, API, state, kích thước hay bố cục.
+*/
+
+/* 1) HOME + TOURS: TourCard có body riêng .travel-tour-card-body.
+   Trước đó outer card đã tối nhưng body vẫn trắng => chữ trắng bị mất. */
+html.dark-mode .travel-tour-card .travel-tour-card-body,
+html.dark-mode .tour-card .travel-tour-card-body {
+  background: #111b2d !important;
+  color: #e8f0fb !important;
+}
+
+html.dark-mode .travel-tour-card .travel-tour-card-body h3,
+html.dark-mode .travel-tour-card .travel-tour-card-body h4,
+html.dark-mode .travel-tour-card .travel-tour-card-body strong:not(.recommendation-score-badge) {
+  color: #f8fafc !important;
+}
+
+html.dark-mode .travel-tour-card .travel-tour-card-body .tour-location-line,
+html.dark-mode .travel-tour-card .travel-tour-card-body .tour-meta-inline,
+html.dark-mode .travel-tour-card .travel-tour-card-body .tour-rating-line,
+html.dark-mode .travel-tour-card .travel-tour-card-body .tour-bottom-line,
+html.dark-mode .travel-tour-card .travel-tour-card-body small {
+  color: #aebed3 !important;
+}
+
+html.dark-mode .travel-tour-card .travel-tour-price-row {
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark-mode .travel-tour-card .travel-tour-price-row strong {
+  color: #f8fafc !important;
+}
+
+/* Recommendation reason box: giữ nền tối và chữ đủ tương phản. */
+html.dark-mode .travel-tour-card .recommendation-reason-box {
+  background: rgba(34, 197, 94, 0.09) !important;
+  border-color: rgba(74, 222, 128, 0.22) !important;
+}
+html.dark-mode .travel-tour-card .recommendation-reason-box strong {
+  color: #86efac !important;
+}
+html.dark-mode .travel-tour-card .recommendation-reason-box li {
+  color: #d9e5f5 !important;
+}
+
+/* 2) ABOUT: bỏ đúng khung trắng ngoài sidebar, giữ nguyên card bên trong. */
+html.dark-mode .about-ecosystem-shell {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+html.dark-mode .about-ecosystem-shell .about-ecosystem-card {
+  background: #111b2d !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24) !important;
+}
+
+/* 3) TOURS FILTER: 2 ô "Chỉ tour Bán chạy / Được yêu thích"
+   không còn nền trắng trong dark mode. */
+html.dark-mode .travel-filter-panel .toggle-card,
+html.dark-mode .filter-panel .toggle-card {
+  background: #111b2d !important;
+  color: #dce8f8 !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+html.dark-mode .travel-filter-panel .toggle-card:hover,
+html.dark-mode .filter-panel .toggle-card:hover {
+  background: #16243a !important;
+  border-color: rgba(134, 239, 172, 0.28) !important;
+}
+html.dark-mode .travel-filter-panel .toggle-card input,
+html.dark-mode .filter-panel .toggle-card input {
+  accent-color: #72b44b;
+}
+
+/* Một số FilterSidebar dùng label inline background trắng thay cho .toggle-card. */
+html.dark-mode .travel-filter-panel label[style*="background: rgb(255, 255, 255)"],
+html.dark-mode .travel-filter-panel label[style*="background: #fff"],
+html.dark-mode .filter-panel label[style*="background: rgb(255, 255, 255)"],
+html.dark-mode .filter-panel label[style*="background: #fff"] {
+  background: #111b2d !important;
+  color: #dce8f8 !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+/* 4) TOUR DETAIL - Lịch trình: đúng các ô ngày đang trắng. */
+html.dark-mode .tour-detail-main-section .tour-itinerary-day-card {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+html.dark-mode .tour-detail-main-section .tour-itinerary-day-card h3 {
+  color: #f8fafc !important;
+}
+html.dark-mode .tour-detail-main-section .tour-itinerary-day-card p {
+  color: #b6c4d7 !important;
+}
+html.dark-mode .tour-detail-main-section .tour-itinerary-location {
+  background: #172338 !important;
+  color: #cbd8ea !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+/* 5) TOUR DETAIL - Chỗ ở + Phương tiện: inner service cards không còn trắng. */
+html.dark-mode .tour-detail-main-section .tour-service-item {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+html.dark-mode .tour-detail-main-section .tour-service-item > strong {
+  color: #f8fafc !important;
+}
+html.dark-mode .tour-detail-main-section .tour-service-item p {
+  color: #b6c4d7 !important;
+}
+html.dark-mode .tour-detail-main-section .tour-service-item span[style*="background: rgb(226, 232, 240)"],
+html.dark-mode .tour-detail-main-section .tour-service-item span[style*="background: #e2e8f0"] {
+  background: #1b2a40 !important;
+  color: #dce8f8 !important;
+}
+html.dark-mode .tour-detail-main-section .tour-service-item span[style*="background: rgb(255, 251, 235)"],
+html.dark-mode .tour-detail-main-section .tour-service-item span[style*="background: #fffbeb"] {
+  background: rgba(217, 119, 6, 0.14) !important;
+  color: #fbbf24 !important;
+}
+html.dark-mode .tour-detail-main-section .tour-service-item span[style*="background: rgb(239, 246, 255)"],
+html.dark-mode .tour-detail-main-section .tour-service-item span[style*="background: #eff6ff"] {
+  background: rgba(59, 130, 246, 0.14) !important;
+  color: #93c5fd !important;
+}
+
+/* 6) TOUR DETAIL - Đặt tour: card giá bên phải chuyển tối, giữ nút xanh nguyên. */
+html.dark-mode .tour-detail-main-section .tour-booking-price-card {
+  background: linear-gradient(180deg, #121d2f 0%, #0f1929 100%) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.26) !important;
+}
+html.dark-mode .tour-detail-main-section .tour-booking-price-card > div:first-child {
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+html.dark-mode .tour-detail-main-section .tour-booking-price-card span {
+  color: #aebed3 !important;
+}
+html.dark-mode .tour-detail-main-section .tour-booking-price-card strong {
+  color: #ffb547 !important;
+}
+
+/* 7) TOUR DETAIL - Đánh giá:
+   scope chỉ nằm trong review component, không ảnh hưởng phần khác. */
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell > * {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  color: #e8f0fb !important;
+}
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="background: rgb(255, 255, 255)"],
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="background: #fff"],
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="background-color: rgb(255, 255, 255)"],
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="background-color: #fff"] {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="background: rgb(248, 250, 252)"],
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="background: #f8fafc"],
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="background: rgb(241, 245, 249)"],
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="background: #f1f5f9"] {
+  background: #172338 !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell h1,
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell h2,
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell h3,
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell h4,
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell strong {
+  color: #f8fafc !important;
+}
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell p,
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell small,
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="color: rgb(71, 85, 105)"],
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="color: #475569"],
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="color: rgb(100, 116, 139)"],
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell [style*="color: #64748b"] {
+  color: #b6c4d7 !important;
+}
+
+/* Giữ filter sao của đánh giá sáng vừa phải để phân biệt nút, nhưng chữ tối rõ. */
+html.dark-mode .tour-detail-main-section .tour-review-dark-shell button {
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+/* 8) PROFILE - Phản hồi Admin trong lịch sử hoàn tiền.
+   Không đổi status pill hoặc các cột khác. */
+html.dark-mode .profile-page .refund-admin-note-cell {
+  color: #dce8f8 !important;
+}
+html.dark-mode .profile-page .refund-admin-note {
+  background: #172338 !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  color: #eaf2ff !important;
+}
+html.dark-mode .profile-page .refund-admin-note-cell[style*="italic"] .refund-admin-note {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: #a9b9ce !important;
+}
+
+/* Không để các selector cũ "span { color: inherit }" làm nhạt text quan trọng
+   trong đúng những vùng vừa sửa. */
+html.dark-mode .travel-tour-card .travel-tour-card-body .recommendation-score-badge {
+  color: #86efac !important;
+}
+
+/* ===== DARK BACKGROUND ONLY FIX 2026-08-11 11:32 =====
+   Chỉ đổi nền các khối còn trắng khi dark mode bật.
+   Không thay đổi logic, kích thước, vị trí, state hay hành vi.
+*/
+
+/* Popup chuông thông báo: component dùng role/aria-label cố định. */
+html.dark-mode body [role="dialog"][aria-label="Danh sách thông báo gần đây"] {
+  background: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.36) !important;
+}
+
+html.dark-mode body [role="dialog"][aria-label="Danh sách thông báo gần đây"] > div:first-child {
+  background: #111b2d !important;
+  border-bottom-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+html.dark-mode body [role="dialog"][aria-label="Danh sách thông báo gần đây"] > div:last-child {
+  background: #111b2d !important;
+}
+
+html.dark-mode body [role="dialog"][aria-label="Danh sách thông báo gần đây"] button {
+  background: #172338 !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+/* Nếu thông báo chưa đọc vốn dùng #eff6ff thì vẫn giữ khác biệt nhẹ nhưng tối. */
+html.dark-mode body [role="dialog"][aria-label="Danh sách thông báo gần đây"] button[style*="background: rgb(239, 246, 255)"],
+html.dark-mode body [role="dialog"][aria-label="Danh sách thông báo gần đây"] button[style*="background: #eff6ff"] {
+  background: #16263c !important;
+}
+
+/* Fallback rất hẹp cho đúng các hook đã có ở 4 trang vừa sửa. */
+html.dark-mode body .about-ecosystem-shell,
+html.dark-mode body .about-ecosystem-card,
+html.dark-mode body .tour-itinerary-day-card,
+html.dark-mode body .tour-service-item,
+html.dark-mode body .tour-booking-price-card,
+html.dark-mode body .tour-review-dark-shell,
+html.dark-mode body .travel-tour-card .travel-tour-card-body {
+  background-color: #111b2d !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+/* ===== FINAL 2 UI FIXES - 2026-08-11 11:38 =====
+   CHỈ SỬA:
+   1) Tour card nền trắng -> chữ tối để đọc rõ.
+   2) Ô điểm tổng đánh giá -> nền tối.
+   Không thay đổi logic/chức năng/bố cục.
+*/
+
+/* 1) HOME + TOURS:
+   Card thực tế vẫn đang nền trắng, vì vậy giữ nền trắng và ép chữ tối.
+   Scope chỉ trong TourCard. */
+html.dark-mode body .section-light .tour-card,
+html.dark-mode body .section-light .travel-tour-card,
+html.dark-mode body .section-light .premium-tour-card,
+html.dark-mode body .section-light .tour-card .card-body,
+html.dark-mode body .section-light .travel-tour-card .card-body,
+html.dark-mode body .section-light .travel-tour-card .travel-tour-card-body {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+html.dark-mode body .section-light .tour-card h1,
+html.dark-mode body .section-light .tour-card h2,
+html.dark-mode body .section-light .tour-card h3,
+html.dark-mode body .section-light .tour-card h4,
+html.dark-mode body .section-light .tour-card strong,
+html.dark-mode body .section-light .travel-tour-card h1,
+html.dark-mode body .section-light .travel-tour-card h2,
+html.dark-mode body .section-light .travel-tour-card h3,
+html.dark-mode body .section-light .travel-tour-card h4,
+html.dark-mode body .section-light .travel-tour-card strong {
+  color: #0f172a !important;
+}
+
+html.dark-mode body .section-light .tour-card p,
+html.dark-mode body .section-light .tour-card small,
+html.dark-mode body .section-light .tour-card .muted,
+html.dark-mode body .section-light .tour-card .label,
+html.dark-mode body .section-light .travel-tour-card p,
+html.dark-mode body .section-light .travel-tour-card small,
+html.dark-mode body .section-light .travel-tour-card .muted,
+html.dark-mode body .section-light .travel-tour-card .tour-location-line,
+html.dark-mode body .section-light .travel-tour-card .tour-meta-inline,
+html.dark-mode body .section-light .travel-tour-card .tour-rating-line,
+html.dark-mode body .section-light .travel-tour-card .tour-bottom-line {
+  color: #475569 !important;
+}
+
+/* Giá phải rõ trên nền trắng. */
+html.dark-mode body .section-light .travel-tour-card .travel-tour-price-row strong,
+html.dark-mode body .section-light .tour-card .price-row strong {
+  color: #0f172a !important;
+}
+
+/* Các badge/chip vẫn sáng nhẹ như giao diện gốc và chữ tối rõ. */
+html.dark-mode body .section-light .tour-card .chip,
+html.dark-mode body .section-light .tour-card .badge,
+html.dark-mode body .section-light .tour-card .pill,
+html.dark-mode body .section-light .travel-tour-card .chip,
+html.dark-mode body .section-light .travel-tour-card .badge,
+html.dark-mode body .section-light .travel-tour-card .pill {
+  color: #334155 !important;
+}
+
+/* Hộp "Vì sao chọn tour này?" đang nền sáng thì chữ phải tối. */
+html.dark-mode body .section-light .travel-tour-card .recommendation-reason-box {
+  background: #f0fdf4 !important;
+  border-color: #bbf7d0 !important;
+}
+html.dark-mode body .section-light .travel-tour-card .recommendation-reason-box strong {
+  color: #15803d !important;
+}
+html.dark-mode body .section-light .travel-tour-card .recommendation-reason-box li {
+  color: #334155 !important;
+}
+
+/* 2) TOUR DETAIL - chỉ ô điểm tổng đánh giá 4.x/5.
+   Bắt đúng các tone kem/sáng thường dùng trong review summary. */
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: rgb(255, 247, 237)"],
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: #fff7ed"],
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background-color: rgb(255, 247, 237)"],
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background-color: #fff7ed"],
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: rgb(255, 251, 235)"],
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: #fffbeb"] {
+  background: #172338 !important;
+  border-color: rgba(245, 158, 11, 0.32) !important;
+}
+
+/* Chữ/số trong đúng ô điểm tổng phải sáng rõ trên nền tối. */
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: rgb(255, 247, 237)"] *,
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: #fff7ed"] *,
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: rgb(255, 251, 235)"] *,
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: #fffbeb"] * {
+  color: #f8fafc !important;
+}
+
+/* Sao vẫn giữ màu cam/vàng. */
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: rgb(255, 247, 237)"] [style*="color: rgb(245, 158, 11)"],
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: #fff7ed"] [style*="color: #f59e0b"],
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: rgb(255, 251, 235)"] [style*="color: rgb(245, 158, 11)"],
+html.dark-mode body .tour-detail-main-section .tour-review-dark-shell
+[style*="background: #fffbeb"] [style*="color: #f59e0b"] {
+  color: #f59e0b !important;
+}
+
+/* ===== TOUR CARD TEXT ONLY FIX - 2026-08-11 11:46 =====
+   Chỉ sửa chữ trong phần thân TourCard khi card vẫn có nền trắng ở dark mode.
+   KHÔNG thay nền, layout, API, state, event hay logic.
+   TourCard thực tế là <article style={styles.card}> và không có class tour-card,
+   nên target theo 2 grid đang render TourCard ở Home và /tours.
+*/
+
+/* Card ở Home: TourCard là article trực tiếp trong .travel-card-grid-3 */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child,
+/* Card ở /tours: TourCard nằm trong wrapper div trực tiếp của .travel-tour-grid-3 */
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child {
+  color: #334155 !important;
+}
+
+/* Tên tour */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child h3,
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child h3 {
+  color: #0f172a !important;
+}
+
+/* Thông tin phụ: thời lượng, số review, nhãn giá... */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child span,
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child span {
+  color: #475569 !important;
+}
+
+/* Rating / giá và các strong inline vốn bị rule dark mode toàn cục ép trắng */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child strong,
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child strong {
+  color: #1e293b !important;
+}
+
+/* Nội dung "Vì sao chọn tour này?" */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child li,
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child li {
+  color: #334155 !important;
+}
+
+/* Địa điểm giữ xanh như giao diện sáng. */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child > div:first-child,
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child > div:first-child {
+  color: #2563eb !important;
+}
+
+/* Link/nút Xem chi tiết vẫn giữ chữ trắng, không bị rule trên tác động. */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child a,
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child a {
+  color: #ffffff !important;
+}
+
+/* Badge phù hợp có nền xanh nhạt -> giữ chữ xanh đậm. */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child span[style*="background: rgb(220, 252, 231)"],
+html.dark-mode body .travel-card-grid-3 > article > div:last-child span[style*="background: #dcfce7"],
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child span[style*="background: rgb(220, 252, 231)"],
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child span[style*="background: #dcfce7"] {
+  color: #166534 !important;
+}
+
+/* Tiêu đề "Vì sao chọn tour này?" giữ màu xanh dương như style gốc. */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child strong[style*="color: rgb(29, 78, 216)"],
+html.dark-mode body .travel-card-grid-3 > article > div:last-child strong[style*="color: #1d4ed8"],
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child strong[style*="color: rgb(29, 78, 216)"],
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child strong[style*="color: #1d4ed8"] {
+  color: #1d4ed8 !important;
+}
+
+/* Giá tour style gốc là đỏ -> trả đúng màu đỏ thay vì trắng. */
+html.dark-mode body .travel-card-grid-3 > article > div:last-child strong[style*="color: rgb(239, 68, 68)"],
+html.dark-mode body .travel-card-grid-3 > article > div:last-child strong[style*="color: #ef4444"],
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child strong[style*="color: rgb(239, 68, 68)"],
+html.dark-mode body .travel-tour-grid-3 > div > article > div:last-child strong[style*="color: #ef4444"] {
+  color: #ef4444 !important;
+}
+

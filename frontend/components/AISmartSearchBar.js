@@ -481,6 +481,7 @@ export default function AISmartSearchBar({
 }) {
   const { showToast } = useToast();
   const fileRef = useRef(null);
+  const selectedImageFileRef = useRef(null);
   const [keyword, setKeyword] = useState("");
   const [busy, setBusy] = useState(false);
   const [summary, setSummary] = useState("");
@@ -522,6 +523,10 @@ export default function AISmartSearchBar({
       return;
     }
 
+    // Giữ lại File object để người dùng có thể bấm "Tìm" và chạy lại
+    // chính ảnh đã upload mà không cần chọn/upload lại ảnh.
+    selectedImageFileRef.current = file;
+
     if (imagePreview) {
       URL.revokeObjectURL(imagePreview);
     }
@@ -546,9 +551,7 @@ export default function AISmartSearchBar({
 
       const external = result?.external_recognition || null;
 
-      const externalRecognized = Boolean(
-        external?.recognized && Number(external?.confidence || 0) >= 0.72,
-      );
+      const externalRecognized = Boolean(external?.recognized);
 
       const externalLocation =
         external?.province || external?.destination || external?.landmark || "";
@@ -992,6 +995,7 @@ export default function AISmartSearchBar({
                 title="Xóa ảnh"
                 onClick={() => {
                   URL.revokeObjectURL(imagePreview);
+                  selectedImageFileRef.current = null;
                   setImagePreview("");
                   setMatches([]);
                   setSummary("");
@@ -1032,6 +1036,7 @@ export default function AISmartSearchBar({
               setKeyword(e.target.value);
               if (imagePreview) {
                 URL.revokeObjectURL(imagePreview);
+                selectedImageFileRef.current = null;
                 setImagePreview("");
                 setMatches([]);
               }
@@ -1087,7 +1092,14 @@ export default function AISmartSearchBar({
         <button
           type="button"
           className="btn btn-primary smart-search-submit"
-          onClick={searchText}
+          onClick={() => {
+            if (imagePreview && selectedImageFileRef.current) {
+              imageSearch(selectedImageFileRef.current);
+              return;
+            }
+
+            searchText();
+          }}
           disabled={busy}
           style={{
             width: "100px",

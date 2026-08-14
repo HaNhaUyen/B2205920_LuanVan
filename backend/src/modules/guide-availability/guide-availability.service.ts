@@ -56,6 +56,48 @@ export class GuideAvailabilityService {
     };
   }
 
+  /**
+   * Yêu cầu chờ duyệt được xem là "cần xử lý gấp" khi ngày bắt đầu
+   * nằm trong 3 ngày tới hoặc đã tới/quá ngày bắt đầu mà vẫn chưa xử lý.
+   * Quy tắc này chỉ phục vụ ưu tiên xử lý ở màn hình Admin,
+   * không thay đổi nghiệp vụ duyệt/từ chối/thay HDV hiện có.
+   */
+  private urgentDeadline() {
+    const deadline = new Date();
+    deadline.setHours(23, 59, 59, 999);
+    deadline.setDate(deadline.getDate() + 3);
+    return deadline;
+  }
+
+  private startOfToday() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  }
+
+  private daysUntil(value: Date) {
+    const start = new Date(value);
+    start.setHours(0, 0, 0, 0);
+    const today = this.startOfToday();
+    return Math.round(
+      (start.getTime() - today.getTime()) / (24 * 60 * 60 * 1000),
+    );
+  }
+
+  private isExpiredRequest(value: Date) {
+    const start = new Date(value);
+    start.setHours(0, 0, 0, 0);
+    return start.getTime() < this.startOfToday().getTime();
+  }
+
+  private assertRequestStillActionable(startAt: Date) {
+    if (this.isExpiredRequest(startAt)) {
+      throw new BadRequestException(
+        "Yêu cầu lịch bận đã quá ngày bắt đầu. Chỉ được xem, không thể tiếp tục xử lý.",
+      );
+    }
+  }
+
   private async findOtherAssignmentConflicts(
     guideId: bigint,
     startAt: Date,
@@ -125,6 +167,10 @@ export class GuideAvailabilityService {
         "Thời gian kết thúc phải sau thời gian bắt đầu.",
       );
     }
+
+    this.normalizeType(dto.availabilityType);
+    if (String(dto.reason || "").trim().length > 500)
+      throw new BadRequestException("Lý do lịch bận tối đa 500 ký tự.");
 
     const duplicated = await this.prisma.guideAvailability.findFirst({
       where: {
@@ -215,6 +261,14 @@ export class GuideAvailabilityService {
       );
     }
 
+    if (dto.availabilityType !== undefined)
+      this.normalizeType(dto.availabilityType);
+    if (
+      dto.reason !== undefined &&
+      String(dto.reason || "").trim().length > 500
+    )
+      throw new BadRequestException("Lý do lịch bận tối đa 500 ký tự.");
+
     return this.prisma.guideAvailability.update({
       where: { id },
       data: {
@@ -256,9 +310,20 @@ export class GuideAvailabilityService {
     const pageSize = Math.min(Math.max(Number(query.pageSize || 10), 1), 100);
     const status = String(query.status || "pending").trim();
     const search = String(query.search || "").trim();
+    const urgency = String(query.urgency || "all").trim();
 
     const where: any = {};
     if (status && status !== "all") where.status = status;
+
+    // Filter "Cần xử lý gấp": chỉ lấy yêu cầu chưa xử lý có ngày bắt đầu
+    // trong vòng 3 ngày tới hoặc đã sát/quá ngày.
+    if (urgency === "urgent") {
+      where.status = "pending";
+      where.startAt = {
+        gte: this.startOfToday(),
+        lte: this.urgentDeadline(),
+      };
+    }
     if (search) {
       where.OR = [
         { reason: { contains: search } },
@@ -299,13 +364,51 @@ export class GuideAvailabilityService {
           item.endAt,
           item.guideAssignmentId,
         );
+        const daysUntilStart = this.daysUntil(item.startAt);
+        const isExpired = this.isExpiredRequest(item.startAt);
+        const isUrgent =
+          item.status === "pending" &&
+          !isExpired &&
+          item.startAt.getTime() <= this.urgentDeadline().getTime();
+
+        let currentReplacementAssignment: any = null;
+
+        // Nếu yêu cầu đã được duyệt bằng cách thay HDV, guideAssignment gốc
+        // vẫn được giữ để lưu lịch sử (status = replaced). Khi xem lại chi tiết,
+        // tìm assignment đang hoạt động của cùng booking để hiển thị đúng HDV mới.
+        if (
+          item.guideAssignment?.bookingId &&
+          String(item.guideAssignment?.status || "").toLowerCase() ===
+            "replaced"
+        ) {
+          currentReplacementAssignment =
+            await this.prisma.guideAssignment.findFirst({
+              where: {
+                bookingId: item.guideAssignment.bookingId,
+                id: { not: item.guideAssignment.id },
+                status: { in: ACTIVE_ASSIGNMENT_STATUSES },
+              },
+              include: {
+                guide: true,
+                tour: { include: { destination: true } },
+                booking: { include: { departure: true } },
+              },
+              orderBy: { id: "desc" },
+            });
+        }
+
         return {
           ...item,
           replacementRequired: Boolean(item.guideAssignmentId),
           replacementAssignment: item.guideAssignment || null,
+          currentReplacementAssignment,
+          replacementGuide: currentReplacementAssignment?.guide || null,
           otherConflicts,
           otherConflictCount: otherConflicts.length,
           conflictCount: otherConflicts.length,
+          daysUntilStart,
+          isUrgent,
+          isExpired,
         };
       }),
     );
@@ -338,6 +441,11 @@ export class GuideAvailabilityService {
     if (item.status !== "pending") {
       throw new BadRequestException("Yêu cầu này đã được xử lý trước đó.");
     }
+
+    // Chặn cả API trực tiếp: khi đã qua ngày bắt đầu thì yêu cầu chỉ còn
+    // giá trị lịch sử và không được duyệt/từ chối nữa.
+    this.assertRequestStillActionable(item.startAt);
+
     if (action === "approve" && item.guideAssignmentId) {
       throw new BadRequestException(
         "Yêu cầu này gắn với tour đã phân công. Vui lòng chọn HDV thay thế rồi duyệt.",
@@ -417,6 +525,10 @@ export class GuideAvailabilityService {
     if (item.status !== "pending") {
       throw new BadRequestException("Yêu cầu này đã được xử lý trước đó.");
     }
+
+    // Yêu cầu đã quá ngày bắt đầu không được thay HDV/duyệt nữa.
+    this.assertRequestStillActionable(item.startAt);
+
     if (!item.guideAssignment) {
       throw new BadRequestException(
         "Yêu cầu này không gắn với tour cần thay HDV.",
@@ -434,6 +546,15 @@ export class GuideAvailabilityService {
     }
 
     const assignment = item.guideAssignment;
+
+    // Không cho phép đổi HDV khi tour đã bắt đầu hoặc đã qua thời điểm khởi hành.
+    // Đây là chặn backend, nên kể cả gọi API trực tiếp cũng không thể phân công lại.
+    if (new Date(assignment.startDate).getTime() <= Date.now()) {
+      throw new BadRequestException(
+        "Tour đã bắt đầu hoặc đã qua ngày dẫn tour, không thể phân công lại hướng dẫn viên.",
+      );
+    }
+
     const overlap = await this.prisma.guideAssignment.findFirst({
       where: {
         guideId: replacementGuideId,

@@ -140,7 +140,10 @@ export default function NotificationsPage() {
   if (loading) return <Loading text="Đang tải thông báo..." />;
 
   return (
-    <section style={{ padding: "32px 0 60px", background: "#f8fafc" }}>
+    <section
+      className="notifications-page"
+      style={{ padding: "32px 0 60px", background: "#f8fafc" }}
+    >
       <div className="container" style={{ display: "grid", gap: 20 }}>
         <div
           style={{

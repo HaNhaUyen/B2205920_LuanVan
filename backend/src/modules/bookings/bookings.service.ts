@@ -1170,6 +1170,12 @@ export class BookingsService {
             },
           },
         ],
+        // Cho phép khách đặt thêm nếu là CHÍNH LỊCH KHỞI HÀNH đang chọn.
+        // Chỉ xem là xung đột khi booking đang hoạt động thuộc departure khác
+        // và khoảng thời gian hai chuyến giao nhau.
+        departureId: {
+          not: input.departureId,
+        },
         departure: {
           is: {
             // Khoảng ngày được tính inclusive ở cả hai đầu.
@@ -1209,15 +1215,6 @@ export class BookingsService {
     const newStart = this.formatBookingDate(input.departureDate);
     const newEnd = this.formatBookingDate(input.endDate);
     const tourName = conflict.tour?.name || "tour đã đặt";
-
-    const sameDeparture =
-      String(conflict.departureId) === String(input.departureId);
-
-    if (sameDeparture) {
-      throw new BadRequestException(
-        `Bạn đã có booking ${conflict.bookingCode} cho lịch khởi hành này (${oldStart} - ${oldEnd}). Không thể tạo booking trùng.`,
-      );
-    }
 
     throw new BadRequestException(
       `Không thể đặt tour vì lịch bạn chọn (${newStart} - ${newEnd}) bị trùng với booking ${conflict.bookingCode} - ${tourName} (${oldStart} - ${oldEnd}). Vui lòng chọn lịch khởi hành sau ngày ${oldEnd} hoặc một khoảng thời gian không giao với chuyến đã đặt.`,
@@ -1520,6 +1517,8 @@ export class BookingsService {
       );
     }
 
+    const normalizedGuestIds = new Set<string>();
+
     return guests.map((guest, index) => {
       const fullName = String(guest.fullName || "").trim();
       if (!fullName) {
@@ -1528,23 +1527,100 @@ export class BookingsService {
         );
       }
 
+      const strictWebGuestValidation = Boolean(guest.idType);
+
       let dateOfBirth: Date | null = null;
       if (guest.dateOfBirth) {
-        const parsed = new Date(guest.dateOfBirth);
-        if (Number.isNaN(parsed.getTime())) {
+        const parsedDate = new Date(
+          `${String(guest.dateOfBirth).slice(0, 10)}T00:00:00`,
+        );
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (Number.isNaN(parsedDate.getTime()) || parsedDate > today) {
           throw new BadRequestException(
-            `Ngày sinh của hành khách ${fullName} không hợp lệ.`,
+            `Ngày sinh của hành khách ${fullName} không hợp lệ hoặc nằm trong tương lai.`,
           );
         }
-        dateOfBirth = parsed;
+        dateOfBirth = parsedDate;
+      } else if (strictWebGuestValidation) {
+        throw new BadRequestException(
+          `Vui lòng nhập ngày sinh của hành khách ${fullName}.`,
+        );
+      }
+
+      const gender = guest.gender ? String(guest.gender).trim() : null;
+      if (gender && !["male", "female", "other"].includes(gender)) {
+        throw new BadRequestException(
+          `Giới tính của hành khách ${fullName} không hợp lệ.`,
+        );
+      }
+      if (strictWebGuestValidation && !gender) {
+        throw new BadRequestException(
+          `Vui lòng chọn giới tính của hành khách ${fullName}.`,
+        );
+      }
+
+      const idType = guest.idType ? String(guest.idType).trim() : null;
+      if (
+        idType &&
+        !["id_card", "passport", "birth_certificate"].includes(idType)
+      ) {
+        throw new BadRequestException(
+          `Loại giấy tờ của hành khách ${fullName} không hợp lệ.`,
+        );
+      }
+
+      const idNumber = guest.idNumber ? String(guest.idNumber).trim() : null;
+
+      if (strictWebGuestValidation && !idNumber) {
+        throw new BadRequestException(
+          `Vui lòng nhập số giấy tờ của hành khách ${fullName}.`,
+        );
+      }
+
+      if (idType === "id_card" && idNumber && !/^\d{12}$/.test(idNumber)) {
+        throw new BadRequestException(
+          `CCCD của hành khách ${fullName} phải gồm đúng 12 chữ số.`,
+        );
+      }
+
+      if (
+        idType === "passport" &&
+        idNumber &&
+        !/^[A-Za-z0-9]{4,20}$/.test(idNumber)
+      ) {
+        throw new BadRequestException(
+          `Số hộ chiếu của hành khách ${fullName} chỉ gồm chữ và số, từ 4 đến 20 ký tự.`,
+        );
+      }
+
+      if (
+        idType === "birth_certificate" &&
+        idNumber &&
+        !/^[A-Za-z0-9\-\/.]{2,50}$/.test(idNumber)
+      ) {
+        throw new BadRequestException(
+          `Số giấy khai sinh của hành khách ${fullName} không hợp lệ.`,
+        );
+      }
+
+      if (idNumber) {
+        const normalizedGuestId = idNumber.toLowerCase();
+        if (normalizedGuestIds.has(normalizedGuestId)) {
+          throw new BadRequestException(
+            `Số giấy tờ của hành khách ${fullName} bị trùng với hành khách khác trong booking.`,
+          );
+        }
+        normalizedGuestIds.add(normalizedGuestId);
       }
 
       return {
         fullName,
         dateOfBirth,
-        gender: guest.gender ? String(guest.gender).trim() : null,
+        gender,
         guestType: guest.guestType,
-        idNumber: guest.idNumber ? String(guest.idNumber).trim() : null,
+        idNumber,
       };
     });
   }

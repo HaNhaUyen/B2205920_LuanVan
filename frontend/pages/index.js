@@ -102,6 +102,17 @@ function getRecommendationPercent(tour) {
   return numeric <= 1 ? numeric * 100 : numeric;
 }
 
+function normalizeHomeSearchText(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function sortByRecommendationPercent(tours = []) {
   return [...tours].sort((first, second) => {
     const firstPercent = getRecommendationPercent(first);
@@ -228,11 +239,24 @@ export default function HomePage() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const params = new URLSearchParams();
-    formData.forEach((value, key) => {
-      if (value) params.set(key, value.toString());
-    });
 
     const keyword = String(formData.get("search") || "").trim();
+    const normalizedKeyword = normalizeHomeSearchText(keyword);
+
+    // Nếu người dùng nhập đúng tên một điểm đến đang có trong hệ thống
+    // (kể cả không dấu, ví dụ "phu quoc"), dùng bộ lọc điểm đến thay vì
+    // tìm kiếm từ khóa rộng. Nhờ vậy "Phú Quốc" không bị lẫn tour Đà Lạt.
+    const exactDestination = destinations.find(
+      (destination) =>
+        normalizeHomeSearchText(destination?.name) === normalizedKeyword,
+    );
+
+    if (exactDestination) {
+      params.set("destination", exactDestination.name);
+    } else if (keyword) {
+      params.set("search", keyword);
+    }
+
     if (keyword) {
       trackBehavior({
         action: "search",
@@ -298,6 +322,24 @@ export default function HomePage() {
               grid-template-columns: 1fr !important;
             }
           }
+
+
+          /* DARK MODE - chỉ đổi nền các card tour đang còn trắng */
+          html.dark-mode body .travel-tour-card,
+          html.dark-mode body .travel-tour-card .travel-tour-card-body,
+          html.dark-mode body .travel-tour-card .card-body,
+          html.dark-mode body .tour-card,
+          html.dark-mode body .tour-card .travel-tour-card-body,
+          html.dark-mode body .tour-card .card-body {
+            background: #111b2d !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+          }
+
+          html.dark-mode body .travel-tour-card .recommendation-reason-box {
+            background: #172338 !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+          }
+
         `,
         }}
       />

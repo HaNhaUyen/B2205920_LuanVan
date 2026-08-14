@@ -4,12 +4,15 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from "class-validator";
 
 export class UpdateProfileDto {
   @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== "")
   @IsEmail({}, { message: "Email không đúng định dạng." })
   @Transform(({ value }) =>
     typeof value === "string" ? value.trim().toLowerCase() : value,
@@ -23,17 +26,26 @@ export class UpdateProfileDto {
   fullName?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== "")
   @IsString()
   @MaxLength(20)
   phone?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== "")
   @IsString()
+  @Matches(/^\d{12}$/, {
+    message: "CCCD phải gồm đúng 12 chữ số.",
+  })
   @MaxLength(30)
   identityNumber?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== "")
   @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: "Ngày sinh phải có định dạng YYYY-MM-DD.",
+  })
   birthDate?: string | null;
 
   @IsOptional()

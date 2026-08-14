@@ -6,6 +6,7 @@ import io
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, Optional
 
 import requests
@@ -13,7 +14,20 @@ from PIL import Image
 
 
 REQUEST_SESSION = requests.Session()
-MAX_EXTERNAL_IMAGE_SIDE = int(os.getenv("EXTERNAL_VISION_MAX_IMAGE_SIDE", "1024"))
+_external_max_side = int(os.getenv("EXTERNAL_VISION_MAX_IMAGE_SIDE", "1400"))
+_primary_max_side = int(os.getenv("EXTERNAL_VISION_PRIMARY_MAX_IMAGE_SIDE", "1024"))
+
+# Ảnh 960-1280px đã đủ cho nhận diện landmark phổ biến, gửi full 1800px
+# chỉ làm payload lớn hơn và chậm hơn.
+MAX_EXTERNAL_IMAGE_SIDE = (
+    _primary_max_side
+    if _primary_max_side > 0
+    else min(_external_max_side if _external_max_side > 0 else 1024, 1024)
+)
+JPEG_QUALITY = max(
+    75,
+    min(92, int(os.getenv("EXTERNAL_VISION_JPEG_QUALITY", "86"))),
+)
 
 
 TRAVEL_IMAGE_TYPES = {
@@ -68,7 +82,7 @@ def _image_to_data_url(
     image.save(
         buffer,
         format="JPEG",
-        quality=88,
+        quality=JPEG_QUALITY,
         optimize=True,
     )
 
@@ -363,7 +377,7 @@ def _request_json_with_retry(
 
     attempts.append(payload_short)
 
-    max_retries = max(0, int(os.getenv("EXTERNAL_VISION_MAX_RETRIES", "0")))
+    max_retries = max(0, int(os.getenv("EXTERNAL_VISION_MAX_RETRIES", "2")))
     attempts = attempts[: max(1, min(len(attempts), 1 + max_retries))]
     errors: list[str] = []
 
@@ -446,7 +460,7 @@ def _request_vision(
         int(
             os.getenv(
                 "EXTERNAL_VISION_TIMEOUT_SECONDS",
-                os.getenv("VISION_REQUEST_TIMEOUT_SECONDS", "8"),
+                os.getenv("VISION_REQUEST_TIMEOUT_SECONDS", "10"),
             ),
         ),
     )
@@ -456,19 +470,43 @@ def _request_vision(
     )
 
     system_prompt = """
-Bạn là bộ kiểm định và nhận diện địa danh du lịch từ hình ảnh.
+Bạn là bộ kiểm định và nhận diện địa danh du lịch từ hình ảnh trên TOÀN THẾ GIỚI.
+
+Bạn phải nhận diện được cả địa danh ngoài dataset nội bộ của Travela nếu hình ảnh có đủ đặc trưng.
+Ví dụ điển hình:
+- Big Ben / Elizabeth Tower ở London, Vương quốc Anh.
+- Núi Phú Sĩ ở Nhật Bản.
+- Sydney Opera House ở Sydney, Úc.
+- Tháp Eiffel ở Paris, Pháp.
+- Kim tự tháp Giza ở Ai Cập.
+- Núi Bà Đen ở Tây Ninh, Việt Nam.
+
+Không được giới hạn câu trả lời trong các điểm đến Việt Nam hay trong dataset nội bộ.
 
 Thực hiện đúng thứ tự:
 
 Bước 1 - phân loại ảnh thành đúng một loại:
 - travel_landscape: phong cảnh hoặc địa danh du lịch thật.
 - building_landmark: công trình, tượng, tháp hoặc kiến trúc nổi tiếng.
-- document: giấy tờ, chữ viết tay, bảng biểu, sơ đồ, bài tập hoặc tài liệu.
-- screenshot: ảnh chụp màn hình, giao diện hoặc nội dung số.
+- document: giấy tờ, trang PDF/Word, bài tập, biểu mẫu, bảng biểu, sơ đồ,
+  tài liệu học tập/làm việc hoặc ảnh chụp một trang tài liệu có nhiều chữ.
+- screenshot: ảnh chụp màn hình máy tính/điện thoại, trình duyệt, IDE,
+  ứng dụng, website, giao diện, cửa sổ phần mềm hoặc nội dung số.
 - object: đồ vật thông thường.
 - food: món ăn.
 - animal: động vật.
 - unknown: không xác định.
+
+QUY TẮC ƯU TIÊN PHÂN LOẠI:
+- Nếu ảnh có khung cửa sổ, thanh trình duyệt, menu, nút bấm, con trỏ,
+  thanh tác vụ hoặc bố cục giao diện số => ưu tiên screenshot.
+- Nếu phần lớn ảnh là chữ, đoạn văn, bảng, biểu mẫu, đề bài, PDF/Word
+  hoặc trang giấy được chụp lại => ưu tiên document.
+- Một ảnh document/screenshot có chứa hình minh họa công trình du lịch
+  vẫn phải là document/screenshot nếu công trình chỉ là nội dung nằm bên
+  trong tài liệu/giao diện, không phải ảnh chụp trực tiếp địa danh.
+- Chỉ dùng travel_landscape/building_landmark khi bản thân ảnh là cảnh
+  hoặc công trình du lịch thật, không phải ảnh của màn hình/tài liệu.
 
 Bước 2:
 Chỉ nhận diện địa danh khi image_type là travel_landscape
@@ -517,7 +555,7 @@ Chỉ trả về một JSON object hợp lệ, không markdown:
     payload: Dict[str, Any] = {
         "model": model,
         "temperature": 0.0,
-        "max_tokens": 900,
+        "max_tokens": 240,
         "messages": [
             {
                 "role": "system",
@@ -529,8 +567,12 @@ Chỉ trả về một JSON object hợp lệ, không markdown:
                     {
                         "type": "text",
                         "text": (
-                            "Phân loại ảnh trước rồi nhận diện địa danh nổi tiếng. "
-                            "Nếu là tài liệu thì recognized=false. "
+                            "Phân loại ảnh trước rồi nhận diện địa danh nổi tiếng trên toàn thế giới. "
+                            "Ảnh có thể thuộc hoặc không thuộc dataset Travela. "
+                            "Nếu là tài liệu hoặc ảnh chụp màn hình thì phải trả image_type=document/screenshot và recognized=false; "
+                            "không được nhận diện hình minh họa nằm bên trong tài liệu/giao diện thành landmark thật. "
+                            "Nếu nhận diện được Big Ben, Núi Phú Sĩ, Sydney Opera House hoặc landmark quốc tế khác "
+                            "thì trả đúng tên landmark, thành phố/điểm đến, tỉnh/bang nếu có và quốc gia. "
                             "Chỉ trả JSON."
                         ),
                     },
@@ -544,6 +586,17 @@ Chỉ trả về một JSON object hợp lệ, không markdown:
             },
         ],
     }
+
+    # Qwen 3.6 trên Groq có reasoning mặc định. Khi kết hợp JSON mode,
+    # reasoning dạng raw có thể gây HTTP 400; còn khi bỏ JSON mode,
+    # phần <think> có thể làm nội dung không còn là JSON thuần.
+    # Chỉ áp dụng cho đúng provider/model này, không thay đổi provider khác.
+    if (
+        provider == "groq"
+        and str(model or "").strip().lower() == "qwen/qwen3.6-27b"
+    ):
+        payload["reasoning_effort"] = "none"
+        payload["reasoning_format"] = "hidden"
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -657,93 +710,143 @@ def recognize_landmark(
     ).strip().lower()
 
     handlers: list[
-        Callable[
-            [Image.Image],
-            Optional[Dict[str, Any]],
+        tuple[
+            str,
+            Callable[
+                [Image.Image],
+                Optional[Dict[str, Any]],
+            ],
         ]
     ]
 
     if provider == "groq":
         handlers = [
-            _groq_handler,
+            ("groq", _groq_handler),
         ]
 
     elif provider == "openrouter":
         handlers = [
-            _openrouter_handler,
+            ("openrouter", _openrouter_handler),
         ]
 
     else:
         handlers = [
-            _groq_handler,
-            _openrouter_handler,
+            ("groq", _groq_handler),
+            ("openrouter", _openrouter_handler),
         ]
 
     errors: list[str] = []
-
     last_result: Optional[
         Dict[str, Any]
     ] = None
 
-    for handler in handlers:
+    # Provider cụ thể: giữ nguyên luồng cũ 100%.
+    if len(handlers) == 1:
+        name, handler = handlers[0]
+
         try:
-            result = handler(
-                image,
-            )
+            result = handler(image)
 
             if result is None:
-                continue
-
-            last_result = result
-
-            if result.get(
-                "recognized",
-            ):
-                return result
-
-            image_type = str(
-                result.get(
-                    "image_type",
+                return _empty_result(
+                    enabled=True,
+                    provider=None,
+                    reason=(
+                        f"Chưa cấu hình provider {name}."
+                    ),
                 )
-                or "unknown",
-            ).lower()
 
-            if (
-                image_type
-                in NON_TRAVEL_IMAGE_TYPES
-            ):
-                return result
-
-            errors.append(
-                f"{result.get('provider')}: "
-                f"{result.get('reason') or 'không nhận diện chắc chắn'}",
-            )
+            return result
 
         except Exception as exc:
-            errors.append(
-                f"{handler.__name__}: {exc}",
+            error = f"{handler.__name__}: {exc}"
+            return _empty_result(
+                enabled=True,
+                provider=None,
+                reason=error,
+                errors=[error],
             )
 
-    if last_result is not None:
-        last_result["errors"] = (
-            errors
+    # AUTO:
+    # Vẫn quyết định theo thứ tự cũ Groq -> OpenRouter.
+    # Chỉ khởi chạy OpenRouter sớm ở background để nếu Groq thất bại/
+    # không nhận diện chắc chắn thì không phải chờ OpenRouter từ đầu.
+    #
+    # Không có EXTERNAL_VISION_TOTAL_TIMEOUT_SECONDS và không cắt request ở 5s.
+    executor = ThreadPoolExecutor(max_workers=2)
+    futures = {
+        name: executor.submit(handler, image)
+        for name, handler in handlers
+    }
+
+    try:
+        for name, handler in handlers:
+            future = futures[name]
+
+            try:
+                result = future.result()
+
+                if result is None:
+                    continue
+
+                last_result = result
+
+                if result.get(
+                    "recognized",
+                ):
+                    return result
+
+                image_type = str(
+                    result.get(
+                        "image_type",
+                    )
+                    or "unknown",
+                ).lower()
+
+                if (
+                    image_type
+                    in NON_TRAVEL_IMAGE_TYPES
+                ):
+                    return result
+
+                errors.append(
+                    f"{result.get('provider')}: "
+                    f"{result.get('reason') or 'không nhận diện chắc chắn'}",
+                )
+
+            except Exception as exc:
+                error = f"{handler.__name__}: {exc}"
+                errors.append(error)
+
+        if last_result is not None:
+            last_result["errors"] = (
+                errors
+            )
+
+            return last_result
+
+        reason = (
+            "; ".join(errors)
+            if errors
+            else (
+                "Chưa cấu hình "
+                "GROQ_VISION_MODEL hoặc "
+                "OPENROUTER_VISION_MODEL."
+            )
         )
 
-        return last_result
-
-    reason = (
-        "; ".join(errors)
-        if errors
-        else (
-            "Chưa cấu hình "
-            "GROQ_VISION_MODEL hoặc "
-            "OPENROUTER_VISION_MODEL."
+        return _empty_result(
+            enabled=True,
+            provider=None,
+            reason=reason,
+            errors=errors,
         )
-    )
 
-    return _empty_result(
-        enabled=True,
-        provider=None,
-        reason=reason,
-        errors=errors,
-    )
+    finally:
+        # Các request đã có timeout riêng trong _request_vision().
+        # Không cộng thêm một timeout tổng làm thay đổi kết quả.
+        executor.shutdown(
+            wait=False,
+            cancel_futures=True,
+        )
+

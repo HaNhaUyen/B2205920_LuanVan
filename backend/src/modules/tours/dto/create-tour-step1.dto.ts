@@ -1,34 +1,56 @@
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
-} from 'class-validator';
+  MinLength,
+} from "class-validator";
 
 export class CreateTourStep1Dto {
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   code?: string;
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(3)
+  @MaxLength(160)
   name!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(180)
   slug?: string;
 
   @IsNumber()
+  @IsInt()
+  @Min(1)
   destinationId!: number;
 
   @IsString()
-  tourType!: 'group' | 'private';
+  @IsIn(["group", "private"])
+  tourType!: "group" | "private";
 
   @IsString()
+  @IsNotEmpty()
+  @IsIn([
+    "beach",
+    "mountain",
+    "city",
+    "culture",
+    "adventure",
+    "eco",
+    "family",
+    "luxury",
+    "other",
+  ])
   tourTheme!: string;
 
   @IsInt()
@@ -46,9 +68,11 @@ export class CreateTourStep1Dto {
   hotelStars?: number;
 
   @IsNumber()
+  @Min(0)
   basePriceAdult!: number;
 
   @IsNumber()
+  @Min(0)
   basePriceChild!: number;
 
   @IsInt()
@@ -57,10 +81,12 @@ export class CreateTourStep1Dto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   shortDescription?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(10000)
   fullDescription?: string;
 
   @IsOptional()

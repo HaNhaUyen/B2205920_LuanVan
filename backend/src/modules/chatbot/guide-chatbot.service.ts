@@ -132,7 +132,7 @@ export class GuideChatbotService {
         },
       });
 
-      answer = this.assignmentAnswer(data, "Lịch hôm nay");
+      answer = this.assignmentAnswer(data, "Chuyến đang diễn ra hôm nay");
     } else if (/ngay mai|lich ngay mai/.test(query)) {
       intent = "guide_tomorrow_schedule";
 
@@ -281,7 +281,7 @@ export class GuideChatbotService {
     } else if (/chuyen sap toi|tour sap toi|phan cong sap toi/.test(query)) {
       intent = "guide_next_assignment";
 
-      const assignment = await this.nearest(baseWhere);
+      const assignment = await this.nextAssignment(baseWhere);
 
       if (!assignment) {
         answer = "Bạn chưa có chuyến đi sắp tới.";
@@ -436,6 +436,42 @@ export class GuideChatbotService {
         startDate: "asc",
       },
       take: 10,
+    });
+  }
+
+  private nextAssignment(where: any) {
+    return this.prisma.guideAssignment.findFirst({
+      where: {
+        ...where,
+        startDate: {
+          gt: new Date(),
+        },
+      },
+      include: {
+        tour: {
+          include: {
+            itinerary: {
+              orderBy: [
+                {
+                  dayNumber: "asc",
+                },
+                {
+                  itemOrder: "asc",
+                },
+              ],
+            },
+          },
+        },
+        booking: {
+          include: {
+            guests: true,
+            departure: true,
+          },
+        },
+      },
+      orderBy: {
+        startDate: "asc",
+      },
     });
   }
 

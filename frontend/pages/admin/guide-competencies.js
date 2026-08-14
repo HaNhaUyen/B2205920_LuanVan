@@ -191,6 +191,12 @@ export default function AdminGuideCompetenciesPage() {
   }, [queryString]);
 
   const review = async (item, action, reason = "") => {
+    if (!["approve", "reject"].includes(action))
+      return showToast("Thao tác duyệt không hợp lệ.", "error");
+    if (String(reason || "").trim().length > 1000)
+      return showToast("Lý do phản hồi tối đa 1000 ký tự.", "error");
+    if (action === "reject" && !String(reason || "").trim())
+      return showToast("Vui lòng nhập lý do từ chối.", "error");
     try {
       setReviewing(true);
       await apiFetch(

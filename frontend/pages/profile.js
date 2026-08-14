@@ -88,11 +88,24 @@ function StatusPill({ children, tone = "default" }) {
 }
 
 function bookingTone(status) {
-  if (["confirmed", "completed"].includes(status)) return "success";
-  if (["pending_payment", "waiting_confirmation"].includes(status)) {
+  const safe = String(status || "").toLowerCase();
+
+  if (["confirmed", "completed"].includes(safe)) return "success";
+  if (["pending_payment", "waiting_confirmation"].includes(safe)) {
     return "warning";
   }
-  if (["cancelled", "expired"].includes(status)) return "danger";
+  if (
+    [
+      "cancelled",
+      "cancelled_by_customer",
+      "cancelled_by_operator",
+      "expired",
+      "failed",
+      "refunded",
+    ].includes(safe)
+  ) {
+    return "danger";
+  }
   return "default";
 }
 
@@ -104,7 +117,21 @@ function getBookingStatusLabel(status) {
     confirmed: "Đã xác nhận",
     completed: "Đã hoàn thành",
     cancelled: "Đã hủy",
+    cancelled_by_customer: "Đã hủy bởi khách hàng",
+    cancelled_by_operator: "Đã hủy bởi Travela",
     expired: "Đã hết hạn",
+    failed: "Thất bại",
+    refunded: "Đã hoàn tiền",
+  };
+
+  return labels[String(status || "").toLowerCase()] || "Đang cập nhật";
+}
+
+function getRefundStatusLabel(status) {
+  const labels = {
+    pending: "Đang chờ xử lý",
+    approved: "Đã hoàn tiền",
+    rejected: "Đã từ chối",
   };
 
   return labels[String(status || "").toLowerCase()] || "Đang cập nhật";
@@ -403,7 +430,6 @@ export default function ProfilePage() {
     phone: "",
     dietaryNotes: "",
     healthNotes: "",
-    isDefault: false,
   };
   const [travelerForm, setTravelerForm] = useState(emptyTravelerForm);
 
@@ -639,6 +665,46 @@ export default function ProfilePage() {
   const saveProfile = async (event) => {
     event.preventDefault();
     const normalizedEmail = profileForm.email.trim().toLowerCase();
+    const fullName = String(profileForm.fullName || "").trim();
+    const phone = String(profileForm.phone || "").replace(/\D/g, "");
+    const identityNumber = String(profileForm.identityNumber || "").trim();
+    const birthDate = profileForm.birthDate || "";
+
+    if (fullName.length < 2 || fullName.length > 150)
+      return showToast("Họ tên phải từ 2 đến 150 ký tự.", "error");
+    if (phone && !/^0\d{9}$/.test(phone))
+      return showToast(
+        "Số điện thoại phải gồm 10 chữ số và bắt đầu bằng 0.",
+        "error",
+      );
+    if (identityNumber && !/^\d{12}$/.test(identityNumber))
+      return showToast("CCCD phải gồm đúng 12 chữ số.", "error");
+    if (birthDate) {
+      const parsedBirthDate = new Date(`${birthDate}T00:00:00`);
+      const today = new Date();
+      if (Number.isNaN(parsedBirthDate.getTime()) || parsedBirthDate > today)
+        return showToast(
+          "Ngày sinh không hợp lệ hoặc nằm trong tương lai.",
+          "error",
+        );
+    }
+    if (
+      String(profileForm.dietaryNotes || "").length > 2000 ||
+      String(profileForm.healthNotes || "").length > 2000
+    )
+      return showToast(
+        "Ghi chú sức khỏe/chế độ ăn tối đa 2000 ký tự.",
+        "error",
+      );
+    const accountNo = String(profileForm.refundAccountNo || "").replace(
+      /\s+/g,
+      "",
+    );
+    if (accountNo && !/^\d{6,20}$/.test(accountNo))
+      return showToast(
+        "Số tài khoản nhận hoàn tiền phải gồm từ 6 đến 20 chữ số.",
+        "error",
+      );
 
     if (!isEmailLocked) {
       if (!normalizedEmail) {
@@ -659,7 +725,8 @@ export default function ProfilePage() {
       dietaryNotes: profileForm.dietaryNotes.trim() || null,
       healthNotes: profileForm.healthNotes.trim() || null,
       refundBankName: profileForm.refundBankName.trim() || null,
-      refundAccountNo: profileForm.refundAccountNo.replace(/\s+/g, "") || null,
+      refundAccountNo:
+        profileForm.refundAccountNo.replace(/\D/g, "").slice(0, 20) || null,
       refundAccountName:
         profileForm.refundAccountName.trim().toUpperCase() || null,
     };
@@ -687,6 +754,16 @@ export default function ProfilePage() {
 
   const changePassword = async (event) => {
     event.preventDefault();
+
+    if (!String(passwordForm.currentPassword || ""))
+      return showToast("Vui lòng nhập mật khẩu hiện tại.", "error");
+    if (
+      String(passwordForm.newPassword || "").length < 6 ||
+      String(passwordForm.newPassword || "").length > 72
+    )
+      return showToast("Mật khẩu mới phải từ 6 đến 72 ký tự.", "error");
+    if (passwordForm.currentPassword === passwordForm.newPassword)
+      return showToast("Mật khẩu mới phải khác mật khẩu hiện tại.", "error");
 
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       return showToast("Mật khẩu xác nhận chưa khớp.", "error");
@@ -802,6 +879,16 @@ export default function ProfilePage() {
         "error",
       );
     }
+    if (
+      !Number.isInteger(Number(refundForm.bookingId)) ||
+      Number(refundForm.bookingId) <= 0
+    )
+      return showToast("Booking cần hoàn tiền không hợp lệ.", "error");
+    if (
+      refundForm.reason.trim().length < 5 ||
+      refundForm.reason.trim().length > 2000
+    )
+      return showToast("Lý do hoàn tiền phải từ 5 đến 2000 ký tự.", "error");
 
     if (!hasRefundBankInfo) {
       return showToast(
@@ -853,7 +940,6 @@ export default function ProfilePage() {
       phone: traveler.phone || "",
       dietaryNotes: traveler.dietaryNotes || "",
       healthNotes: traveler.healthNotes || "",
-      isDefault: Boolean(traveler.isDefault),
     });
     setActiveTab("travelers");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -861,9 +947,98 @@ export default function ProfilePage() {
 
   const saveTraveler = async (event) => {
     event.preventDefault();
-    if (!travelerForm.fullName.trim()) {
+
+    const travelerFullName = String(travelerForm.fullName || "").trim();
+    const travelerRelationship = String(travelerForm.relationship || "").trim();
+    const travelerDateOfBirth = String(travelerForm.dateOfBirth || "").trim();
+    const travelerGender = String(travelerForm.gender || "").trim();
+    const travelerNationality = String(travelerForm.nationality || "").trim();
+    const travelerPhone = String(travelerForm.phone || "").trim();
+    const travelerId = String(travelerForm.idNumber || "").trim();
+
+    if (!travelerFullName)
       return showToast("Vui lòng nhập họ tên hành khách.", "error");
-    }
+    if (travelerFullName.length < 2 || travelerFullName.length > 150)
+      return showToast("Họ tên hành khách phải từ 2 đến 150 ký tự.", "error");
+    if (!travelerRelationship)
+      return showToast("Vui lòng nhập mối quan hệ với hành khách.", "error");
+    if (travelerRelationship.length < 2 || travelerRelationship.length > 100)
+      return showToast("Mối quan hệ phải từ 2 đến 100 ký tự.", "error");
+    if (!travelerDateOfBirth)
+      return showToast("Vui lòng chọn ngày sinh hành khách.", "error");
+    const travelerBirthDate = new Date(`${travelerDateOfBirth}T00:00:00`);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (Number.isNaN(travelerBirthDate.getTime()) || travelerBirthDate > today)
+      return showToast(
+        "Ngày sinh hành khách không hợp lệ hoặc nằm trong tương lai.",
+        "error",
+      );
+    if (!travelerGender)
+      return showToast("Vui lòng chọn giới tính hành khách.", "error");
+    if (!["male", "female", "other"].includes(travelerGender))
+      return showToast("Giới tính hành khách không hợp lệ.", "error");
+    if (!travelerNationality)
+      return showToast("Vui lòng nhập quốc tịch hành khách.", "error");
+    if (travelerNationality.length < 2 || travelerNationality.length > 100)
+      return showToast("Quốc tịch phải từ 2 đến 100 ký tự.", "error");
+    if (!travelerId)
+      return showToast("Vui lòng nhập số giấy tờ hành khách.", "error");
+    if (travelerForm.idType === "cccd" && !/^\d{12}$/.test(travelerId))
+      return showToast("CCCD hành khách phải gồm đúng 12 chữ số.", "error");
+    if (travelerForm.idType === "passport" && !/^[A-Z]\d{7}$/.test(travelerId))
+      return showToast(
+        "Số hộ chiếu phải gồm đúng 8 ký tự: 1 chữ cái in hoa đứng đầu và 7 chữ số.",
+        "error",
+      );
+    if (
+      travelerForm.idType === "birth_certificate" &&
+      !/^\d{12}$/.test(travelerId)
+    )
+      return showToast("Số giấy khai sinh phải gồm đúng 12 chữ số.", "error");
+    if (
+      travelerForm.idType === "other" &&
+      !/^[A-Za-z0-9./\-]{2,50}$/.test(travelerId)
+    )
+      return showToast("Số giấy tờ không đúng định dạng hợp lệ.", "error");
+    if (!travelerPhone)
+      return showToast("Vui lòng nhập số điện thoại hành khách.", "error");
+    if (!/^0\d{9}$/.test(travelerPhone))
+      return showToast(
+        "Số điện thoại hành khách phải gồm 10 chữ số và bắt đầu bằng 0.",
+        "error",
+      );
+
+    const duplicateTraveler = travelers.find(
+      (item) =>
+        String(item.id) !== String(editingTravelerId || "") &&
+        String(item.idNumber || "")
+          .trim()
+          .toLowerCase() === travelerId.toLowerCase(),
+    );
+    if (duplicateTraveler)
+      return showToast(
+        "Số giấy tờ này đã được lưu cho một hành khách khác.",
+        "error",
+      );
+
+    const duplicatePhoneTraveler = travelers.find(
+      (item) =>
+        String(item.id) !== String(editingTravelerId || "") &&
+        String(item.phone || "").trim() === travelerPhone,
+    );
+    if (duplicatePhoneTraveler)
+      return showToast(
+        "Số điện thoại này đã được lưu cho một hành khách khác.",
+        "error",
+      );
+
+    if (
+      String(travelerForm.dietaryNotes || "").length > 2000 ||
+      String(travelerForm.healthNotes || "").length > 2000
+    )
+      return showToast("Ghi chú hành khách tối đa 2000 ký tự.", "error");
+
     setSavingTraveler(true);
     try {
       await apiFetch(
@@ -939,7 +1114,7 @@ export default function ProfilePage() {
         padding: "40px 0",
       }}
     >
-      <div style={styles.container}>
+      <div className="profile-layout" style={styles.container}>
         <aside>
           <div
             className="profile-sidebar-card"
@@ -1294,11 +1469,30 @@ export default function ProfilePage() {
                         onChange={
                           isEmailLocked
                             ? undefined
-                            : (event) =>
+                            : (event) => {
+                                event.currentTarget.setCustomValidity("");
                                 setProfileForm((prev) => ({
                                   ...prev,
                                   email: event.target.value,
-                                }))
+                                }));
+                              }
+                        }
+                        onInvalid={
+                          isEmailLocked
+                            ? undefined
+                            : (event) => {
+                                event.currentTarget.setCustomValidity(
+                                  event.currentTarget.validity.valueMissing
+                                    ? "Vui lòng nhập email."
+                                    : "Email không đúng định dạng.",
+                                );
+                              }
+                        }
+                        onInput={
+                          isEmailLocked
+                            ? undefined
+                            : (event) =>
+                                event.currentTarget.setCustomValidity("")
                         }
                         readOnly={isEmailLocked}
                         disabled={isEmailLocked}
@@ -1475,17 +1669,20 @@ export default function ProfilePage() {
                           <label style={styles.label}>Số tài khoản</label>
                           <input
                             style={styles.input}
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={20}
                             value={profileForm.refundAccountNo}
                             onChange={(e) =>
                               setProfileForm((p) => ({
                                 ...p,
-                                refundAccountNo: e.target.value.replace(
-                                  /\s+/g,
-                                  "",
-                                ),
+                                refundAccountNo: e.target.value
+                                  .replace(/\D/g, "")
+                                  .slice(0, 20),
                               }))
                             }
-                            placeholder="Không nhập khoảng trắng"
+                            placeholder="Nhập từ 6 đến 20 chữ số"
                           />
                         </div>
 
@@ -1850,11 +2047,9 @@ export default function ProfilePage() {
                                         : "warning"
                                   }
                                 >
-                                  {b.refundRequests[0].status === "approved"
-                                    ? "Đã duyệt"
-                                    : b.refundRequests[0].status === "rejected"
-                                      ? "Đã từ chối"
-                                      : "Đang chờ"}
+                                  {getRefundStatusLabel(
+                                    b.refundRequests[0].status,
+                                  )}
                                 </StatusPill>
                               ) : (
                                 (() => {
@@ -1936,6 +2131,7 @@ export default function ProfilePage() {
               ) : (
                 <>
                   <div
+                    className="refund-table-wrap"
                     style={{
                       width: "100%",
                       maxWidth: "100%",
@@ -1945,6 +2141,7 @@ export default function ProfilePage() {
                     }}
                   >
                     <table
+                      className="refund-history-table"
                       style={{
                         ...styles.table,
                         width: "100%",
@@ -2083,11 +2280,12 @@ export default function ProfilePage() {
                                       : "warning"
                                 }
                               >
-                                {r.status}
+                                {getRefundStatusLabel(r.status)}
                               </StatusPill>
                             </td>
 
                             <td
+                              className="refund-admin-note-cell"
                               style={{
                                 ...styles.td,
                                 color: r.adminNote ? "#334155" : "#94a3b8",
@@ -2095,6 +2293,7 @@ export default function ProfilePage() {
                               }}
                             >
                               <div
+                                className="refund-admin-note"
                                 style={{
                                   lineHeight: 1.55,
                                   whiteSpace: "normal",
@@ -2371,7 +2570,6 @@ export default function ProfilePage() {
                         }))
                       }
                       placeholder="Nguyễn Văn A"
-                      required
                     />
                   </div>
                   <div>
@@ -2459,6 +2657,7 @@ export default function ProfilePage() {
                         setTravelerForm((p) => ({
                           ...p,
                           idType: e.target.value,
+                          idNumber: "",
                         }))
                       }
                     >
@@ -2472,14 +2671,48 @@ export default function ProfilePage() {
                     <label style={styles.label}>Số giấy tờ</label>
                     <input
                       style={styles.input}
+                      inputMode={
+                        ["cccd", "birth_certificate"].includes(
+                          travelerForm.idType,
+                        )
+                          ? "numeric"
+                          : undefined
+                      }
+                      maxLength={
+                        ["cccd", "birth_certificate"].includes(
+                          travelerForm.idType,
+                        )
+                          ? 12
+                          : travelerForm.idType === "passport"
+                            ? 8
+                            : 50
+                      }
                       value={travelerForm.idNumber}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const rawValue = e.target.value;
+                        const idNumber = ["cccd", "birth_certificate"].includes(
+                          travelerForm.idType,
+                        )
+                          ? rawValue.replace(/\D/g, "").slice(0, 12)
+                          : travelerForm.idType === "passport"
+                            ? rawValue
+                                .toUpperCase()
+                                .replace(/[^A-Z0-9]/g, "")
+                                .slice(0, 8)
+                            : rawValue.slice(0, 50);
+
                         setTravelerForm((p) => ({
                           ...p,
-                          idNumber: e.target.value,
-                        }))
+                          idNumber,
+                        }));
+                      }}
+                      placeholder={
+                        travelerForm.idType === "passport"
+                          ? "Ví dụ: A1234567"
+                          : travelerForm.idType === "birth_certificate"
+                            ? "12 chữ số giấy khai sinh"
+                            : "Số giấy tờ"
                       }
-                      placeholder="Số CCCD hoặc hộ chiếu"
                     />
                   </div>
                   <div>
@@ -2498,70 +2731,48 @@ export default function ProfilePage() {
                   </div>
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "flex-end",
-                      paddingBottom: "10px",
+                      gridColumn: "1 / -1",
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: "18px",
                     }}
                   >
-                    <label
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "10px",
-                        color: "#334155",
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={travelerForm.isDefault}
+                    <div>
+                      <label style={styles.label}>Ghi chú ăn uống</label>
+                      <textarea
+                        style={{
+                          ...styles.input,
+                          minHeight: "95px",
+                          resize: "vertical",
+                        }}
+                        value={travelerForm.dietaryNotes}
                         onChange={(e) =>
                           setTravelerForm((p) => ({
                             ...p,
-                            isDefault: e.target.checked,
+                            dietaryNotes: e.target.value,
                           }))
                         }
-                        style={{ width: "18px", height: "18px" }}
+                        placeholder="Ăn chay, dị ứng thực phẩm..."
                       />
-                      Đặt làm hành khách mặc định
-                    </label>
-                  </div>
-                  <div>
-                    <label style={styles.label}>Ghi chú ăn uống</label>
-                    <textarea
-                      style={{
-                        ...styles.input,
-                        minHeight: "95px",
-                        resize: "vertical",
-                      }}
-                      value={travelerForm.dietaryNotes}
-                      onChange={(e) =>
-                        setTravelerForm((p) => ({
-                          ...p,
-                          dietaryNotes: e.target.value,
-                        }))
-                      }
-                      placeholder="Ăn chay, dị ứng thực phẩm..."
-                    />
-                  </div>
-                  <div>
-                    <label style={styles.label}>Ghi chú sức khỏe</label>
-                    <textarea
-                      style={{
-                        ...styles.input,
-                        minHeight: "95px",
-                        resize: "vertical",
-                      }}
-                      value={travelerForm.healthNotes}
-                      onChange={(e) =>
-                        setTravelerForm((p) => ({
-                          ...p,
-                          healthNotes: e.target.value,
-                        }))
-                      }
-                      placeholder="Say xe, bệnh nền, nhu cầu hỗ trợ..."
-                    />
+                    </div>
+                    <div>
+                      <label style={styles.label}>Ghi chú sức khỏe</label>
+                      <textarea
+                        style={{
+                          ...styles.input,
+                          minHeight: "95px",
+                          resize: "vertical",
+                        }}
+                        value={travelerForm.healthNotes}
+                        onChange={(e) =>
+                          setTravelerForm((p) => ({
+                            ...p,
+                            healthNotes: e.target.value,
+                          }))
+                        }
+                        placeholder="Say xe, bệnh nền, nhu cầu hỗ trợ..."
+                      />
+                    </div>
                   </div>
                   <div
                     className="profile-traveler-action-bar"
@@ -2651,15 +2862,13 @@ export default function ProfilePage() {
                     {pagedTravelers.map((traveler) => (
                       <article
                         key={String(traveler.id)}
-                        className={`profile-traveler-card${traveler.isDefault ? " is-default" : ""}`}
+                        className="profile-traveler-card"
                         style={{
                           border: "1px solid #e2e8f0",
                           borderRadius: "16px",
                           padding: "18px",
-                          background: traveler.isDefault ? "#f5f9ff" : "#fff",
-                          boxShadow: traveler.isDefault
-                            ? "0 10px 24px rgba(37,99,235,.08)"
-                            : "none",
+                          background: "#fff",
+                          boxShadow: "none",
                         }}
                       >
                         <div
@@ -2685,9 +2894,6 @@ export default function ProfilePage() {
                           >
                             {traveler.fullName?.charAt(0)?.toUpperCase() || "H"}
                           </div>
-                          {traveler.isDefault ? (
-                            <StatusPill tone="info">Mặc định</StatusPill>
-                          ) : null}
                         </div>
                         <h3
                           style={{
@@ -3529,9 +3735,180 @@ export default function ProfilePage() {
           -webkit-text-fill-color: #9fb0c8 !important;
         }
 
+        /* Responsive hồ sơ: chỉ thay đổi cách bố trí, không đổi nghiệp vụ */
+        @media (max-width: 1200px) {
+          .profile-layout {
+            width: calc(100% - 28px) !important;
+            grid-template-columns: 240px minmax(0, 1fr) !important;
+            gap: 16px !important;
+          }
+
+          .profile-card {
+            padding: 22px !important;
+          }
+
+          .refund-table-wrap {
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .refund-history-table {
+            min-width: 780px;
+            table-layout: fixed !important;
+          }
+
+          .refund-history-table th,
+          .refund-history-table td {
+            padding: 12px !important;
+          }
+
+          .refund-history-table tbody td:first-child {
+            white-space: nowrap !important;
+            word-break: normal !important;
+            overflow-wrap: normal !important;
+          }
+        }
+
+        @media (max-width: 920px) {
+          .profile-layout {
+            grid-template-columns: 1fr !important;
+            width: calc(100% - 24px) !important;
+            margin: 18px auto !important;
+          }
+
+          .profile-sidebar-card {
+            position: static !important;
+            top: auto !important;
+            padding: 18px !important;
+          }
+
+          .profile-sidebar-card nav {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px !important;
+          }
+
+          .profile-menu-btn {
+            padding: 11px 12px !important;
+            min-width: 0;
+          }
+        }
+
         @media (max-width: 768px) {
           .refund-responsive-grid {
             grid-template-columns: 1fr !important;
+          }
+
+          .profile-page {
+            padding: 18px 0 !important;
+          }
+
+          .profile-layout {
+            width: calc(100% - 20px) !important;
+          }
+
+          .profile-sidebar-card nav {
+            display: flex !important;
+            flex-direction: row !important;
+            overflow-x: auto;
+            gap: 8px !important;
+            padding-bottom: 4px;
+            scrollbar-width: thin;
+          }
+
+          .profile-menu-btn {
+            flex: 0 0 auto;
+            width: auto !important;
+            white-space: nowrap;
+          }
+
+          .profile-card {
+            padding: 18px !important;
+            border-radius: 14px !important;
+          }
+
+          .refund-table-wrap {
+            overflow: visible !important;
+            border: none !important;
+            border-radius: 0 !important;
+          }
+
+          .refund-history-table {
+            min-width: 0 !important;
+            width: 100% !important;
+            display: block;
+          }
+
+          .refund-history-table thead {
+            display: none;
+          }
+
+          .refund-history-table tbody {
+            display: grid;
+            gap: 12px;
+          }
+
+          .refund-history-table tr {
+            display: block;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 12px 14px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+          }
+
+          .refund-history-table td {
+            display: grid !important;
+            grid-template-columns: 104px minmax(0, 1fr);
+            align-items: start;
+            gap: 10px;
+            width: 100% !important;
+            max-width: none !important;
+            padding: 8px 0 !important;
+            border: none !important;
+            box-sizing: border-box;
+            white-space: normal !important;
+            word-break: normal !important;
+            overflow-wrap: anywhere !important;
+          }
+
+          .refund-history-table td::before {
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+          }
+
+          .refund-history-table td:nth-child(1)::before {
+            content: "Booking";
+          }
+          .refund-history-table td:nth-child(2)::before {
+            content: "Tour";
+          }
+          .refund-history-table td:nth-child(3)::before {
+            content: "Lý do";
+          }
+          .refund-history-table td:nth-child(4)::before {
+            content: "Trạng thái";
+          }
+          .refund-history-table td:nth-child(5)::before {
+            content: "Phản hồi Admin";
+          }
+          .refund-history-table td:nth-child(6)::before {
+            content: "Ngày gửi";
+          }
+        }
+
+        @media (max-width: 520px) {
+          .profile-sidebar-card nav {
+            margin-left: -4px;
+            margin-right: -4px;
+          }
+
+          .refund-history-table td {
+            grid-template-columns: 88px minmax(0, 1fr);
           }
         }
       `}</style>

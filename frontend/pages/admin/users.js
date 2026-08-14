@@ -257,12 +257,30 @@ export default function AdminUsersPage() {
   const save = async () => {
     setSubmitting(true);
     try {
-      if (!form.fullName.trim() || !form.email.trim()) {
-        throw new Error("Cần nhập họ tên và email.");
-      }
-      if (!form.id && !form.password.trim()) {
-        throw new Error("Cần nhập mật khẩu khởi tạo.");
-      }
+      const fullName = String(form.fullName || "").trim();
+      const email = String(form.email || "")
+        .trim()
+        .toLowerCase();
+      const phone = String(form.phone || "").replace(/\D/g, "");
+      const password = String(form.password || "");
+      if (!fullName) throw new Error("Vui lòng nhập họ và tên.");
+      if (fullName.length < 2 || fullName.length > 150)
+        throw new Error("Họ tên phải từ 2 đến 150 ký tự.");
+
+      if (!email) throw new Error("Vui lòng nhập email.");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        throw new Error("Email không đúng định dạng.");
+
+      if (!phone) throw new Error("Vui lòng nhập số điện thoại.");
+      if (!/^0\d{9}$/.test(phone))
+        throw new Error("Số điện thoại phải gồm 10 chữ số và bắt đầu bằng 0.");
+
+      if (!form.id && !password)
+        throw new Error("Vui lòng nhập mật khẩu khởi tạo.");
+      if (!form.id && (password.length < 6 || password.length > 72))
+        throw new Error("Mật khẩu khởi tạo phải từ 6 đến 72 ký tự.");
+      if (form.id && password && (password.length < 6 || password.length > 72))
+        throw new Error("Mật khẩu mới phải từ 6 đến 72 ký tự.");
 
       if (!form.id) {
         await apiFetch("/admin/users", {
@@ -295,11 +313,7 @@ export default function AdminUsersPage() {
       await apiFetch(`/admin/users/${item.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          fullName: item.fullName,
-          email: item.email,
-          phone: item.phone || "",
           status: nextStatus,
-          avatarUrl: item.avatarUrl || "",
         }),
       });
       showToast(
@@ -729,7 +743,7 @@ export default function AdminUsersPage() {
             <label
               style={{ display: "block", marginBottom: 8, fontWeight: 700 }}
             >
-              Số điện thoại
+              Số điện thoại <span style={{ color: "#ef4444" }}>*</span>
             </label>
             <input
               className="modern-input"
@@ -765,7 +779,13 @@ export default function AdminUsersPage() {
             <label
               style={{ display: "block", marginBottom: 8, fontWeight: 700 }}
             >
-              {form.id ? "Đặt lại mật khẩu" : "Mật khẩu khởi tạo"}
+              {form.id ? (
+                "Đặt lại mật khẩu"
+              ) : (
+                <>
+                  Mật khẩu khởi tạo <span style={{ color: "#ef4444" }}>*</span>
+                </>
+              )}
             </label>
             <input
               className="modern-input"

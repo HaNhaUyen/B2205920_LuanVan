@@ -294,10 +294,9 @@ export default function AdminNotificationsPage() {
     [],
   );
 
-  const loadUsers = async (search = "") => {
+  const loadRecipients = async (search = "", targetMode = "specific_user") => {
     const keyword = String(search || "").trim();
 
-    // Không tải một danh sách user cố định. Chỉ truy vấn database khi admin gõ.
     if (!keyword) {
       setUsers([]);
       setRecipientLoading(false);
@@ -306,6 +305,31 @@ export default function AdminNotificationsPage() {
 
     setRecipientLoading(true);
     try {
+      if (targetMode === "specific_guide") {
+        const result = await apiFetch(
+          `/guides?${buildQuery({
+            page: 1,
+            pageSize: 20,
+            status: "active",
+            search: keyword,
+          })}`,
+        );
+
+        const items = (Array.isArray(result?.items) ? result.items : [])
+          .filter((guide) => guide?.userId)
+          .map((guide) => ({
+            id: String(guide.userId),
+            guideId: String(guide.id),
+            fullName: guide.fullName || "",
+            email: guide.email || "",
+            phone: guide.phone || "",
+            role: "guide",
+          }));
+
+        setUsers(items);
+        return items;
+      }
+
       const result = await apiFetch(
         `/admin/users?${buildQuery({
           page: 1,
@@ -356,7 +380,12 @@ export default function AdminNotificationsPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!modalOpen || form.targetMode !== "specific_user") return;
+    if (
+      !modalOpen ||
+      !["specific_user", "specific_guide"].includes(form.targetMode)
+    ) {
+      return;
+    }
 
     const keyword = recipientSearch.trim();
     if (!keyword || form.targetUserId) {
@@ -365,10 +394,16 @@ export default function AdminNotificationsPage() {
     }
 
     const timer = window.setTimeout(() => {
-      loadUsers(keyword)
+      loadRecipients(keyword, form.targetMode)
         .then(() => setRecipientSuggestOpen(true))
         .catch((error) =>
-          showToast(error.message || "Không tìm được khách hàng.", "error"),
+          showToast(
+            error.message ||
+              (form.targetMode === "specific_guide"
+                ? "Không tìm được hướng dẫn viên."
+                : "Không tìm được khách hàng."),
+            "error",
+          ),
         );
     }, 250);
 
@@ -549,6 +584,12 @@ export default function AdminNotificationsPage() {
       showToast("Cần nhập tiêu đề và nội dung thông báo.", "error");
       return;
     }
+    if (form.title.trim().length > 220)
+      return showToast("Tiêu đề thông báo tối đa 220 ký tự.", "error");
+    if (form.message.trim().length > 500)
+      return showToast("Mô tả ngắn tối đa 500 ký tự.", "error");
+    if (form.content.trim().length > 5000)
+      return showToast("Nội dung thông báo tối đa 5000 ký tự.", "error");
 
     if (
       ["specific_user", "specific_guide"].includes(form.targetMode) &&
@@ -775,6 +816,22 @@ export default function AdminNotificationsPage() {
       showToast("Cần nhập tiêu đề và nội dung gửi.", "error");
       return;
     }
+    if (!["reminder", "update", "important", "custom"].includes(bulkForm.type))
+      return showToast("Loại thông báo hàng loạt không hợp lệ.", "error");
+    if (
+      !Array.isArray(bulkForm.channels) ||
+      !bulkForm.channels.length ||
+      !bulkForm.channels.every((channel) =>
+        ["notification", "email", "both"].includes(channel),
+      )
+    )
+      return showToast("Kênh gửi thông báo không hợp lệ.", "error");
+    if (bulkForm.title.trim().length > 220)
+      return showToast("Tiêu đề tối đa 220 ký tự.", "error");
+    if (String(bulkForm.message || "").trim().length > 500)
+      return showToast("Mô tả ngắn tối đa 500 ký tự.", "error");
+    if (bulkForm.content.trim().length > 5000)
+      return showToast("Nội dung tối đa 5000 ký tự.", "error");
 
     setSubmitting(true);
     setBulkResult(null);
@@ -1561,17 +1618,17 @@ export default function AdminNotificationsPage() {
             <select
               className="smart-input"
               value={form.targetMode}
-              onChange={(e) =>
+              onChange={(e) => {
+                const nextMode = e.target.value;
                 setForm((p) => ({
                   ...p,
-                  targetMode: e.target.value,
-                  targetUserId: ["specific_user", "specific_guide"].includes(
-                    e.target.value,
-                  )
-                    ? p.targetUserId
-                    : "",
-                }))
-              }
+                  targetMode: nextMode,
+                  targetUserId: "",
+                }));
+                setRecipientSearch("");
+                setUsers([]);
+                setRecipientSuggestOpen(false);
+              }}
             >
               <option value="all_users">Tất cả người dùng</option>
               <option value="specific_user">Một khách hàng cụ thể</option>
@@ -1581,10 +1638,12 @@ export default function AdminNotificationsPage() {
             </select>
           </label>
 
-          {form.targetMode === "specific_user" && (
+          {["specific_user", "specific_guide"].includes(form.targetMode) && (
             <div className="recipient-autocomplete">
               <label style={{ display: "block" }}>
-                Chọn khách hàng
+                {form.targetMode === "specific_guide"
+                  ? "Tên hướng dẫn viên"
+                  : "Chọn khách hàng"}
                 <input
                   className="smart-input"
                   value={recipientSearch}
@@ -1602,7 +1661,11 @@ export default function AdminNotificationsPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Escape") setRecipientSuggestOpen(false);
                   }}
-                  placeholder="Gõ tên, email hoặc SĐT khách hàng..."
+                  placeholder={
+                    form.targetMode === "specific_guide"
+                      ? "Gõ tên, email hoặc SĐT hướng dẫn viên..."
+                      : "Gõ tên, email hoặc SĐT khách hàng..."
+                  }
                 />
               </label>
 
@@ -1653,18 +1716,13 @@ export default function AdminNotificationsPage() {
                         fontSize: 13,
                       }}
                     >
-                      Không tìm thấy khách hàng phù hợp.
+                      {form.targetMode === "specific_guide"
+                        ? "Không tìm thấy hướng dẫn viên phù hợp hoặc HDV chưa có tài khoản đăng nhập."
+                        : "Không tìm thấy khách hàng phù hợp."}
                     </div>
                   ) : null}
                 </div>
               ) : null}
-            </div>
-          )}
-
-          {form.targetMode === "specific_guide" && (
-            <div style={{ color: "#b45309", fontSize: 13 }}>
-              Danh sách hướng dẫn viên dùng nguồn dữ liệu riêng. Nếu cần, tôi có
-              thể nối luôn phần tìm kiếm HDV theo tên/email tương tự.
             </div>
           )}
           <label>

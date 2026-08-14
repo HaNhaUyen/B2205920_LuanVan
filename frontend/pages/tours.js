@@ -84,8 +84,37 @@ export default function ToursPage() {
     ])
       .then(([tourData, destinationData]) => {
         if (!active) return;
-        setTours((tourData || []).map(normalizeTour));
-        setDestinations(destinationData || []);
+
+        const activeDestinations = Array.isArray(destinationData)
+          ? destinationData
+          : [];
+        const activeDestinationIds = new Set(
+          activeDestinations
+            .map((item) => String(item?.id || ""))
+            .filter(Boolean),
+        );
+
+        const visibleTours = (Array.isArray(tourData) ? tourData : []).filter(
+          (tour) => {
+            const destination = tour?.destination || {};
+            const destinationId = String(
+              tour?.destinationId || destination?.id || "",
+            );
+
+            // API /destinations chỉ trả điểm đến đang hoạt động.
+            // Tour thuộc điểm đến tạm ẩn sẽ không xuất hiện ở danh sách công khai.
+            // Không đụng tới booking đã tồn tại hoặc luồng xem booking của khách.
+            if (destinationId) return activeDestinationIds.has(destinationId);
+
+            const explicitStatus = String(destination?.status || "")
+              .trim()
+              .toLowerCase();
+            return !explicitStatus || explicitStatus === "active";
+          },
+        );
+
+        setTours(visibleTours.map(normalizeTour));
+        setDestinations(activeDestinations);
         setLoading(false);
       })
       .catch((error) => {
@@ -169,15 +198,24 @@ export default function ToursPage() {
     return text;
   };
 
+  const validateNonNegativeInteger = (value, label) => {
+    if (value === null || value === undefined || value === "") return null;
+
+    const numeric = Number(value);
+    if (!Number.isInteger(numeric) || numeric < 0) {
+      showToast(`${label} phải là số nguyên không âm.`, "error");
+      return false;
+    }
+
+    return numeric;
+  };
+
   const updateQuery = (next) => {
     const merged = { ...router.query, ...next };
     Object.keys(merged).forEach((key) => {
       const cleaned = cleanQueryValue(merged[key]);
 
-      if (
-        cleaned === null ||
-        merged[key] === false
-      ) {
+      if (cleaned === null || merged[key] === false) {
         delete merged[key];
       } else {
         merged[key] = cleaned;
@@ -225,6 +263,31 @@ export default function ToursPage() {
       favorite: formData.get("favorite") ? "1" : null,
       page: 1,
     };
+
+    const minPrice = validateNonNegativeInteger(nextQuery.minPrice, "Giá từ");
+    if (minPrice === false) return;
+
+    const maxPrice = validateNonNegativeInteger(nextQuery.maxPrice, "Giá đến");
+    if (maxPrice === false) return;
+
+    const durationDays = validateNonNegativeInteger(
+      nextQuery.durationMax,
+      "Số ngày",
+    );
+    if (durationDays === false) return;
+
+    const minRating = validateNonNegativeInteger(nextQuery.minRating, "Số sao");
+    if (minRating === false) return;
+
+    if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
+      showToast("Giá từ không được lớn hơn giá đến.", "error");
+      return;
+    }
+
+    if (minRating !== null && minRating > 5) {
+      showToast("Số sao phải là số nguyên từ 0 đến 5.", "error");
+      return;
+    }
 
     const keyword = String(nextQuery.search || "").trim();
     const destination = String(nextQuery.destination || "").trim();
@@ -290,6 +353,27 @@ export default function ToursPage() {
             from { opacity: 0; transform: translateY(-10px); }
             to { opacity: 1; transform: translateY(0); }
           }
+
+
+          /* DARK MODE - chỉ đổi nền card tour và 2 ô lọc còn trắng */
+          html.dark-mode body .travel-tour-card,
+          html.dark-mode body .travel-tour-card .travel-tour-card-body,
+          html.dark-mode body .travel-tour-card .card-body,
+          html.dark-mode body .tour-card,
+          html.dark-mode body .tour-card .travel-tour-card-body,
+          html.dark-mode body .tour-card .card-body {
+            background: #111b2d !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+          }
+
+          html.dark-mode body .travel-filter-panel .toggle-card,
+          html.dark-mode body .filter-panel .toggle-card,
+          html.dark-mode body .filter-sidebar-wrapper label[style*="background: #fff"],
+          html.dark-mode body .filter-sidebar-wrapper label[style*="background: rgb(255, 255, 255)"] {
+            background: #111b2d !important;
+            border-color: rgba(148, 163, 184, 0.22) !important;
+          }
+
         `,
         }}
       />

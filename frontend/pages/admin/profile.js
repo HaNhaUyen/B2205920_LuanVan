@@ -131,6 +131,31 @@ export default function AdminProfilePage() {
 
   const saveProfile = async (event) => {
     event.preventDefault();
+    const fullName = String(profileForm.fullName || "").trim();
+    const phone = String(profileForm.phone || "").replace(/\D/g, "");
+    const identityNumber = String(profileForm.identityNumber || "").replace(
+      /\D/g,
+      "",
+    );
+    if (fullName.length < 2 || fullName.length > 150)
+      return showToast("Họ tên phải từ 2 đến 150 ký tự.", "error");
+    if (phone && !/^0\d{9}$/.test(phone))
+      return showToast(
+        "Số điện thoại phải gồm 10 chữ số và bắt đầu bằng 0.",
+        "error",
+      );
+    if (identityNumber && !/^\d{12}$/.test(identityNumber))
+      return showToast("CCCD phải gồm đúng 12 chữ số.", "error");
+    if (profileForm.birthDate) {
+      const dob = new Date(`${profileForm.birthDate}T00:00:00`);
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      if (Number.isNaN(dob.getTime()) || dob > today)
+        return showToast(
+          "Ngày sinh không hợp lệ hoặc nằm trong tương lai.",
+          "error",
+        );
+    }
     setSavingProfile(true);
     try {
       const nextUser = await apiFetch("/auth/me", {
@@ -153,6 +178,15 @@ export default function AdminProfilePage() {
 
   const changePassword = async (event) => {
     event.preventDefault();
+    if (!String(passwordForm.currentPassword || ""))
+      return showToast("Vui lòng nhập mật khẩu hiện tại.", "error");
+    if (
+      String(passwordForm.newPassword || "").length < 6 ||
+      String(passwordForm.newPassword || "").length > 72
+    )
+      return showToast("Mật khẩu mới phải từ 6 đến 72 ký tự.", "error");
+    if (passwordForm.currentPassword === passwordForm.newPassword)
+      return showToast("Mật khẩu mới phải khác mật khẩu hiện tại.", "error");
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       return showToast("Mật khẩu xác nhận chưa khớp.", "error");
     }

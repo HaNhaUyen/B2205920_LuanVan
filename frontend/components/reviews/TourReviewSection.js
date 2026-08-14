@@ -469,6 +469,16 @@ export default function TourReviewSection({
       return;
     }
 
+    const rating = Number(form.rating);
+    const comment = String(form.comment || "").trim();
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5)
+      return showToast(
+        "Số sao đánh giá phải là số nguyên từ 1 đến 5.",
+        "error",
+      );
+    if (comment.length > 2000)
+      return showToast("Nội dung đánh giá tối đa 2000 ký tự.", "error");
+
     setSubmitting(true);
 
     try {

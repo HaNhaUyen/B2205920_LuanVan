@@ -346,6 +346,17 @@ export class GuidesService {
           role: "guide",
         };
         if (input.password) {
+          if (
+            guide.userAccount?.passwordHash &&
+            (await bcrypt.compare(
+              input.password,
+              guide.userAccount.passwordHash,
+            ))
+          ) {
+            throw new BadRequestException(
+              "Mật khẩu mới phải khác mật khẩu hiện tại của hướng dẫn viên.",
+            );
+          }
           userData.passwordHash = await bcrypt.hash(input.password, 10);
         }
 
@@ -583,11 +594,61 @@ export class GuidesService {
 
     const nextStatus = guide.status === "locked" ? "active" : "locked";
 
-    return this.prisma.guide.update({
-      where: { id },
-      data: {
-        status: nextStatus,
-      },
+    // Chỉ kiểm tra khi Admin đang thực hiện khóa HDV.
+    // HDV đã được phân công một tour chưa tới ngày dẫn thì không được khóa.
+    if (nextStatus === "locked") {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const upcomingAssignment = await this.prisma.guideAssignment.findFirst({
+        where: {
+          guideId: guide.id,
+          status: {
+            in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+          },
+          startDate: {
+            gte: today,
+          },
+        },
+        include: {
+          tour: true,
+        },
+        orderBy: {
+          startDate: "asc",
+        },
+      });
+
+      if (upcomingAssignment) {
+        const startDate = new Date(
+          upcomingAssignment.startDate,
+        ).toLocaleDateString("vi-VN");
+
+        throw new BadRequestException(
+          `Không thể khóa hướng dẫn viên vì đang được phân công dẫn tour ${upcomingAssignment.tour?.name || "sắp tới"} vào ngày ${startDate}.`,
+        );
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updatedGuide = await tx.guide.update({
+        where: { id },
+        data: {
+          status: nextStatus,
+        },
+      });
+
+      // Đồng bộ trạng thái tài khoản đăng nhập của HDV.
+      // Khi bị khóa, JWT hiện tại sẽ bị từ chối ở request kế tiếp.
+      if (guide.userId) {
+        await tx.user.update({
+          where: { id: guide.userId },
+          data: {
+            status: nextStatus === "locked" ? "blocked" : "active",
+          },
+        });
+      }
+
+      return updatedGuide;
     });
   }
 
@@ -608,11 +669,55 @@ export class GuidesService {
     }
 
     if (guide._count.assignments > 0) {
-      return this.prisma.guide.update({
-        where: { id },
-        data: {
-          status: "locked",
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const upcomingAssignment = await this.prisma.guideAssignment.findFirst({
+        where: {
+          guideId: guide.id,
+          status: {
+            in: ["assigned", "accepted", "in_progress", "confirmed", "issue"],
+          },
+          startDate: {
+            gte: today,
+          },
         },
+        include: {
+          tour: true,
+        },
+        orderBy: {
+          startDate: "asc",
+        },
+      });
+
+      if (upcomingAssignment) {
+        const startDate = new Date(
+          upcomingAssignment.startDate,
+        ).toLocaleDateString("vi-VN");
+
+        throw new BadRequestException(
+          `Không thể khóa hướng dẫn viên vì đang được phân công dẫn tour ${upcomingAssignment.tour?.name || "sắp tới"} vào ngày ${startDate}.`,
+        );
+      }
+
+      return this.prisma.$transaction(async (tx) => {
+        const updatedGuide = await tx.guide.update({
+          where: { id },
+          data: {
+            status: "locked",
+          },
+        });
+
+        if (guide.userId) {
+          await tx.user.update({
+            where: { id: guide.userId },
+            data: {
+              status: "blocked",
+            },
+          });
+        }
+
+        return updatedGuide;
       });
     }
 

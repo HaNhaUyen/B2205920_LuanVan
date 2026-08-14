@@ -20,6 +20,43 @@ type DestinationFilters = {
 export class DestinationsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private validateDestinationInput(dto: UpsertDestinationDto) {
+    const name = String(dto?.name || "").trim();
+    const province = String(dto?.province || "").trim();
+    const country = String(dto?.country || "Vietnam").trim();
+    const description = String(dto?.description || "").trim();
+    const status = String(dto?.status || "active").trim();
+
+    if (!name) {
+      throw new BadRequestException("Vui lòng nhập tên điểm đến.");
+    }
+    if (name.length < 2 || name.length > 160) {
+      throw new BadRequestException("Tên điểm đến phải từ 2 đến 160 ký tự.");
+    }
+
+    if (!province) {
+      throw new BadRequestException("Vui lòng nhập tỉnh/thành.");
+    }
+    if (province.length < 2 || province.length > 100) {
+      throw new BadRequestException("Tỉnh/thành phải từ 2 đến 100 ký tự.");
+    }
+
+    if (!country) {
+      throw new BadRequestException("Vui lòng nhập quốc gia.");
+    }
+    if (country.length < 2 || country.length > 100) {
+      throw new BadRequestException("Quốc gia phải từ 2 đến 100 ký tự.");
+    }
+
+    if (description.length > 5000) {
+      throw new BadRequestException("Mô tả điểm đến tối đa 5000 ký tự.");
+    }
+
+    if (!["active", "inactive"].includes(status)) {
+      throw new BadRequestException("Trạng thái điểm đến không hợp lệ.");
+    }
+  }
+
   findAll() {
     return this.prisma.destination.findMany({
       where: { status: "active" },
@@ -88,18 +125,42 @@ export class DestinationsService {
 
     const items = await Promise.all(
       rows.map(async (item) => {
-        const bookingCount = await this.prisma.booking.count({
-          where: {
-            tour: {
-              destinationId: item.id,
+        const [bookingCount, protectedBookingCount] = await Promise.all([
+          this.prisma.booking.count({
+            where: {
+              tour: {
+                destinationId: item.id,
+              },
             },
-          },
-        });
+          }),
+          this.prisma.booking.count({
+            where: {
+              tour: {
+                destinationId: item.id,
+              },
+              bookingStatus: {
+                notIn: [
+                  "completed",
+                  "cancelled",
+                  "cancelled_by_customer",
+                  "cancelled_by_operator",
+                  "expired",
+                ] as any,
+              },
+              payments: {
+                some: {
+                  paymentStatus: "paid" as any,
+                },
+              },
+            },
+          }),
+        ]);
 
         return {
           ...item,
           tourCount: item._count.tours,
           bookingCount,
+          protectedBookingCount,
           _count: undefined,
         };
       }),
@@ -151,6 +212,8 @@ export class DestinationsService {
   }
 
   async create(dto: UpsertDestinationDto) {
+    this.validateDestinationInput(dto);
+
     const name = dto.name.trim();
     const province = dto.province.trim();
 
@@ -179,10 +242,49 @@ export class DestinationsService {
       throw new NotFoundException("Không tìm thấy điểm đến.");
     }
 
+    this.validateDestinationInput(dto);
+
     const name = dto.name.trim();
     const province = dto.province.trim();
+    const country = dto.country?.trim() || "Vietnam";
+    const nextStatus = dto.status || destination.status;
 
-    await this.ensureUniqueDestination(name, province, BigInt(id));
+    const protectedBookingCount = await this.prisma.booking.count({
+      where: {
+        tour: {
+          destinationId: destination.id,
+        },
+        bookingStatus: {
+          notIn: [
+            "completed",
+            "cancelled",
+            "cancelled_by_customer",
+            "cancelled_by_operator",
+            "expired",
+          ] as any,
+        },
+        payments: {
+          some: {
+            paymentStatus: "paid" as any,
+          },
+        },
+      },
+    });
+
+    if (protectedBookingCount > 0) {
+      const protectedFieldsChanged =
+        String(destination.name || "").trim() !== name ||
+        String(destination.province || "").trim() !== province ||
+        String(destination.country || "Vietnam").trim() !== country;
+
+      if (protectedFieldsChanged) {
+        throw new BadRequestException(
+          `Điểm đến này đang có ${protectedBookingCount} booking đã thanh toán và chưa hoàn thành. Chỉ được chỉnh sửa mô tả, hình ảnh và trạng thái; không thể thay đổi tên điểm đến, tỉnh/thành hoặc quốc gia.`,
+        );
+      }
+    } else {
+      await this.ensureUniqueDestination(name, province, BigInt(id));
+    }
 
     let warning: string | null = null;
 

@@ -287,10 +287,72 @@ function sortNewestActionFirst(items) {
   });
 }
 
+function formatGuideAvailabilityCreatedAt(value) {
+  if (!value) return "--";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return formatDateTime(value);
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour12: false,
+  }).format(date);
+}
+
 function startOfToday() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return today;
+}
+
+/**
+ * Lịch bận khai báo thủ công phải được báo trước tối thiểu 3 ngày.
+ * Ví dụ hôm nay 10/08/2026 => ngày bắt đầu sớm nhất là 13/08/2026.
+ *
+ * Dùng date-local thay vì toISOString() để không bị lệch ngày do múi giờ.
+ */
+function addDaysAtLocalMidnight(date, days) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  result.setDate(result.getDate() + Number(days || 0));
+  return result;
+}
+
+function toLocalDateInputValue(date) {
+  const value = new Date(date);
+  if (Number.isNaN(value.getTime())) return "";
+
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDateInput(value) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const [, year, month, day] = match;
+  const date = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    0,
+    0,
+    0,
+    0,
+  );
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getMinimumManualAvailabilityDate() {
+  return addDaysAtLocalMidnight(new Date(), 3);
 }
 
 function hasPassedTripEndDate(value) {
@@ -630,12 +692,47 @@ export default function GuideOperationsPanel({ guide }) {
     event.preventDefault();
 
     if (!availabilityForm.startAt || !availabilityForm.endAt) {
-      showToast("Vui lòng chọn đầy đủ thời gian bắt đầu và kết thúc.", "error");
+      showToast("Vui lòng chọn đầy đủ ngày bắt đầu và ngày kết thúc.", "error");
       return;
     }
 
-    if (availabilityForm.endAt < availabilityForm.startAt) {
+    const startAt = parseLocalDateInput(availabilityForm.startAt);
+    const endAt = parseLocalDateInput(availabilityForm.endAt);
+    const minimumStartDate = getMinimumManualAvailabilityDate();
+
+    if (!startAt || !endAt) {
+      showToast("Ngày bắt đầu hoặc ngày kết thúc không hợp lệ.", "error");
+      return;
+    }
+
+    if (startAt.getTime() < minimumStartDate.getTime()) {
+      showToast(
+        `Lịch bận phải được báo trước ít nhất 3 ngày. Ngày bắt đầu sớm nhất là ${minimumStartDate.toLocaleDateString(
+          "vi-VN",
+        )}.`,
+        "warning",
+      );
+      return;
+    }
+
+    if (endAt.getTime() < startAt.getTime()) {
       showToast("Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.", "error");
+      return;
+    }
+    if (
+      !["unavailable", "leave", "training", "personal"].includes(
+        availabilityForm.availabilityType,
+      )
+    ) {
+      showToast("Loại lịch bận không hợp lệ.", "error");
+      return;
+    }
+    if (!availabilityForm.reason.trim()) {
+      showToast("Vui lòng nhập lý do lịch bận.", "error");
+      return;
+    }
+    if (availabilityForm.reason.trim().length > 500) {
+      showToast("Lý do lịch bận tối đa 500 ký tự.", "error");
       return;
     }
 
@@ -836,6 +933,25 @@ export default function GuideOperationsPanel({ guide }) {
       showToast("Vui lòng nhập tiêu đề nhật ký.", "warning");
       return;
     }
+    if (title.length > 200)
+      return showToast("Tiêu đề nhật ký tối đa 200 ký tự.", "error");
+    if (
+      ![
+        "general",
+        "departure",
+        "arrival",
+        "meal",
+        "activity",
+        "transport",
+        "hotel",
+        "note",
+      ].includes(logForm.logType)
+    )
+      return showToast("Loại nhật ký không hợp lệ.", "error");
+    if (logForm.content.trim().length > 5000)
+      return showToast("Nội dung nhật ký tối đa 5000 ký tự.", "error");
+    if (logForm.locationName.trim().length > 255)
+      return showToast("Địa điểm tối đa 255 ký tự.", "error");
 
     setSavingLog(true);
     try {
@@ -922,6 +1038,28 @@ export default function GuideOperationsPanel({ guide }) {
       showToast("Vui lòng nhập tiêu đề và mô tả sự cố.", "warning");
       return;
     }
+    if (title.length > 200)
+      return showToast("Tiêu đề sự cố tối đa 200 ký tự.", "error");
+    if (description.length > 5000)
+      return showToast("Mô tả sự cố tối đa 5000 ký tự.", "error");
+    if (incidentForm.locationName.trim().length > 255)
+      return showToast("Địa điểm sự cố tối đa 255 ký tự.", "error");
+    if (
+      ![
+        "medical",
+        "transport",
+        "hotel",
+        "guest",
+        "restaurant",
+        "weather",
+        "schedule",
+        "security",
+        "other",
+      ].includes(incidentForm.category)
+    )
+      return showToast("Nhóm sự cố không hợp lệ.", "error");
+    if (!["low", "medium", "high", "critical"].includes(incidentForm.severity))
+      return showToast("Mức độ sự cố không hợp lệ.", "error");
 
     setSavingIncident(true);
     try {
@@ -1091,6 +1229,7 @@ export default function GuideOperationsPanel({ guide }) {
       flatPassengers.length ??
       0,
   );
+  const reportTotalGuests = Math.max(0, Number(total || 0));
   const checkinRate = total ? Math.round((present / total) * 100) : 0;
 
   return (
@@ -1365,6 +1504,7 @@ export default function GuideOperationsPanel({ guide }) {
                 <div className="ops-two-col ops-availability-layout">
                   <div className="ops-form-panel">
                     <form
+                      noValidate
                       className="ops-form-card ops-availability-form"
                       onSubmit={submitAvailability}
                     >
@@ -1377,6 +1517,7 @@ export default function GuideOperationsPanel({ guide }) {
                           <p className="ops-form-desc">
                             Dùng cho nghỉ phép, việc cá nhân, đào tạo hoặc thời
                             gian không sẵn sàng không gắn với một tour cụ thể.
+                            Lịch bận cần được báo trước tối thiểu 3 ngày.
                           </p>
                         </div>
                         <div className="ops-availability-form-icon">
@@ -1406,14 +1547,25 @@ export default function GuideOperationsPanel({ guide }) {
                           <input
                             type="date"
                             required
+                            min={toLocalDateInputValue(
+                              getMinimumManualAvailabilityDate(),
+                            )}
                             max={availabilityForm.endAt || undefined}
                             value={availabilityForm.startAt}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              const nextStartAt = event.target.value;
+
                               setAvailabilityForm((current) => ({
                                 ...current,
-                                startAt: event.target.value,
-                              }))
-                            }
+                                startAt: nextStartAt,
+                                // Nếu ngày kết thúc đang nhỏ hơn ngày bắt đầu mới
+                                // thì tự đưa về cùng ngày để form luôn hợp lệ.
+                                endAt:
+                                  current.endAt && current.endAt < nextStartAt
+                                    ? nextStartAt
+                                    : current.endAt,
+                              }));
+                            }}
                           />
                         </Field>
 
@@ -1421,7 +1573,12 @@ export default function GuideOperationsPanel({ guide }) {
                           <input
                             type="date"
                             required
-                            min={availabilityForm.startAt || undefined}
+                            min={
+                              availabilityForm.startAt ||
+                              toLocalDateInputValue(
+                                getMinimumManualAvailabilityDate(),
+                              )
+                            }
                             value={availabilityForm.endAt}
                             onChange={(event) =>
                               setAvailabilityForm((current) => ({
@@ -1436,6 +1593,7 @@ export default function GuideOperationsPanel({ guide }) {
                       <Field label="Lý do">
                         <textarea
                           required
+                          maxLength={500}
                           placeholder="Ví dụ: Có việc gia đình, tham gia khóa đào tạo nghiệp vụ..."
                           value={availabilityForm.reason}
                           onChange={(event) =>
@@ -1446,7 +1604,6 @@ export default function GuideOperationsPanel({ guide }) {
                           }
                         />
                       </Field>
-
                       <button
                         className="ops-btn-primary ops-availability-submit"
                         type="submit"
@@ -1535,7 +1692,7 @@ export default function GuideOperationsPanel({ guide }) {
                                           ? tour?.name ||
                                             booking?.tourName ||
                                             "Tour chưa tải được thông tin"
-                                          : "Lịch bận chung, không gắn với tour cụ thể"}
+                                          : "Lịch bận"}
                                       </strong>
                                     </div>
 
@@ -1622,7 +1779,7 @@ export default function GuideOperationsPanel({ guide }) {
                                     <span>
                                       <Clock size={15} />
                                       Báo lúc{" "}
-                                      {formatDateTime(
+                                      {formatGuideAvailabilityCreatedAt(
                                         item.createdAt || item.created_at,
                                       )}
                                     </span>
@@ -1847,6 +2004,7 @@ export default function GuideOperationsPanel({ guide }) {
                 <div className="ops-two-col">
                   <div className="ops-form-panel">
                     <form
+                      noValidate
                       className={`ops-form-card ${isReadOnlyTrip ? "readonly" : ""}`}
                       onSubmit={saveJourneyLog}
                     >
@@ -2019,6 +2177,7 @@ export default function GuideOperationsPanel({ guide }) {
                 <div className="ops-two-col">
                   <div className="ops-form-panel">
                     <form
+                      noValidate
                       className={`ops-form-card ${isReadOnlyTrip ? "readonly" : ""}`}
                       onSubmit={saveIncident}
                     >
@@ -2043,11 +2202,11 @@ export default function GuideOperationsPanel({ guide }) {
                               }))
                             }
                           >
-                            <option value="customer">Khách hàng</option>
-                            <option value="vehicle">Phương tiện</option>
+                            <option value="guest">Khách hàng</option>
+                            <option value="transport">Phương tiện</option>
                             <option value="hotel">Khách sạn</option>
                             <option value="restaurant">Nhà hàng</option>
-                            <option value="health">Sức khỏe</option>
+                            <option value="medical">Sức khỏe</option>
                             <option value="weather">Thời tiết</option>
                             <option value="schedule">Lịch trình</option>
                             <option value="security">An ninh</option>
@@ -2247,10 +2406,44 @@ export default function GuideOperationsPanel({ guide }) {
                 <div className="ops-two-col">
                   <div className="ops-form-panel">
                     <form
+                      noValidate
                       className={`ops-form-card ${isReadOnlyTrip ? "readonly" : ""}`}
                       onSubmit={(e) => {
                         e.preventDefault();
                         if (isReadOnlyTrip) return;
+                        const broadcastTitle = broadcastForm.title.trim();
+                        const broadcastContent = broadcastForm.content.trim();
+                        if (!broadcastTitle || !broadcastContent)
+                          return showToast(
+                            "Vui lòng nhập tiêu đề và nội dung thông báo.",
+                            "error",
+                          );
+                        if (broadcastTitle.length > 220)
+                          return showToast(
+                            "Tiêu đề thông báo tối đa 220 ký tự.",
+                            "error",
+                          );
+                        if (broadcastContent.length > 5000)
+                          return showToast(
+                            "Nội dung thông báo tối đa 5000 ký tự.",
+                            "error",
+                          );
+                        if (!["in_app"].includes(broadcastForm.channel))
+                          return showToast(
+                            "Kênh gửi thông báo không hợp lệ.",
+                            "error",
+                          );
+                        if (
+                          broadcastForm.pickupPointId &&
+                          (!Number.isInteger(
+                            Number(broadcastForm.pickupPointId),
+                          ) ||
+                            Number(broadcastForm.pickupPointId) <= 0)
+                        )
+                          return showToast(
+                            "Điểm đón nhận thông báo không hợp lệ.",
+                            "error",
+                          );
                         postAndReload(
                           `/trip-operations/${selectedTrip.id}/broadcasts`,
                           {
@@ -2384,6 +2577,7 @@ export default function GuideOperationsPanel({ guide }) {
 
               {activeTab === "report" && (
                 <form
+                  noValidate
                   className={`ops-form-card ops-report ${
                     isCancelledTrip || hasSavedReport || !hasTripEnded
                       ? "readonly"
@@ -2402,9 +2596,87 @@ export default function GuideOperationsPanel({ guide }) {
                       return;
                     }
 
+                    const actualGuestCount = Number(
+                      reportForm.actualGuestCount,
+                    );
+                    const absentGuestCount =
+                      reportTotalGuests - actualGuestCount;
+                    const extraCost = Number(reportForm.extraCost);
+
+                    if (
+                      !Number.isInteger(actualGuestCount) ||
+                      actualGuestCount < 0
+                    )
+                      return showToast(
+                        "Số khách thực tế phải là số nguyên không âm.",
+                        "error",
+                      );
+
+                    if (actualGuestCount > reportTotalGuests)
+                      return showToast(
+                        `Số khách thực tế không được vượt quá ${reportTotalGuests} khách đã đặt tour.`,
+                        "error",
+                      );
+
+                    if (
+                      !Number.isInteger(absentGuestCount) ||
+                      absentGuestCount < 0 ||
+                      absentGuestCount > reportTotalGuests
+                    )
+                      return showToast("Số khách vắng không hợp lệ.", "error");
+
+                    if (!Number.isInteger(extraCost) || extraCost < 0)
+                      return showToast(
+                        "Chi phí phát sinh phải là số nguyên không âm.",
+                        "error",
+                      );
+                    for (const [label, value] of [
+                      ["Lịch trình", reportForm.itineraryRating],
+                      ["Vận chuyển", reportForm.vehicleRating],
+                      ["Lưu trú", reportForm.hotelRating],
+                      ["Nhà hàng", reportForm.restaurantRating],
+                    ]) {
+                      const rating = Number(value);
+                      if (!Number.isInteger(rating) || rating < 1 || rating > 5)
+                        return showToast(
+                          `${label} phải được đánh giá từ 1 đến 5 sao.`,
+                          "error",
+                        );
+                    }
+                    if (!reportForm.summary.trim())
+                      return showToast(
+                        "Vui lòng nhập tổng kết chuyến đi.",
+                        "error",
+                      );
+                    if (reportForm.summary.trim().length > 5000)
+                      return showToast(
+                        "Tổng kết chuyến đi tối đa 5000 ký tự.",
+                        "error",
+                      );
+                    if (reportForm.incidentsSummary.trim().length > 5000)
+                      return showToast(
+                        "Tóm tắt sự cố tối đa 5000 ký tự.",
+                        "error",
+                      );
+                    if (reportForm.extraCostNote.trim().length > 1000)
+                      return showToast(
+                        "Ghi chú chi phí tối đa 1000 ký tự.",
+                        "error",
+                      );
+                    if (reportForm.recommendations.trim().length > 5000)
+                      return showToast(
+                        "Đề xuất cải thiện tối đa 5000 ký tự.",
+                        "error",
+                      );
+
                     postAndReload(
                       `/trip-operations/${selectedTrip.id}/report`,
-                      reportForm,
+                      {
+                        ...reportForm,
+                        actualGuestCount,
+                        absentGuestCount,
+                        extraCost,
+                      },
                       "Đã gửi báo cáo kết thúc chuyến đi.",
                     );
                   }}
@@ -2443,13 +2715,24 @@ export default function GuideOperationsPanel({ guide }) {
                         <input
                           type="number"
                           min="0"
+                          max={reportTotalGuests}
+                          step="1"
                           value={reportForm.actualGuestCount}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const actualGuestCount = Number(e.target.value);
                             setReportForm((p) => ({
                               ...p,
-                              actualGuestCount: Number(e.target.value),
-                            }))
-                          }
+                              actualGuestCount,
+                              absentGuestCount: Number.isFinite(
+                                actualGuestCount,
+                              )
+                                ? Math.max(
+                                    0,
+                                    reportTotalGuests - actualGuestCount,
+                                  )
+                                : 0,
+                            }));
+                          }}
                         />
                       </div>
                     </Field>
@@ -2459,13 +2742,15 @@ export default function GuideOperationsPanel({ guide }) {
                         <input
                           type="number"
                           min="0"
-                          value={reportForm.absentGuestCount}
-                          onChange={(e) =>
-                            setReportForm((p) => ({
-                              ...p,
-                              absentGuestCount: Number(e.target.value),
-                            }))
-                          }
+                          max={reportTotalGuests}
+                          step="1"
+                          value={Math.max(
+                            0,
+                            reportTotalGuests -
+                              Number(reportForm.actualGuestCount || 0),
+                          )}
+                          readOnly
+                          title="Tự động tính bằng tổng khách đã đặt trừ số khách thực tế"
                         />
                       </div>
                     </Field>
@@ -2475,6 +2760,7 @@ export default function GuideOperationsPanel({ guide }) {
                         <input
                           type="number"
                           min="0"
+                          step="1"
                           value={reportForm.extraCost}
                           onChange={(e) =>
                             setReportForm((p) => ({
@@ -2487,6 +2773,7 @@ export default function GuideOperationsPanel({ guide }) {
                     </Field>
                     <Field label="Ghi chú chi phí">
                       <input
+                        maxLength={1000}
                         placeholder="Lý do phát sinh..."
                         value={reportForm.extraCostNote}
                         onChange={(e) =>
@@ -2508,6 +2795,7 @@ export default function GuideOperationsPanel({ guide }) {
                         type="number"
                         min="1"
                         max="5"
+                        step="1"
                         value={reportForm.itineraryRating}
                         onChange={(e) =>
                           setReportForm((p) => ({
@@ -2522,6 +2810,7 @@ export default function GuideOperationsPanel({ guide }) {
                         type="number"
                         min="1"
                         max="5"
+                        step="1"
                         value={reportForm.vehicleRating}
                         onChange={(e) =>
                           setReportForm((p) => ({
@@ -2536,6 +2825,7 @@ export default function GuideOperationsPanel({ guide }) {
                         type="number"
                         min="1"
                         max="5"
+                        step="1"
                         value={reportForm.hotelRating}
                         onChange={(e) =>
                           setReportForm((p) => ({
@@ -2550,6 +2840,7 @@ export default function GuideOperationsPanel({ guide }) {
                         type="number"
                         min="1"
                         max="5"
+                        step="1"
                         value={reportForm.restaurantRating}
                         onChange={(e) =>
                           setReportForm((p) => ({
@@ -2567,6 +2858,7 @@ export default function GuideOperationsPanel({ guide }) {
                   <div className="ops-form-grid">
                     <Field label="Tổng kết chuyến đi">
                       <textarea
+                        maxLength={5000}
                         placeholder="Đánh giá tổng quan về thái độ khách, các điểm tham quan..."
                         value={reportForm.summary}
                         onChange={(e) =>
@@ -2579,6 +2871,7 @@ export default function GuideOperationsPanel({ guide }) {
                     </Field>
                     <Field label="Các sự cố đáng chú ý">
                       <textarea
+                        maxLength={5000}
                         placeholder="Liệt kê vắn tắt các sự cố lớn (nếu có)..."
                         value={reportForm.incidentsSummary}
                         onChange={(e) =>
@@ -2592,6 +2885,7 @@ export default function GuideOperationsPanel({ guide }) {
                   </div>
                   <Field label="Đề xuất cải thiện">
                     <textarea
+                      maxLength={5000}
                       placeholder="Ý kiến cá nhân để tổ chức tốt hơn ở lần sau..."
                       value={reportForm.recommendations}
                       onChange={(e) =>
@@ -2786,6 +3080,10 @@ export default function GuideOperationsPanel({ guide }) {
       <style jsx global>{`
         /* CSS Variables cho Theme Du lịch */
         .ops-root {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          overflow-x: clip;
           --primary-color: #0ea5e9; /* Sky 500 */
           --primary-hover: #0284c7; /* Sky 600 */
           --danger-color: #ef4444;
@@ -4357,65 +4655,198 @@ export default function GuideOperationsPanel({ guide }) {
           justify-content: flex-end;
         }
 
-        /* Responsive */
+        /* Responsive: chỉ đổi bố cục, giữ nguyên toàn bộ nghiệp vụ */
         @media (max-width: 1180px) {
           .ops-trip-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
+
+          .ops-card,
+          .ops-hero,
+          .ops-main-card,
+          .ops-trip-content {
+            min-width: 0;
+            max-width: 100%;
+          }
         }
+
         @media (max-width: 1024px) {
           .ops-metrics {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
           }
+
           .ops-two-col {
             grid-template-columns: 1fr;
           }
+
           .ops-hero {
             flex-direction: column;
-            gap: 24px;
-            padding: 24px;
+            gap: 20px;
+            padding: 22px;
           }
+
           .ops-hero-content {
             max-width: 100%;
+            width: 100%;
+            min-width: 0;
           }
+
+          .ops-hero-title {
+            overflow-wrap: anywhere;
+          }
+
           .ops-rate-card {
             width: 100%;
+            max-width: none;
+            box-sizing: border-box;
+          }
+
+          .ops-tabs {
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .ops-tab-item {
+            flex: 0 0 auto;
+            white-space: nowrap;
           }
         }
+
         @media (max-width: 768px) {
+          .ops-root {
+            overflow-x: hidden;
+          }
+
           .ops-heading-row,
           .ops-card-head {
             flex-direction: column;
-            align-items: flex-start;
+            align-items: stretch;
             gap: 12px;
           }
-          .ops-search {
+
+          .ops-heading-row > div,
+          .ops-card-head > div {
+            min-width: 0;
+          }
+
+          .ops-heading-row .ops-btn-outline {
             width: 100%;
           }
+
+          .ops-search {
+            width: 100%;
+            max-width: none;
+            box-sizing: border-box;
+          }
+
+          .ops-trip-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            overflow: visible;
+          }
+
+          .ops-trip-card {
+            width: 100%;
+            min-width: 0;
+          }
+
+          .ops-trip-title {
+            white-space: normal;
+            overflow-wrap: anywhere;
+          }
+
           .ops-form-grid,
           .ops-form-grid.four {
             grid-template-columns: 1fr;
           }
+
+          .ops-hero {
+            padding: 18px;
+            border-radius: 18px;
+          }
+
+          .ops-hero-meta {
+            flex-wrap: wrap;
+          }
+
           .ops-hero-dates {
             flex-direction: column;
-            gap: 12px;
+            gap: 10px;
           }
+
+          .ops-metrics {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+          }
+
+          .ops-metric {
+            min-width: 0;
+            padding: 14px;
+          }
+
+          .ops-main-card {
+            border-radius: 16px;
+          }
+
+          .ops-tab-content {
+            padding-left: 14px;
+            padding-right: 14px;
+          }
+
+          .ops-table-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .ops-table {
+            min-width: 900px;
+          }
+
           .ops-checkin-chips {
             justify-content: flex-end;
           }
+
           .ops-passenger-detail-grid,
           .ops-special-notes {
             grid-template-columns: 1fr;
           }
+
           .ops-passenger-modal-backdrop {
             padding: 10px;
           }
+
           .ops-report-required-alert {
             grid-template-columns: auto minmax(0, 1fr);
           }
+
           .ops-report-required-alert button {
             grid-column: 1 / -1;
             width: 100%;
+          }
+        }
+
+        @media (max-width: 520px) {
+          .ops-heading-row h2 {
+            font-size: 23px;
+          }
+
+          .ops-card {
+            padding: 16px;
+            border-radius: 16px;
+          }
+
+          .ops-metrics {
+            grid-template-columns: 1fr;
+          }
+
+          .ops-hero-title {
+            font-size: 22px;
+          }
+
+          .ops-rate-card {
+            padding: 16px;
           }
         }
       `}</style>

@@ -13,6 +13,13 @@ export default function LoginPage() {
   const [mode, setMode] = useState("login");
   const [googleReady, setGoogleReady] = useState(false);
   const [sending, setSending] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState("email");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotOtp, setForgotOtp] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
+  const [forgotSending, setForgotSending] = useState(false);
 
   // Đồng bộ mode với URL query
   useEffect(() => {
@@ -72,10 +79,38 @@ export default function LoginPage() {
 
   const handleLogin = async (event) => {
     event.preventDefault();
-    setSending(true);
+
     const payload = Object.fromEntries(
       new FormData(event.currentTarget).entries(),
     );
+
+    payload.identifier = String(payload.identifier || "").trim();
+    payload.password = String(payload.password || "");
+
+    // Kiểm tra dữ liệu trước khi bật trạng thái "Đang xử lý..."
+    // để khi validation lỗi nút không bị kẹt ở trạng thái loading.
+    if (!payload.identifier) {
+      showToast("Vui lòng nhập email hoặc tên tài khoản.", "error");
+      return;
+    }
+
+    if (payload.identifier.length > 190) {
+      showToast("Thông tin đăng nhập quá dài.", "error");
+      return;
+    }
+
+    if (!payload.password) {
+      showToast("Vui lòng nhập mật khẩu.", "error");
+      return;
+    }
+
+    if (payload.password.length < 6 || payload.password.length > 72) {
+      showToast("Mật khẩu phải từ 6 đến 72 ký tự.", "error");
+      return;
+    }
+
+    setSending(true);
+
     try {
       const session = await apiFetch("/auth/login", {
         method: "POST",
@@ -158,6 +193,94 @@ export default function LoginPage() {
       showToast(error.message, "error");
     } finally {
       setSending(false);
+    }
+  };
+
+  const closeForgotPassword = () => {
+    if (forgotSending) return;
+    setForgotOpen(false);
+    setForgotStep("email");
+    setForgotEmail("");
+    setForgotOtp("");
+    setForgotNewPassword("");
+    setForgotConfirmPassword("");
+  };
+
+  const handleForgotPassword = async (event) => {
+    event.preventDefault();
+    const email = String(forgotEmail || "")
+      .trim()
+      .toLowerCase();
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!email) {
+      showToast("Vui lòng nhập email.", "error");
+      return;
+    }
+    if (!emailPattern.test(email)) {
+      showToast("Vui lòng nhập địa chỉ email hợp lệ.", "error");
+      return;
+    }
+
+    setForgotSending(true);
+    try {
+      const result = await apiFetch("/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      setForgotEmail(email);
+      setForgotStep("otp");
+      showToast(
+        result?.message || "Mã xác nhận đã được gửi đến email của bạn.",
+        "success",
+      );
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setForgotSending(false);
+    }
+  };
+
+  const handleResetPassword = async (event) => {
+    event.preventDefault();
+    const otp = String(forgotOtp || "").trim();
+    const newPassword = String(forgotNewPassword || "");
+    const confirmPassword = String(forgotConfirmPassword || "");
+
+    if (!/^\d{6}$/.test(otp)) {
+      showToast("Mã xác nhận phải gồm đúng 6 chữ số.", "error");
+      return;
+    }
+    if (newPassword.length < 6 || newPassword.length > 72) {
+      showToast("Mật khẩu mới phải từ 6 đến 72 ký tự.", "error");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showToast("Mật khẩu nhập lại không khớp.", "error");
+      return;
+    }
+
+    setForgotSending(true);
+    try {
+      const result = await apiFetch("/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({
+          email: forgotEmail,
+          otp,
+          newPassword,
+          confirmPassword,
+        }),
+      });
+      showToast(result?.message || "Đặt lại mật khẩu thành công.", "success");
+      setForgotOpen(false);
+      setForgotStep("email");
+      setForgotOtp("");
+      setForgotNewPassword("");
+      setForgotConfirmPassword("");
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setForgotSending(false);
     }
   };
 
@@ -437,7 +560,7 @@ export default function LoginPage() {
 
             {/* Forms */}
             {mode === "login" ? (
-              <form onSubmit={handleLogin}>
+              <form onSubmit={handleLogin} noValidate>
                 <div style={{ marginBottom: "20px" }}>
                   <label className="auth-label">Email hoặc tên tài khoản</label>
                   <input
@@ -462,6 +585,11 @@ export default function LoginPage() {
                     </label>
                     <Link
                       href="#"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setForgotOpen(true);
+                        setForgotStep("email");
+                      }}
                       style={{
                         fontSize: "0.85rem",
                         color: "#72b44b",
@@ -592,6 +720,220 @@ export default function LoginPage() {
             />
           </div>
         </div>
+
+        {forgotOpen && (
+          <div
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeForgotPassword();
+            }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 9999,
+              background: "rgba(15, 23, 42, 0.45)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "20px",
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                maxWidth: "460px",
+                background: "#fff",
+                borderRadius: "18px",
+                padding: "28px",
+                boxShadow: "0 24px 70px rgba(15,23,42,0.25)",
+                position: "relative",
+              }}
+            >
+              <button
+                type="button"
+                onClick={closeForgotPassword}
+                disabled={forgotSending}
+                aria-label="Đóng"
+                style={{
+                  position: "absolute",
+                  top: "14px",
+                  right: "16px",
+                  width: "34px",
+                  height: "34px",
+                  borderRadius: "50%",
+                  border: "none",
+                  background: "#f1f5f9",
+                  color: "#475569",
+                  fontSize: "20px",
+                  cursor: forgotSending ? "not-allowed" : "pointer",
+                }}
+              >
+                ×
+              </button>
+
+              <h2 style={{ margin: "0 36px 8px 0", color: "#0f172a" }}>
+                Quên mật khẩu
+              </h2>
+              <p
+                style={{
+                  margin: "0 0 24px",
+                  color: "#64748b",
+                  lineHeight: 1.55,
+                }}
+              >
+                {forgotStep === "email"
+                  ? "Nhập email tài khoản. Travela sẽ gửi mã xác nhận gồm 6 chữ số để bạn đặt lại mật khẩu."
+                  : `Mã xác nhận đã được gửi đến ${forgotEmail}. Mã có hiệu lực trong 10 phút.`}
+              </p>
+
+              {forgotStep === "email" ? (
+                <form onSubmit={handleForgotPassword} noValidate>
+                  <label className="auth-label">Địa chỉ Email</label>
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(event) => setForgotEmail(event.target.value)}
+                    placeholder="VD: ban@example.com"
+                    className="auth-input"
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    disabled={forgotSending}
+                    style={{
+                      width: "100%",
+                      marginTop: "22px",
+                      padding: "14px",
+                      borderRadius: "12px",
+                      border: "none",
+                      background: "linear-gradient(135deg, #72b44b, #5a9d34)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: "1rem",
+                      cursor: forgotSending ? "not-allowed" : "pointer",
+                      opacity: forgotSending ? 0.7 : 1,
+                    }}
+                  >
+                    {forgotSending ? "Đang gửi..." : "Gửi mã xác nhận"}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleResetPassword} noValidate>
+                  <div style={{ marginBottom: "16px" }}>
+                    <label className="auth-label">Mã xác nhận</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={forgotOtp}
+                      onChange={(event) =>
+                        setForgotOtp(
+                          event.target.value.replace(/\D/g, "").slice(0, 6),
+                        )
+                      }
+                      placeholder="Nhập 6 chữ số"
+                      className="auth-input"
+                      autoFocus
+                    />
+                  </div>
+                  <div style={{ marginBottom: "16px" }}>
+                    <label className="auth-label">Mật khẩu mới</label>
+                    <input
+                      type="password"
+                      value={forgotNewPassword}
+                      onChange={(event) =>
+                        setForgotNewPassword(event.target.value)
+                      }
+                      placeholder="Từ 6 đến 72 ký tự"
+                      className="auth-input"
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <div style={{ marginBottom: "18px" }}>
+                    <label className="auth-label">Nhập lại mật khẩu</label>
+                    <input
+                      type="password"
+                      value={forgotConfirmPassword}
+                      onChange={(event) =>
+                        setForgotConfirmPassword(event.target.value)
+                      }
+                      placeholder="Nhập lại mật khẩu mới"
+                      className="auth-input"
+                      autoComplete="new-password"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={forgotSending}
+                    style={{
+                      width: "100%",
+                      padding: "14px",
+                      borderRadius: "12px",
+                      border: "none",
+                      background: "linear-gradient(135deg, #72b44b, #5a9d34)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: "1rem",
+                      cursor: forgotSending ? "not-allowed" : "pointer",
+                      opacity: forgotSending ? 0.7 : 1,
+                    }}
+                  >
+                    {forgotSending ? "Đang xử lý..." : "Đặt lại mật khẩu"}
+                  </button>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      marginTop: "16px",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      disabled={forgotSending}
+                      onClick={() => {
+                        setForgotStep("email");
+                        setForgotOtp("");
+                        setForgotNewPassword("");
+                        setForgotConfirmPassword("");
+                      }}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: "#64748b",
+                        fontWeight: 600,
+                        cursor: forgotSending ? "not-allowed" : "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      Đổi email
+                    </button>
+                    <button
+                      type="button"
+                      disabled={forgotSending}
+                      onClick={async () => {
+                        const fakeEvent = { preventDefault() {} };
+                        await handleForgotPassword(fakeEvent);
+                      }}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: "#72b44b",
+                        fontWeight: 700,
+                        cursor: forgotSending ? "not-allowed" : "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      Gửi lại mã
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
       </main>
     </>
   );

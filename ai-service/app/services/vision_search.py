@@ -247,6 +247,26 @@ def _sha1_for_files(paths: Iterable[Path]) -> str:
     return h.hexdigest()
 
 
+
+def _average_hash_image(image: Image.Image, hash_size: int = 16) -> str:
+    """Simple perceptual average hash, no extra dependency."""
+    gray = ImageOps.fit(
+        image.convert("L"),
+        (hash_size, hash_size),
+        method=Image.Resampling.LANCZOS,
+    )
+    pixels = list(gray.getdata())
+    avg = sum(pixels) / max(1, len(pixels))
+    bits = "".join("1" if px >= avg else "0" for px in pixels)
+    return f"{int(bits, 2):0{hash_size * hash_size // 4}x}"
+
+
+def _hamming_hex(a: str, b: str) -> int:
+    try:
+        return (int(a, 16) ^ int(b, 16)).bit_count()
+    except Exception:
+        return 10**9
+
 def _load_json(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {}
@@ -367,6 +387,7 @@ class VisionSearchEngine:
         self.destination_prototypes: Dict[str, torch.Tensor] = {}
         self.destination_text_embeddings: Dict[str, torch.Tensor] = {}
         self.scene_text_embeddings: Dict[str, torch.Tensor] = {}
+        self.gallery_phashes: Dict[str, str] = {}
 
         self.cache_used = False
         self.loaded = False
@@ -690,6 +711,11 @@ class VisionSearchEngine:
                 for tag, vec in raw_scene.items()
             }
 
+            self.gallery_phashes = {
+                str(k): str(v)
+                for k, v in (payload.get("gallery_phashes") or {}).items()
+            }
+
             self.dataset_fingerprint = fingerprint
             self.cache_used = True
             return True
@@ -722,6 +748,7 @@ class VisionSearchEngine:
                     tag: vec.cpu()
                     for tag, vec in self.scene_text_embeddings.items()
                 },
+                "gallery_phashes": self.gallery_phashes,
             }
             torch.save(payload, CACHE_FILE)
         except Exception as exc:
@@ -819,6 +846,16 @@ class VisionSearchEngine:
             self.gallery_images = valid_images
             self.gallery_embeddings = F.normalize(torch.stack(embeddings).float(), dim=-1)
 
+            self.gallery_phashes = {}
+            for item in self.gallery_images:
+                try:
+                    with Image.open(item.image_path) as img:
+                        self.gallery_phashes[item.image_id] = _average_hash_image(
+                            ImageOps.exif_transpose(img).convert("RGB")
+                        )
+                except Exception:
+                    continue
+
             self._build_destination_prototypes()
             self._build_destination_text_embeddings()
             self._build_scene_text_embeddings()
@@ -840,6 +877,7 @@ class VisionSearchEngine:
         self.destination_prototypes = {}
         self.destination_text_embeddings = {}
         self.scene_text_embeddings = {}
+        self.gallery_phashes = {}
         self.cache_used = False
 
         if force_rebuild_cache and CACHE_FILE.exists():
@@ -866,6 +904,94 @@ class VisionSearchEngine:
             raise RuntimeError(self.error or "Vision gallery chưa sẵn sàng.")
 
     # ------------------------------------------------------------
+    # Exact / near-duplicate lookup
+    # ------------------------------------------------------------
+
+    def _find_near_duplicate(self, image: Image.Image) -> Optional[Dict[str, Any]]:
+        if not self.gallery_phashes:
+            return None
+
+        query_hash = _average_hash_image(image)
+        best_item = None
+        best_distance = 10**9
+
+        for item in self.gallery_images:
+            stored = self.gallery_phashes.get(item.image_id)
+            if not stored:
+                continue
+            distance = _hamming_hex(query_hash, stored)
+            if distance < best_distance:
+                best_distance = distance
+                best_item = item
+
+        # 16x16 average hash = 256 bits.
+        # <= 8 bits khác nhau là ảnh giống/near-duplicate rất mạnh.
+        max_distance = int(os.getenv("VISION_EXACT_HASH_MAX_DISTANCE", "8"))
+        if best_item is None or best_distance > max_distance:
+            return None
+
+        confidence = max(0.0, 1.0 - best_distance / 32.0)
+        return {
+            "destination_slug": best_item.destination_slug,
+            "destination_name": best_item.destination_name,
+            "province": best_item.province,
+            "score": round(confidence, 4),
+            "confidence": round(confidence, 4),
+            "confidence_percent": round(confidence * 100, 1),
+            "best_image_score": 1.0,
+            "top3_avg_image_score": 1.0,
+            "prototype_score": 1.0,
+            "text_score": 0.0,
+            "scene_bonus": 0.0,
+            "hit_count": 1,
+            "evidence_images": [{
+                "image_path": best_item.public_path,
+                "filename": best_item.filename,
+                "score": 1.0,
+                "caption": best_item.caption,
+            }],
+            "matched_scene_tags": self.destinations.get(
+                best_item.destination_slug, {}
+            ).get("scene_tags") or DESTINATION_TAG_RULES.get(
+                best_item.destination_slug, []
+            ),
+            "match_type": "near_duplicate",
+            "hash_distance": best_distance,
+        }
+
+    def search_exact_match_only(self, image: Image.Image) -> Optional[Dict[str, Any]]:
+        """
+        Fast path chỉ kiểm tra ảnh trùng/gần trùng trong gallery bằng perceptual hash.
+
+        Không thay đổi ngưỡng hay logic _find_near_duplicate().
+        Nếu không trùng/gần trùng, trả None để luồng tìm kiếm cũ tiếp tục nguyên vẹn.
+        """
+        self._ensure_loaded()
+
+        near_duplicate = self._find_near_duplicate(image)
+        if near_duplicate is None:
+            return None
+
+        return {
+            "engine": "clip_image_gallery_retrieval_v4",
+            "model": self.model_name,
+            "device": self.device,
+            "fallback": False,
+            "low_confidence": False,
+            "message": "Tìm thấy ảnh trùng hoặc gần trùng trong cơ sở dữ liệu hình ảnh.",
+            "detected": near_duplicate,
+            "top_matches": [near_duplicate],
+            "raw_matches": [],
+            "scene_scores": [],
+            "scene_detected": None,
+            "scene_confidence": 0.0,
+            "vision_status": asdict(self.status()),
+            "perf": None,
+            "exact_match": True,
+        }
+
+
+    # ------------------------------------------------------------
     # Search
     # ------------------------------------------------------------
 
@@ -873,6 +999,30 @@ class VisionSearchEngine:
         perf = PerfTimer("clip_search")
         self._ensure_loaded()
         perf.mark("ensure_loaded")
+
+        near_duplicate = self._find_near_duplicate(image)
+        if near_duplicate is not None:
+            perf.mark("near_duplicate")
+            return {
+                "engine": "clip_image_gallery_retrieval_v4",
+                "model": self.model_name,
+                "device": self.device,
+                "fallback": False,
+                "low_confidence": False,
+                "message": "Tìm thấy ảnh trùng hoặc gần trùng trong cơ sở dữ liệu hình ảnh.",
+                "detected": near_duplicate,
+                "top_matches": [near_duplicate],
+                "raw_matches": [],
+                "scene_scores": [],
+                "vision_status": asdict(self.status()),
+                "perf": perf.finish(
+                    top_k=top_k,
+                    low_confidence=False,
+                    detected=near_duplicate.get("destination_slug"),
+                    exact_match=True,
+                ) if PERF_LOG_ENABLED else None,
+                "exact_match": True,
+            }
 
         query = self.encode_query_image(image).float()
         query = F.normalize(query, dim=-1)
@@ -941,6 +1091,16 @@ class VisionSearchEngine:
             "top_matches": ranked,
             "raw_matches": raw_matches[: min(30, len(raw_matches))],
             "scene_scores": scene_scores[:5],
+            "scene_detected": (
+                scene_scores[0]["tag"]
+                if scene_scores
+                else None
+            ),
+            "scene_confidence": (
+                float(scene_scores[0]["score"])
+                if scene_scores
+                else 0.0
+            ),
             "vision_status": asdict(self.status()),
             "perf": perf_payload if PERF_LOG_ENABLED else None,
         }
@@ -1136,6 +1296,11 @@ def get_vision_status(load: bool = False) -> Dict[str, Any]:
 
 def reload_vision_gallery(force_rebuild_cache: bool = True) -> Dict[str, Any]:
     return asdict(vision_search_engine.reload(force_rebuild_cache=force_rebuild_cache))
+
+
+
+def search_exact_match_from_pil(image: Image.Image) -> Optional[Dict[str, Any]]:
+    return vision_search_engine.search_exact_match_only(image)
 
 
 def search_similar_destinations_from_pil(image: Image.Image, top_k: int = 5) -> Dict[str, Any]:

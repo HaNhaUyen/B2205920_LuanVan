@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Min,
 } from "class-validator";
 
 export class UpsertNotificationDto {
@@ -19,6 +20,7 @@ export class UpsertNotificationDto {
   message?: string;
 
   @IsString()
+  @MaxLength(5000)
   content!: string;
 
   @IsOptional()
@@ -28,6 +30,7 @@ export class UpsertNotificationDto {
 
   @IsOptional()
   @IsInt()
+  @Min(1)
   targetUserId?: number;
 
   @IsOptional()

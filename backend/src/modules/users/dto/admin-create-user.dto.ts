@@ -1,28 +1,29 @@
-import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsIn } from "class-validator";
 
 export class AdminCreateUserDto {
-  @IsString()
-  @MinLength(2)
-  @MaxLength(150)
+  @IsString({ message: "Họ tên phải là chuỗi ký tự." })
+  @IsNotEmpty({ message: "Vui lòng nhập họ tên." })
   fullName!: string;
 
-  @IsEmail()
+  @IsString({ message: "Email phải là chuỗi ký tự." })
+  @IsNotEmpty({ message: "Vui lòng nhập email." })
   email!: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  phone?: string;
+  @IsString({ message: "Số điện thoại phải là chuỗi ký tự." })
+  @IsNotEmpty({ message: "Vui lòng nhập số điện thoại." })
+  phone!: string;
 
-  @IsString()
-  @MinLength(6)
+  @IsString({ message: "Mật khẩu phải là chuỗi ký tự." })
+  @IsNotEmpty({ message: "Vui lòng nhập mật khẩu khởi tạo." })
   password!: string;
 
   @IsOptional()
-  @IsIn(['active', 'inactive', 'blocked'])
-  status?: 'active' | 'inactive' | 'blocked';
+  @IsIn(["active", "inactive", "blocked"], {
+    message: "Trạng thái người dùng không hợp lệ.",
+  })
+  status?: "active" | "inactive" | "blocked";
 
   @IsOptional()
-  @IsString()
+  @IsString({ message: "Đường dẫn ảnh đại diện phải là chuỗi ký tự." })
   avatarUrl?: string;
 }

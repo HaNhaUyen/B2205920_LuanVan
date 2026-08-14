@@ -226,6 +226,20 @@ function findDepartureBookingConflict(departure, activeBookingPeriods = []) {
   return (
     (Array.isArray(activeBookingPeriods) ? activeBookingPeriods : []).find(
       (period) => {
+        // Cho phép đặt thêm đúng cùng lịch khởi hành đã đặt trước đó.
+        // Chỉ các departure KHÁC bị giao thời gian mới được xem là xung đột.
+        const currentDepartureId =
+          departure?.id ?? departure?.departureId ?? departure?.departure_id;
+        const bookedDepartureId = period?.departureId ?? period?.departure_id;
+
+        if (
+          currentDepartureId != null &&
+          bookedDepartureId != null &&
+          String(currentDepartureId) === String(bookedDepartureId)
+        ) {
+          return false;
+        }
+
         const oldStart = toLocalDateOnly(
           period?.startDate || period?.departureDate,
         );
@@ -1401,6 +1415,13 @@ export default function TourDetailPage() {
       return;
     }
 
+    const rating = Number(reviewForm.rating);
+    const comment = String(reviewForm.comment || "").trim();
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5)
+      return showToast("Điểm đánh giá phải là số nguyên từ 1 đến 5.", "error");
+    if (comment.length > 2000)
+      return showToast("Nội dung đánh giá tối đa 2000 ký tự.", "error");
+
     setSubmittingReview(true);
     try {
       const created = await apiFetch("/reviews", {
@@ -1759,12 +1780,64 @@ export default function TourDetailPage() {
           .booking-policy-preview__link:hover {
             color: #386c20;
           }
+
+
+          /* DARK MODE - chỉ đổi nền các khối đang trắng trong chi tiết tour */
+          html.dark-mode body .tour-detail-main-section .tour-itinerary-day-card {
+            background: #111b2d !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+          }
+
+          html.dark-mode body .tour-detail-main-section .tour-itinerary-location {
+            background: #172338 !important;
+            border-color: rgba(148, 163, 184, 0.20) !important;
+          }
+
+          html.dark-mode body .tour-detail-main-section .tour-service-item {
+            background: #111b2d !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+          }
+
+          html.dark-mode body .tour-detail-main-section .tour-booking-price-card {
+            background: #111b2d !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+          }
+
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell,
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell > *,
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell [style*="background: #fff"],
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell [style*="background: rgb(255, 255, 255)"],
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell [style*="background-color: #fff"],
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell [style*="background-color: rgb(255, 255, 255)"] {
+            background: #111b2d !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+          }
+
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell [style*="background: #f8fafc"],
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell [style*="background: rgb(248, 250, 252)"],
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell [style*="background: #f1f5f9"],
+          html.dark-mode body .tour-detail-main-section .tour-review-dark-shell [style*="background: rgb(241, 245, 249)"] {
+            background: #172338 !important;
+          }
+
+
+
+          /* FINAL FIX: chỉ ô điểm tổng đánh giá còn sáng trong dark mode */
+          html.dark-mode body .tour-review-dark-shell [style*="background: #fff7ed"],
+          html.dark-mode body .tour-review-dark-shell [style*="background: rgb(255, 247, 237)"],
+          html.dark-mode body .tour-review-dark-shell [style*="background: #fffbeb"],
+          html.dark-mode body .tour-review-dark-shell [style*="background: rgb(255, 251, 235)"] {
+            background: #172338 !important;
+            border-color: rgba(245, 158, 11, 0.32) !important;
+          }
+
         `,
         }}
       />
 
       {/* Header gọn gàng chứa tiêu đề và nút Yêu thích */}
       <section
+        className="tour-detail-header-section"
         style={{
           background: "#fff",
           paddingTop: "40px",
@@ -1921,7 +1994,10 @@ export default function TourDetailPage() {
         </div>
       </section>
 
-      <section style={{ background: "#f8fafc", padding: "40px 0 80px" }}>
+      <section
+        className="tour-detail-main-section"
+        style={{ background: "#f8fafc", padding: "40px 0 80px" }}
+      >
         <div className="container tour-detail-layout">
           {/* CỘT TRÁI: Nội dung chi tiết */}
           <div
@@ -2042,6 +2118,7 @@ export default function TourDetailPage() {
                     >
                       <div className="timeline-dot"></div>
                       <div
+                        className="tour-itinerary-day-card"
                         style={{
                           background: "#f8fafc",
                           padding: "24px",
@@ -2082,6 +2159,7 @@ export default function TourDetailPage() {
                           {item.description}
                         </p>
                         <span
+                          className="tour-itinerary-location"
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
@@ -2175,6 +2253,7 @@ export default function TourDetailPage() {
                     {tour.accommodations.map((item) => (
                       <div
                         key={item.id || item.name}
+                        className="tour-service-item tour-accommodation-item"
                         style={{
                           background: "#f8fafc",
                           padding: "16px",
@@ -2303,6 +2382,7 @@ export default function TourDetailPage() {
                     {tour.transports.map((item) => (
                       <div
                         key={item.id || item.name}
+                        className="tour-service-item tour-transport-item"
                         style={{
                           background: "#f8fafc",
                           padding: "16px",
@@ -2374,19 +2454,22 @@ export default function TourDetailPage() {
             </div>
 
             {/* Đánh giá kiểu Shopee: lọc sao, xem thêm trong modal, upload hình ảnh */}
-            <TourReviewSection
-              tour={tour}
-              currentUser={currentUser}
-              onRequireLogin={() => {
-                showToast("Bạn cần đăng nhập để gửi đánh giá.", "error");
-                setTimeout(() => router.push("/login"), 300);
-              }}
-            />
+            <div className="tour-review-dark-shell">
+              <TourReviewSection
+                tour={tour}
+                currentUser={currentUser}
+                onRequireLogin={() => {
+                  showToast("Bạn cần đăng nhập để gửi đánh giá.", "error");
+                  setTimeout(() => router.push("/login"), 300);
+                }}
+              />
+            </div>
           </div>
 
           {/* CỘT PHẢI: Sticky Booking Widget */}
           <aside className="sticky-booking">
             <div
+              className="tour-booking-price-card"
               style={{
                 background: "linear-gradient(180deg, #ffffff 0%, #f8fff4 100%)",
                 borderRadius: "24px",
@@ -2513,6 +2596,7 @@ export default function TourDetailPage() {
       {/* Tour liên quan Full Width ở dưới cùng */}
       {relatedTours.length > 0 && (
         <section
+          className="tour-detail-related-section"
           style={{
             background: "#fff",
             padding: "80px 0",

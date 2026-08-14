@@ -345,14 +345,56 @@ export default function AdminOperationsPage() {
 
   const createSupplier = async (event) => {
     event.preventDefault();
-    if (!supplierForm.name.trim()) {
-      showToast("Vui lòng nhập tên nhà cung cấp.", "error");
-      return;
-    }
+    const name = String(supplierForm.name || "").trim();
+    const phone = String(supplierForm.phone || "").replace(/\D/g, "");
+    const email = String(supplierForm.email || "")
+      .trim()
+      .toLowerCase();
+    const representative = String(supplierForm.representative || "").trim();
+    const address = String(supplierForm.address || "").trim();
+    const province = String(supplierForm.province || "").trim();
+    const note = String(supplierForm.note || "").trim();
+    if (name.length < 2 || name.length > 160)
+      return showToast("Tên nhà cung cấp phải từ 2 đến 160 ký tự.", "error");
+    if (
+      ![
+        "hotel",
+        "transport",
+        "restaurant",
+        "attraction",
+        "insurance",
+        "other",
+      ].includes(supplierForm.supplierType)
+    )
+      return showToast("Loại nhà cung cấp không hợp lệ.", "error");
+    if (phone && !/^0\d{9}$/.test(phone))
+      return showToast(
+        "Số điện thoại phải gồm 10 chữ số và bắt đầu bằng 0.",
+        "error",
+      );
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      return showToast("Email nhà cung cấp không hợp lệ.", "error");
+    if (representative.length > 150)
+      return showToast("Người đại diện tối đa 150 ký tự.", "error");
+    if (address.length > 255)
+      return showToast("Địa chỉ tối đa 255 ký tự.", "error");
+    if (province.length > 100)
+      return showToast("Tỉnh/thành phố tối đa 100 ký tự.", "error");
+    if (note.length > 1000)
+      return showToast("Ghi chú tối đa 1000 ký tự.", "error");
     try {
       await apiFetch("/operations-v2/suppliers", {
         method: "POST",
-        body: JSON.stringify(supplierForm),
+        body: JSON.stringify({
+          ...supplierForm,
+          name,
+          phone,
+          email,
+          representative,
+          address,
+          province,
+          note,
+        }),
       });
       setSupplierForm(emptySupplier);
       setSuppliers(safeArray(await apiFetch("/operations-v2/suppliers")));

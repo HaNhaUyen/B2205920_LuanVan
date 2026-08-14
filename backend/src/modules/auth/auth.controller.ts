@@ -21,6 +21,8 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { GoogleLoginDto } from "./dto/google-login.dto";
 import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { ChangePasswordDto } from "./dto/change-password.dto";
+import { ForgotPasswordDto } from "./dto/forgot-password.dto";
+import { ResetPasswordDto } from "./dto/reset-password.dto";
 
 function avatarFilename(
   _req: unknown,
@@ -48,6 +50,16 @@ export class AuthController {
   @Post("google")
   googleLogin(@Body() dto: GoogleLoginDto) {
     return this.authService.googleLogin(dto.credential);
+  }
+
+  @Post("forgot-password")
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  @Post("reset-password")
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 
   @UseGuards(JwtAuthGuard)

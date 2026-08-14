@@ -128,6 +128,24 @@ export default function AboutPage() {
             background-position: center;
             background-attachment: fixed;
           }
+
+
+          /* DARK MODE - chỉ đổi nền khung "Khám phá hệ sinh thái" */
+          html.dark-mode body .about-ecosystem-shell {
+            background: #111b2d !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+            box-shadow: 0 18px 42px rgba(0,0,0,0.24) !important;
+          }
+
+          html.dark-mode body .about-ecosystem-shell .about-ecosystem-card {
+            background: #111b2d !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+          }
+
+          html.dark-mode body .about-ecosystem-shell .eco-row:hover {
+            background: #172338 !important;
+          }
+
         `,
         }}
       />
@@ -438,7 +456,7 @@ export default function AboutPage() {
 
           {/* Cột phải: Sidebar giải thích trang */}
           <aside
-            className="detail-sidebar"
+            className="detail-sidebar about-ecosystem-shell"
             style={{
               alignSelf: "start",
               position: "sticky",

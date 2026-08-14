@@ -45,7 +45,7 @@ export default function FilterSidebar({
     ],
     [
       "durationMax",
-      "Tối đa",
+      "Thời lượng",
       query.durationMax ? `${query.durationMax} ngày` : "",
     ],
     [
@@ -205,6 +205,7 @@ export default function FilterSidebar({
 
       {/* Form Lọc Chính */}
       <form
+        noValidate
         className="filter-form-premium"
         onSubmit={onSubmit}
         style={{ display: "flex", flexDirection: "column", gap: "24px" }}
@@ -477,6 +478,8 @@ export default function FilterSidebar({
               <input
                 name="minPrice"
                 type="number"
+                min="0"
+                step="1"
                 defaultValue={query.minPrice || ""}
                 placeholder="Giá từ (VND)"
                 style={{
@@ -492,6 +495,8 @@ export default function FilterSidebar({
               <input
                 name="maxPrice"
                 type="number"
+                min="0"
+                step="1"
                 defaultValue={query.maxPrice || ""}
                 placeholder="Đến (VND)"
                 style={{
@@ -516,8 +521,10 @@ export default function FilterSidebar({
               <input
                 name="durationMax"
                 type="number"
+                min="0"
+                step="1"
                 defaultValue={query.durationMax || ""}
-                placeholder="Tối đa (ngày)"
+                placeholder="Số ngày"
                 style={{
                   background: "#f8fafc",
                   border: "1px solid #e2e8f0",

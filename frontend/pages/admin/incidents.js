@@ -11,13 +11,27 @@ import { formatDate, formatDateTime } from "@/lib/format";
 const PAGE_SIZE = 6;
 
 const STATUS_LABELS = {
-  open: "Mới",
-  acknowledged: "Đã tiếp nhận",
-  in_progress: "Đang xử lý",
-  resolved: "Đã giải quyết",
+  unreplied: "Chưa phản hồi",
+  replied: "Đã phản hồi",
   closed: "Đã đóng",
-  rejected: "Đã từ chối",
 };
+
+function getIncidentDisplayStatus(item) {
+  if (String(item?.status || "").toLowerCase() === "closed") {
+    return "closed";
+  }
+
+  const comments = Array.isArray(item?.comments) ? item.comments : [];
+  const hasAdminReply = comments.some((comment) => {
+    const internal =
+      comment?.isInternal === true || Number(comment?.isInternal) === 1;
+    return (
+      !internal && String(comment?.authorRole || "").toLowerCase() === "admin"
+    );
+  });
+
+  return hasAdminReply ? "replied" : "unreplied";
+}
 
 const SEVERITY_LABELS = {
   low: "Thấp",
@@ -110,6 +124,19 @@ export default function AdminGuideIncidentsPage() {
   };
 
   const updateStatus = async (item, nextStatus) => {
+    if (
+      ![
+        "open",
+        "acknowledged",
+        "in_progress",
+        "resolved",
+        "closed",
+        "rejected",
+      ].includes(nextStatus)
+    )
+      return showToast("Trạng thái sự cố không hợp lệ.", "error");
+    if (resolution.trim().length > 3000)
+      return showToast("Phương án xử lý tối đa 3000 ký tự.", "error");
     try {
       setUpdatingId(item.id);
       await apiFetch(`/trip-operations/incidents/${item.id}`, {
@@ -134,6 +161,10 @@ export default function AdminGuideIncidentsPage() {
 
     if (!selectedIncident || !reply.trim()) {
       showToast("Vui lòng nhập nội dung phản hồi.", "error");
+      return;
+    }
+    if (reply.trim().length > 3000) {
+      showToast("Nội dung phản hồi tối đa 3000 ký tự.", "error");
       return;
     }
 
@@ -213,12 +244,9 @@ export default function AdminGuideIncidentsPage() {
             onChange={(event) => setStatus(event.target.value)}
           >
             <option value="all">Tất cả trạng thái</option>
-            <option value="open">Mới</option>
-            <option value="acknowledged">Đã tiếp nhận</option>
-            <option value="in_progress">Đang xử lý</option>
-            <option value="resolved">Đã giải quyết</option>
+            <option value="unreplied">Chưa phản hồi</option>
+            <option value="replied">Đã phản hồi</option>
             <option value="closed">Đã đóng</option>
-            <option value="rejected">Đã từ chối</option>
           </select>
 
           <select
@@ -288,7 +316,7 @@ export default function AdminGuideIncidentsPage() {
                         ? item.comments.filter((comment) => !comment.isInternal)
                         : [];
                       const latestComment = comments[comments.length - 1];
-                      const currentStatus = String(item.status || "open");
+                      const currentStatus = getIncidentDisplayStatus(item);
                       const currentSeverity = String(item.severity || "medium");
 
                       return (
@@ -632,19 +660,14 @@ export default function AdminGuideIncidentsPage() {
           font-weight: 900;
           white-space: nowrap;
         }
-        .status.open {
+        .status.unreplied {
           background: #fee2e2;
           color: #b91c1c;
         }
-        .status.acknowledged {
+        .status.replied {
           background: #dbeafe;
           color: #1d4ed8;
         }
-        .status.in_progress {
-          background: #fef3c7;
-          color: #92400e;
-        }
-        .status.resolved,
         .status.closed {
           background: #dcfce7;
           color: #166534;

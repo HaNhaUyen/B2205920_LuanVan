@@ -3,12 +3,74 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 
 @Injectable()
-export class TripOperationsService {
+export class TripOperationsService implements OnModuleInit, OnModuleDestroy {
+  private incidentAutoCloseTimer?: NodeJS.Timeout;
+
   constructor(private readonly prisma: PrismaService) {}
+
+  onModuleInit() {
+    // Đồng bộ một lần khi backend khởi động.
+    void this.autoCloseRepliedIncidents();
+
+    // Sau đó kiểm tra định kỳ mỗi 5 phút.
+    this.incidentAutoCloseTimer = setInterval(
+      () => {
+        void this.autoCloseRepliedIncidents();
+      },
+      5 * 60 * 1000,
+    );
+  }
+
+  onModuleDestroy() {
+    if (this.incidentAutoCloseTimer) {
+      clearInterval(this.incidentAutoCloseTimer);
+    }
+  }
+
+  /**
+   * Sự cố đã được Admin phản hồi sẽ tự động chuyển sang "closed"
+   * sau 1 ngày kể từ phản hồi công khai GẦN NHẤT của Admin.
+   *
+   * Dùng phản hồi gần nhất để nếu Admin có phản hồi bổ sung thì thời gian
+   * chờ 1 ngày được tính lại từ phản hồi mới nhất.
+   */
+  private async autoCloseRepliedIncidents() {
+    try {
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE incident_tickets it
+         SET it.status='closed',
+             it.closed_at=COALESCE(it.closed_at,NOW()),
+             it.updated_at=NOW()
+         WHERE it.status<>'closed'
+           AND EXISTS (
+             SELECT 1
+             FROM (
+               SELECT
+                 c.incident_ticket_id,
+                 MAX(c.created_at) AS latest_admin_reply_at
+               FROM incident_ticket_comments c
+               JOIN users u ON u.id=c.user_id
+               WHERE u.role='admin'
+                 AND COALESCE(c.is_internal,0)=0
+               GROUP BY c.incident_ticket_id
+             ) admin_reply
+             WHERE admin_reply.incident_ticket_id=it.id
+               AND admin_reply.latest_admin_reply_at <= DATE_SUB(NOW(), INTERVAL 1 DAY)
+           )`,
+      );
+    } catch (error) {
+      console.error(
+        "[TripOperations] Không thể tự đóng sự cố đã phản hồi:",
+        error,
+      );
+    }
+  }
 
   private uid(user: any) {
     return Number(user?.userId);
@@ -445,6 +507,26 @@ export class TripOperationsService {
         : Number(op.guideId);
     const title = String(body?.title || "").trim();
     if (!title) throw new BadRequestException("Tiêu đề nhật ký là bắt buộc.");
+    const logType = String(body?.logType || "general").trim();
+    if (
+      ![
+        "general",
+        "departure",
+        "arrival",
+        "meal",
+        "activity",
+        "transport",
+        "hotel",
+        "note",
+      ].includes(logType)
+    )
+      throw new BadRequestException("Loại nhật ký không hợp lệ.");
+    if (title.length > 200)
+      throw new BadRequestException("Tiêu đề nhật ký tối đa 200 ký tự.");
+    if (String(body?.content || "").trim().length > 5000)
+      throw new BadRequestException("Nội dung nhật ký tối đa 5000 ký tự.");
+    if (String(body?.locationName || "").trim().length > 255)
+      throw new BadRequestException("Địa điểm nhật ký tối đa 255 ký tự.");
     await this.prisma.$executeRawUnsafe(
       `INSERT INTO journey_logs(trip_operation_id,guide_id,log_type,title,content,location_name,latitude,longitude,media_urls,occurred_at)
        VALUES (?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()))`,
@@ -495,6 +577,26 @@ export class TripOperationsService {
     if (!title) {
       throw new BadRequestException("Tiêu đề nhật ký là bắt buộc.");
     }
+    const logType = String(body?.logType || "general").trim();
+    if (
+      ![
+        "general",
+        "departure",
+        "arrival",
+        "meal",
+        "activity",
+        "transport",
+        "hotel",
+        "note",
+      ].includes(logType)
+    )
+      throw new BadRequestException("Loại nhật ký không hợp lệ.");
+    if (title.length > 200)
+      throw new BadRequestException("Tiêu đề nhật ký tối đa 200 ký tự.");
+    if (String(body?.content || "").trim().length > 5000)
+      throw new BadRequestException("Nội dung nhật ký tối đa 5000 ký tự.");
+    if (String(body?.locationName || "").trim().length > 255)
+      throw new BadRequestException("Địa điểm nhật ký tối đa 255 ký tự.");
 
     await this.prisma.$executeRawUnsafe(
       `UPDATE journey_logs
@@ -557,6 +659,7 @@ export class TripOperationsService {
   }
 
   async incidents(user: any, operationId: number) {
+    await this.autoCloseRepliedIncidents();
     await this.assertAccess(user, operationId);
     return this.prisma.$queryRawUnsafe<any[]>(
       `SELECT it.*,
@@ -584,6 +687,30 @@ export class TripOperationsService {
     const description = String(body?.description || "").trim();
     if (!title || !description)
       throw new BadRequestException("Tiêu đề và mô tả sự cố là bắt buộc.");
+    const category = String(body?.category || "other").trim();
+    const severity = String(body?.severity || "medium").trim();
+    if (
+      ![
+        "health",
+        "vehicle",
+        "hotel",
+        "customer",
+        "restaurant",
+        "weather",
+        "schedule",
+        "security",
+        "other",
+      ].includes(category)
+    )
+      throw new BadRequestException("Nhóm sự cố không hợp lệ.");
+    if (!["low", "medium", "high", "critical"].includes(severity))
+      throw new BadRequestException("Mức độ sự cố không hợp lệ.");
+    if (title.length > 200)
+      throw new BadRequestException("Tiêu đề sự cố tối đa 200 ký tự.");
+    if (description.length > 5000)
+      throw new BadRequestException("Mô tả sự cố tối đa 5000 ký tự.");
+    if (String(body?.locationName || "").trim().length > 255)
+      throw new BadRequestException("Địa điểm sự cố tối đa 255 ký tự.");
     const gid = this.role(user) === "guide" ? await this.guideId(user) : null;
     const code = `INC-${Date.now()}-${Math.floor(Math.random() * 900 + 100)}`;
     await this.prisma.$executeRawUnsafe(
@@ -662,6 +789,30 @@ export class TripOperationsService {
     if (!title || !description) {
       throw new BadRequestException("Tiêu đề và mô tả sự cố là bắt buộc.");
     }
+    const category = String(body?.category || "other").trim();
+    const severity = String(body?.severity || "medium").trim();
+    if (
+      ![
+        "health",
+        "vehicle",
+        "hotel",
+        "customer",
+        "restaurant",
+        "weather",
+        "schedule",
+        "security",
+        "other",
+      ].includes(category)
+    )
+      throw new BadRequestException("Nhóm sự cố không hợp lệ.");
+    if (!["low", "medium", "high", "critical"].includes(severity))
+      throw new BadRequestException("Mức độ sự cố không hợp lệ.");
+    if (title.length > 200)
+      throw new BadRequestException("Tiêu đề sự cố tối đa 200 ký tự.");
+    if (description.length > 5000)
+      throw new BadRequestException("Mô tả sự cố tối đa 5000 ký tự.");
+    if (String(body?.locationName || "").trim().length > 255)
+      throw new BadRequestException("Địa điểm sự cố tối đa 255 ký tự.");
 
     await this.prisma.$executeRawUnsafe(
       `UPDATE incident_tickets
@@ -837,6 +988,9 @@ export class TripOperationsService {
     if (!comment) {
       throw new BadRequestException("Nội dung phản hồi là bắt buộc.");
     }
+    if (comment.length > 3000) {
+      throw new BadRequestException("Nội dung phản hồi tối đa 3000 ký tự.");
+    }
 
     const incidents = await this.prisma.$queryRawUnsafe<any[]>(
       `SELECT
@@ -925,6 +1079,22 @@ export class TripOperationsService {
       throw new BadRequestException(
         "Tiêu đề và nội dung thông báo là bắt buộc.",
       );
+    if (title.length > 220)
+      throw new BadRequestException("Tiêu đề thông báo tối đa 220 ký tự.");
+    if (content.length > 5000)
+      throw new BadRequestException("Nội dung thông báo tối đa 5000 ký tự.");
+    const channel = String(body?.channel || "in_app").trim();
+    if (!["in_app"].includes(channel))
+      throw new BadRequestException("Kênh gửi thông báo không hợp lệ.");
+    const pickupPointId =
+      body?.pickupPointId == null || body?.pickupPointId === ""
+        ? null
+        : Number(body.pickupPointId);
+    if (
+      pickupPointId !== null &&
+      (!Number.isInteger(pickupPointId) || pickupPointId <= 0)
+    )
+      throw new BadRequestException("Điểm đón nhận thông báo không hợp lệ.");
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
         `INSERT INTO trip_broadcasts(trip_operation_id,sender_user_id,title,content,channel,pickup_point_id) VALUES (?,?,?,?,?,?)`,
@@ -1028,23 +1198,82 @@ export class TripOperationsService {
         : Number(op.guideId);
     const summary = String(body?.summary || "").trim();
     if (!summary) throw new BadRequestException("Tóm tắt báo cáo là bắt buộc.");
+    if (summary.length > 5000)
+      throw new BadRequestException("Tóm tắt báo cáo tối đa 5000 ký tự.");
+    const guestCountRows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT COUNT(bg.id) AS totalGuests
+       FROM bookings b
+       JOIN booking_guests bg ON bg.booking_id=b.id
+       WHERE b.departure_id=?
+         AND b.booking_status IN ('confirmed','completed','waiting_confirmation')`,
+      op.departureId,
+    );
+    const totalBookedGuests = Math.max(
+      0,
+      Number(guestCountRows[0]?.totalGuests || 0),
+    );
+
+    const actualGuestCount = Number(body?.actualGuestCount ?? 0);
+    const extraCost = Number(body?.extraCost ?? 0);
+
+    if (!Number.isInteger(actualGuestCount) || actualGuestCount < 0)
+      throw new BadRequestException(
+        "Số khách thực tế phải là số nguyên không âm.",
+      );
+
+    if (actualGuestCount > totalBookedGuests)
+      throw new BadRequestException(
+        `Số khách thực tế không được vượt quá ${totalBookedGuests} khách đã đặt tour.`,
+      );
+
+    const absentGuestCount = totalBookedGuests - actualGuestCount;
+
+    if (
+      !Number.isInteger(absentGuestCount) ||
+      absentGuestCount < 0 ||
+      absentGuestCount > totalBookedGuests
+    )
+      throw new BadRequestException("Số khách vắng không hợp lệ.");
+
+    if (!Number.isInteger(extraCost) || extraCost < 0)
+      throw new BadRequestException(
+        "Chi phí phát sinh phải là số nguyên không âm.",
+      );
+    for (const value of [
+      body?.vehicleRating,
+      body?.hotelRating,
+      body?.restaurantRating,
+      body?.itineraryRating,
+    ]) {
+      const rating = Number(value);
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5)
+        throw new BadRequestException(
+          "Điểm đánh giá dịch vụ phải là số nguyên từ 1 đến 5.",
+        );
+    }
+    if (String(body?.incidentsSummary || "").trim().length > 5000)
+      throw new BadRequestException("Tóm tắt sự cố tối đa 5000 ký tự.");
+    if (String(body?.extraCostNote || "").trim().length > 1000)
+      throw new BadRequestException("Ghi chú chi phí tối đa 1000 ký tự.");
+    if (String(body?.recommendations || "").trim().length > 5000)
+      throw new BadRequestException("Đề xuất cải thiện tối đa 5000 ký tự.");
     await this.prisma.$executeRawUnsafe(
       `INSERT INTO trip_reports(trip_operation_id,guide_id,actual_guest_count,absent_guest_count,vehicle_rating,hotel_rating,restaurant_rating,itinerary_rating,summary,incidents_summary,extra_cost,extra_cost_note,recommendations,status)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'submitted')
        ON DUPLICATE KEY UPDATE actual_guest_count=VALUES(actual_guest_count),absent_guest_count=VALUES(absent_guest_count),vehicle_rating=VALUES(vehicle_rating),hotel_rating=VALUES(hotel_rating),restaurant_rating=VALUES(restaurant_rating),itinerary_rating=VALUES(itinerary_rating),summary=VALUES(summary),incidents_summary=VALUES(incidents_summary),extra_cost=VALUES(extra_cost),extra_cost_note=VALUES(extra_cost_note),recommendations=VALUES(recommendations),status='submitted',submitted_at=NOW()`,
       operationId,
       gid,
-      Number(body?.actualGuestCount || 0),
-      Number(body?.absentGuestCount || 0),
+      actualGuestCount,
+      absentGuestCount,
       body?.vehicleRating || null,
       body?.hotelRating || null,
       body?.restaurantRating || null,
       body?.itineraryRating || null,
       summary,
-      body?.incidentsSummary || null,
-      Number(body?.extraCost || 0),
-      body?.extraCostNote || null,
-      body?.recommendations || null,
+      String(body?.incidentsSummary || "").trim() || null,
+      extraCost,
+      String(body?.extraCostNote || "").trim() || null,
+      String(body?.recommendations || "").trim() || null,
     );
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
@@ -1224,6 +1453,9 @@ export class TripOperationsService {
     const action = String(body?.action || "review");
     if (!["review", "reopen"].includes(action))
       throw new BadRequestException("Thao tác báo cáo không hợp lệ.");
+    const adminNote = String(body?.adminNote || "").trim();
+    if (adminNote.length > 2000)
+      throw new BadRequestException("Ghi chú của admin tối đa 2000 ký tự.");
     const report = await this.adminReportDetail(reportId);
     if (action === "review") {
       await this.prisma.$executeRawUnsafe(
@@ -1262,6 +1494,8 @@ export class TripOperationsService {
   }
 
   async allIncidents(query: any) {
+    await this.autoCloseRepliedIncidents();
+
     const page = Math.max(Number(query?.page || 1), 1);
     const pageSize = Math.min(Math.max(Number(query?.pageSize || 6), 1), 50);
     const status = String(query?.status || "all").trim();
@@ -1273,8 +1507,29 @@ export class TripOperationsService {
     const params: any[] = [];
 
     if (status && status !== "all") {
-      where += ` AND it.status=? `;
-      params.push(status);
+      if (status === "closed") {
+        where += ` AND it.status='closed' `;
+      } else if (status === "replied") {
+        where += ` AND it.status<>'closed'
+          AND EXISTS (
+            SELECT 1
+            FROM incident_ticket_comments sc
+            JOIN users su ON su.id=sc.user_id
+            WHERE sc.incident_ticket_id=it.id
+              AND su.role='admin'
+              AND COALESCE(sc.is_internal,0)=0
+          ) `;
+      } else if (status === "unreplied") {
+        where += ` AND it.status<>'closed'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM incident_ticket_comments sc
+            JOIN users su ON su.id=sc.user_id
+            WHERE sc.incident_ticket_id=it.id
+              AND su.role='admin'
+              AND COALESCE(sc.is_internal,0)=0
+          ) `;
+      }
     }
 
     if (severity && severity !== "all") {
@@ -1482,11 +1737,46 @@ export class TripOperationsService {
       throw new BadRequestException("Phân loại năng lực không hợp lệ.");
     }
 
-    if (competencyType === "certificate" && !documentUrl) {
+    if (!documentUrl) {
       throw new BadRequestException(
-        "Chứng chỉ ngành bắt buộc phải có minh chứng.",
+        "Vui lòng tải ảnh/PDF minh chứng hoặc nhập URL minh chứng.",
       );
     }
+    const level = String(body?.level || "").trim();
+    const certificateNo = String(body?.certificateNo || "").trim();
+    const issuedBy = String(body?.issuedBy || "").trim();
+    const note = String(body?.note || "").trim();
+    if (level.length > 100)
+      throw new BadRequestException("Mức độ/bậc tối đa 100 ký tự.");
+    if (certificateNo.length > 120)
+      throw new BadRequestException("Số hiệu chứng chỉ tối đa 120 ký tự.");
+    if (issuedBy.length > 180)
+      throw new BadRequestException("Đơn vị cấp tối đa 180 ký tự.");
+    if (documentUrl.length > 1000)
+      throw new BadRequestException("Đường dẫn minh chứng quá dài.");
+    if (note.length > 1000)
+      throw new BadRequestException("Ghi chú tối đa 1000 ký tự.");
+    const issuedDate = body?.issuedDate
+      ? new Date(`${String(body.issuedDate).slice(0, 10)}T00:00:00`)
+      : null;
+    const expiryDate = body?.expiryDate
+      ? new Date(`${String(body.expiryDate).slice(0, 10)}T00:00:00`)
+      : null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (
+      issuedDate &&
+      (Number.isNaN(issuedDate.getTime()) || issuedDate > today)
+    )
+      throw new BadRequestException(
+        "Ngày cấp không hợp lệ hoặc nằm trong tương lai.",
+      );
+    if (expiryDate && Number.isNaN(expiryDate.getTime()))
+      throw new BadRequestException("Ngày hết hạn không hợp lệ.");
+    if (issuedDate && expiryDate && expiryDate < issuedDate)
+      throw new BadRequestException(
+        "Ngày hết hạn phải bằng hoặc sau ngày cấp.",
+      );
 
     await this.prisma.$executeRawUnsafe(
       `INSERT INTO guide_competencies(
@@ -1509,6 +1799,191 @@ export class TripOperationsService {
     return {
       success: true,
       message: "Đã gửi hồ sơ năng lực để Admin kiểm tra và phê duyệt.",
+    };
+  }
+
+  async updateCompetency(user: any, competencyId: number, body: any) {
+    const gid = await this.guideId(user);
+    if (!gid) {
+      throw new BadRequestException("Không tìm thấy hồ sơ hướng dẫn viên.");
+    }
+
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT
+         id,
+         guide_id AS guideId,
+         competency_type AS competencyType,
+         name,
+         level,
+         certificate_no AS certificateNo,
+         issued_by AS issuedBy,
+         issued_date AS issuedDate,
+         expiry_date AS expiryDate,
+         document_url AS documentUrl,
+         note,
+         verification_status AS verificationStatus
+       FROM guide_competencies
+       WHERE id=? AND guide_id=?
+       LIMIT 1`,
+      competencyId,
+      gid,
+    );
+
+    if (!rows.length) {
+      throw new NotFoundException("Không tìm thấy hồ sơ năng lực.");
+    }
+
+    const current = rows[0];
+    if (String(current.verificationStatus) !== "pending") {
+      throw new BadRequestException(
+        "Hồ sơ đã được Admin xem xét nên không thể chỉnh sửa.",
+      );
+    }
+
+    const competencyType = String(
+      body?.competencyType ?? current.competencyType ?? "skill",
+    ).trim();
+    const name = String(body?.name ?? current.name ?? "").trim();
+    const level = String(body?.level ?? current.level ?? "").trim();
+    const certificateNo = String(
+      body?.certificateNo ?? current.certificateNo ?? "",
+    ).trim();
+    const issuedBy = String(body?.issuedBy ?? current.issuedBy ?? "").trim();
+    const incomingDocumentUrl = String(body?.documentUrl || "").trim();
+    const documentUrl =
+      incomingDocumentUrl || String(current.documentUrl || "").trim();
+    const note = String(body?.note ?? current.note ?? "").trim();
+
+    if (!name) {
+      throw new BadRequestException("Tên năng lực/chứng chỉ là bắt buộc.");
+    }
+
+    if (
+      !["language", "route", "skill", "certificate"].includes(competencyType)
+    ) {
+      throw new BadRequestException("Phân loại năng lực không hợp lệ.");
+    }
+
+    if (!documentUrl) {
+      throw new BadRequestException(
+        "Vui lòng tải ảnh/PDF minh chứng hoặc nhập URL minh chứng.",
+      );
+    }
+
+    if (level.length > 100)
+      throw new BadRequestException("Mức độ/bậc tối đa 100 ký tự.");
+    if (certificateNo.length > 120)
+      throw new BadRequestException("Số hiệu chứng chỉ tối đa 120 ký tự.");
+    if (issuedBy.length > 180)
+      throw new BadRequestException("Đơn vị cấp tối đa 180 ký tự.");
+    if (documentUrl.length > 1000)
+      throw new BadRequestException("Đường dẫn minh chứng quá dài.");
+    if (note.length > 1000)
+      throw new BadRequestException("Ghi chú tối đa 1000 ký tự.");
+
+    const issuedDateValue =
+      body?.issuedDate !== undefined
+        ? body.issuedDate
+        : current.issuedDate
+          ? new Date(current.issuedDate).toISOString().slice(0, 10)
+          : "";
+    const expiryDateValue =
+      body?.expiryDate !== undefined
+        ? body.expiryDate
+        : current.expiryDate
+          ? new Date(current.expiryDate).toISOString().slice(0, 10)
+          : "";
+
+    const issuedDate = issuedDateValue
+      ? new Date(`${String(issuedDateValue).slice(0, 10)}T00:00:00`)
+      : null;
+    const expiryDate = expiryDateValue
+      ? new Date(`${String(expiryDateValue).slice(0, 10)}T00:00:00`)
+      : null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (
+      issuedDate &&
+      (Number.isNaN(issuedDate.getTime()) || issuedDate > today)
+    )
+      throw new BadRequestException(
+        "Ngày cấp không hợp lệ hoặc nằm trong tương lai.",
+      );
+    if (expiryDate && Number.isNaN(expiryDate.getTime()))
+      throw new BadRequestException("Ngày hết hạn không hợp lệ.");
+    if (issuedDate && expiryDate && expiryDate < issuedDate)
+      throw new BadRequestException(
+        "Ngày hết hạn phải bằng hoặc sau ngày cấp.",
+      );
+
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE guide_competencies
+       SET competency_type=?,
+           name=?,
+           level=?,
+           certificate_no=?,
+           issued_by=?,
+           issued_date=?,
+           expiry_date=?,
+           document_url=?,
+           note=?,
+           updated_at=NOW()
+       WHERE id=? AND guide_id=? AND verification_status='pending'`,
+      competencyType,
+      name,
+      level || null,
+      certificateNo || null,
+      issuedBy || null,
+      issuedDateValue || null,
+      expiryDateValue || null,
+      documentUrl,
+      note || null,
+      competencyId,
+      gid,
+    );
+
+    return {
+      success: true,
+      message: "Đã cập nhật hồ sơ năng lực đang chờ duyệt.",
+    };
+  }
+
+  async deleteCompetency(user: any, competencyId: number) {
+    const gid = await this.guideId(user);
+    if (!gid) {
+      throw new BadRequestException("Không tìm thấy hồ sơ hướng dẫn viên.");
+    }
+
+    const rows = await this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT id, verification_status AS verificationStatus
+       FROM guide_competencies
+       WHERE id=? AND guide_id=?
+       LIMIT 1`,
+      competencyId,
+      gid,
+    );
+
+    if (!rows.length) {
+      throw new NotFoundException("Không tìm thấy hồ sơ năng lực.");
+    }
+
+    if (String(rows[0].verificationStatus) !== "pending") {
+      throw new BadRequestException(
+        "Hồ sơ đã được Admin xem xét nên không thể xóa.",
+      );
+    }
+
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM guide_competencies
+       WHERE id=? AND guide_id=? AND verification_status='pending'`,
+      competencyId,
+      gid,
+    );
+
+    return {
+      success: true,
+      message: "Đã xóa hồ sơ năng lực đang chờ duyệt.",
     };
   }
 
@@ -1644,13 +2119,9 @@ export class TripOperationsService {
     }
 
     const item = rows[0];
-    if (
-      item.competencyType === "certificate" &&
-      action === "approve" &&
-      !item.documentUrl
-    ) {
+    if (action === "approve" && !item.documentUrl) {
       throw new BadRequestException(
-        "Không thể duyệt chứng chỉ chưa có minh chứng.",
+        "Không thể duyệt hồ sơ năng lực chưa có minh chứng.",
       );
     }
 

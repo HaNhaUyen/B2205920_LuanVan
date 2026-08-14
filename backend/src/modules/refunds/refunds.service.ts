@@ -1150,6 +1150,36 @@ export class RefundsService {
         });
       }
 
+      const isApproved = status === "approved";
+      const refundAmount = Number(req.refundAmount || 0);
+      const bookingCode = String(req.booking?.bookingCode || "").trim();
+
+      await tx.notification.create({
+        data: {
+          title: isApproved
+            ? "Yêu cầu hoàn tiền đã được duyệt"
+            : "Yêu cầu hoàn tiền đã bị từ chối",
+          message: isApproved
+            ? `Travela đã xác nhận hoàn ${this.formatCurrency(refundAmount)} cho booking ${bookingCode}.`
+            : `Yêu cầu hoàn tiền của booking ${bookingCode} chưa được duyệt.`,
+          content: isApproved
+            ? `Travela đã duyệt yêu cầu hoàn tiền cho booking ${bookingCode}. Số tiền hoàn: ${this.formatCurrency(refundAmount)}.${adminNote ? ` Phản hồi Admin: ${adminNote}` : ""}`
+            : `Travela đã từ chối yêu cầu hoàn tiền cho booking ${bookingCode}. Lý do: ${adminNote}.`,
+          targetRole: "user" as any,
+          targetUserId: req.userId,
+          isPublished: true,
+          metadata: {
+            type: "refund_review",
+            refundRequestId: String(req.id),
+            bookingId: String(req.bookingId),
+            bookingCode,
+            status,
+            refundAmount,
+          } as any,
+          createdBy: adminId,
+        } as any,
+      });
+
       return item;
     });
 

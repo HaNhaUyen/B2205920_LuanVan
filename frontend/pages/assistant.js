@@ -110,15 +110,10 @@ function TourCard({ card, onAskMore, compact, cardIndex = 0 }) {
     ? `${departures.length} lịch gần nhất`
     : formatDate(card.departureDate || primaryDeparture?.departureDate);
   const handleBookTour = () => {
-    if (hasMultipleDepartures) {
-      onAskMore(`Chọn tour số ${cardIndex + 1}`);
-      return;
-    }
-
-    const departureId = card.departureId || primaryDeparture?.departureId;
-    onAskMore(
-      `Đặt tour này cho tôi ${departureId ? `lịch id ${departureId}` : ""}`,
-    );
+    // Chỉ chọn TOUR ở bước này.
+    // Lịch khởi hành sẽ được backend kiểm tra lại theo thời điểm hiện tại,
+    // số chỗ còn lại và lịch booking hiện có của khách rồi mới hiển thị.
+    onAskMore(`Chọn tour số ${cardIndex + 1}`);
   };
 
   return (
@@ -249,31 +244,7 @@ function TourCard({ card, onAskMore, compact, cardIndex = 0 }) {
             <span style={{ color: "#64748b", fontSize: 12 }}>
               Khởi hành: {departureLabel}
             </span>
-            {departures.length ? (
-              <div
-                style={{
-                  flexBasis: "100%",
-                  display: "grid",
-                  gap: 4,
-                  color: "#475569",
-                  fontSize: 12,
-                  lineHeight: 1.45,
-                }}
-              >
-                <strong style={{ color: "#334155", fontSize: 12 }}>
-                  Lịch gần nhất
-                </strong>
-                {departures.slice(0, 3).map((departure, depIndex) => (
-                  <span key={`${card.tourId}-${departure.departureId}`}>
-                    {depIndex + 1}. {formatDate(departure.departureDate)}
-                    {departure.remainingSlots !== null &&
-                    departure.remainingSlots !== undefined
-                      ? `, còn ${Number(departure.remainingSlots)} chỗ`
-                      : ""}
-                  </span>
-                ))}
-              </div>
-            ) : null}
+
             <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
               <button
                 type="button"
@@ -367,6 +338,18 @@ function VoucherCard({ voucher }) {
 }
 
 function BookingCard({ booking, onRefund }) {
+  const bookingStatus = String(booking?.status || "").toLowerCase();
+  const canRequestRefund =
+    Boolean(booking?.id || booking?.bookingId) &&
+    ![
+      "cancelled",
+      "canceled",
+      "expired",
+      "refunded",
+      "completed",
+      "failed",
+    ].includes(bookingStatus);
+
   return (
     <div
       style={{
@@ -413,7 +396,7 @@ function BookingCard({ booking, onRefund }) {
           <span>Giờ đón: {formatTime(booking.pickupTime)}</span>
         ) : null}
       </div>
-      {booking.id || booking.bookingId ? (
+      {canRequestRefund ? (
         <button
           type="button"
           onClick={() => onRefund?.(booking)}
@@ -610,6 +593,837 @@ function BookingCheckoutCard({ checkout }) {
           Mở trang thanh toán
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function GuestQuantityPicker({ onSubmit, disabled = false }) {
+  const [adultCount, setAdultCount] = useState(1);
+  const [childCount, setChildCount] = useState(0);
+
+  const totalGuests = adultCount + childCount;
+
+  const submit = () => {
+    if (disabled) return;
+
+    const parts = [`${adultCount} người lớn`];
+    if (childCount > 0) {
+      parts.push(`${childCount} trẻ em`);
+    }
+
+    onSubmit?.(parts.join(", "));
+  };
+
+  const rowStyle = {
+    minHeight: 66,
+    padding: "0 14px 0 16px",
+    border: "1px solid #dbe3ef",
+    borderRadius: 14,
+    background: "#f8fafc",
+    display: "grid",
+    gridTemplateColumns: "1fr auto auto auto",
+    alignItems: "center",
+    gap: 12,
+  };
+
+  const circleButtonStyle = (isDisabled) => ({
+    width: 38,
+    height: 38,
+    borderRadius: "50%",
+    border: "1px solid #cbd5e1",
+    background: "#fff",
+    color: "#334155",
+    fontSize: 20,
+    lineHeight: 1,
+    cursor: isDisabled ? "not-allowed" : "pointer",
+    opacity: isDisabled ? 0.45 : 1,
+    boxShadow: "0 1px 3px rgba(15,23,42,.06)",
+  });
+
+  return (
+    <div style={{ width: "100%", maxWidth: 430, display: "grid", gap: 10 }}>
+      <div style={rowStyle}>
+        <strong style={{ color: "#0f172a", fontSize: 14 }}>Người lớn</strong>
+        <button
+          type="button"
+          onClick={() => setAdultCount((value) => Math.max(1, value - 1))}
+          disabled={disabled || adultCount <= 1}
+          style={circleButtonStyle(disabled || adultCount <= 1)}
+        >
+          −
+        </button>
+        <strong
+          style={{
+            minWidth: 24,
+            textAlign: "center",
+            color: "#0f172a",
+            fontSize: 18,
+          }}
+        >
+          {adultCount}
+        </strong>
+        <button
+          type="button"
+          onClick={() => setAdultCount((value) => Math.min(20, value + 1))}
+          disabled={disabled || adultCount >= 20}
+          style={circleButtonStyle(disabled || adultCount >= 20)}
+        >
+          +
+        </button>
+      </div>
+
+      <div style={rowStyle}>
+        <strong style={{ color: "#0f172a", fontSize: 14 }}>Trẻ em</strong>
+        <button
+          type="button"
+          onClick={() => setChildCount((value) => Math.max(0, value - 1))}
+          disabled={disabled || childCount <= 0}
+          style={circleButtonStyle(disabled || childCount <= 0)}
+        >
+          −
+        </button>
+        <strong
+          style={{
+            minWidth: 24,
+            textAlign: "center",
+            color: "#0f172a",
+            fontSize: 18,
+          }}
+        >
+          {childCount}
+        </strong>
+        <button
+          type="button"
+          onClick={() => setChildCount((value) => Math.min(20, value + 1))}
+          disabled={disabled || childCount >= 20}
+          style={circleButtonStyle(disabled || childCount >= 20)}
+        >
+          +
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={disabled}
+        style={{
+          width: "100%",
+          minHeight: 42,
+          border: "none",
+          borderRadius: 12,
+          background: "linear-gradient(135deg, #16a34a, #22c55e)",
+          color: "#fff",
+          fontSize: 13,
+          fontWeight: 800,
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.6 : 1,
+        }}
+      >
+        Tiếp tục với {totalGuests} khách
+      </button>
+    </div>
+  );
+}
+
+function PassengerDetailsForm({
+  adultCount = 1,
+  childCount = 0,
+  existingGuests = [],
+  onSubmit,
+  disabled = false,
+}) {
+  const createRows = () => {
+    const rows = [];
+    const saved = Array.isArray(existingGuests) ? existingGuests : [];
+
+    for (let i = 1; i <= Math.max(1, Number(adultCount || 1)); i += 1) {
+      const existing = saved.find(
+        (guest) => guest?.guestType === "adult" && Number(guest?.index) === i,
+      );
+
+      rows.push({
+        guestType: "adult",
+        index: i,
+        fullName: existing?.fullName || "",
+        dateOfBirth: existing?.dateOfBirth
+          ? String(existing.dateOfBirth).slice(0, 10)
+          : "",
+        gender: existing?.gender || "",
+        idNumber: existing?.idNumber || "",
+      });
+    }
+
+    for (let i = 1; i <= Math.max(0, Number(childCount || 0)); i += 1) {
+      const existing = saved.find(
+        (guest) => guest?.guestType === "child" && Number(guest?.index) === i,
+      );
+
+      rows.push({
+        guestType: "child",
+        index: i,
+        fullName: existing?.fullName || "",
+        dateOfBirth: existing?.dateOfBirth
+          ? String(existing.dateOfBirth).slice(0, 10)
+          : "",
+        gender: existing?.gender || "",
+        idNumber: existing?.idNumber || "",
+      });
+    }
+
+    return rows;
+  };
+
+  const [guests, setGuests] = useState(createRows);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setGuests(createRows());
+    setError("");
+  }, [adultCount, childCount, existingGuests]);
+
+  const updateGuest = (rowIndex, field, value) => {
+    setGuests((current) =>
+      current.map((guest, index) =>
+        index === rowIndex ? { ...guest, [field]: value } : guest,
+      ),
+    );
+  };
+
+  const isDone = (guest) =>
+    Boolean(
+      String(guest.fullName || "").trim() &&
+      String(guest.dateOfBirth || "").trim() &&
+      String(guest.gender || "").trim() &&
+      String(guest.idNumber || "").trim(),
+    );
+
+  const submit = () => {
+    if (disabled) return;
+
+    const missing = guests.find((guest) => !isDone(guest));
+
+    if (missing) {
+      setError(
+        "Vui lòng nhập đầy đủ họ tên, ngày sinh, giới tính và CCCD/hộ chiếu cho tất cả hành khách.",
+      );
+      return;
+    }
+
+    const invalidId = guests.find(
+      (guest) =>
+        !/^[A-Za-z0-9]{6,20}$/.test(String(guest.idNumber || "").trim()),
+    );
+
+    if (invalidId) {
+      setError("CCCD/hộ chiếu chỉ gồm chữ và số, từ 6 đến 20 ký tự.");
+      return;
+    }
+
+    const ids = new Set();
+    const duplicated = guests.find((guest) => {
+      const id = String(guest.idNumber || "")
+        .trim()
+        .toUpperCase();
+      if (!id) return false;
+      if (ids.has(id)) return true;
+      ids.add(id);
+      return false;
+    });
+
+    if (duplicated) {
+      setError("CCCD/hộ chiếu không được trùng giữa các hành khách.");
+      return;
+    }
+
+    const lines = guests.map((guest) => {
+      const label =
+        guest.guestType === "adult"
+          ? `Người lớn ${guest.index}`
+          : `Trẻ em ${guest.index}`;
+
+      return `${label}: Họ tên=${String(guest.fullName).trim()} | Ngày sinh=${guest.dateOfBirth} | Giới tính=${guest.gender} | CCCD=${String(guest.idNumber).trim()}`;
+    });
+
+    setError("");
+    onSubmit?.(["Xác nhận thông tin hành khách", ...lines].join("\n"));
+  };
+
+  const fieldStyle = {
+    width: "100%",
+    minHeight: 40,
+    border: "1px solid #cbd5e1",
+    borderRadius: 10,
+    padding: "0 10px",
+    background: "#fff",
+    color: "#0f172a",
+    fontSize: 13,
+    outline: "none",
+    boxSizing: "border-box",
+  };
+
+  const labelStyle = {
+    display: "grid",
+    gap: 5,
+    color: "#475569",
+    fontSize: 11,
+    fontWeight: 700,
+  };
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        display: "grid",
+        gap: 10,
+        padding: 10,
+        border: "1px solid #dbe3ef",
+        borderRadius: 14,
+        background: "#ffffff",
+        boxShadow: "0 5px 18px rgba(15,23,42,.05)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 10,
+          padding: "2px 2px 4px",
+        }}
+      >
+        <div>
+          <strong style={{ color: "#0f172a", fontSize: 14 }}>
+            Thông tin hành khách
+          </strong>
+          <div
+            style={{
+              color: "#64748b",
+              fontSize: 11,
+              lineHeight: 1.45,
+              marginTop: 3,
+            }}
+          >
+            Kiểm tra thông tin có sẵn và bổ sung các mục còn thiếu.
+          </div>
+        </div>
+        <span
+          style={{
+            padding: "4px 8px",
+            borderRadius: 999,
+            background: "#ecfdf5",
+            color: "#047857",
+            fontSize: 10,
+            fontWeight: 800,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {guests.filter(isDone).length}/{guests.length} đầy đủ
+        </span>
+      </div>
+
+      {guests.map((guest, rowIndex) => {
+        const owner = guest.guestType === "adult" && guest.index === 1;
+        const complete = isDone(guest);
+        const label =
+          guest.guestType === "adult"
+            ? `Người lớn ${guest.index}`
+            : `Trẻ em ${guest.index}`;
+
+        return (
+          <details
+            key={`${guest.guestType}-${guest.index}`}
+            open={!complete || rowIndex === 0}
+            style={{
+              border: complete ? "1px solid #bbf7d0" : "1px solid #dbe3ef",
+              borderRadius: 12,
+              background: complete ? "#f7fef9" : "#f8fafc",
+              overflow: "hidden",
+            }}
+          >
+            <summary
+              style={{
+                cursor: "pointer",
+                listStyle: "none",
+                padding: "10px 11px",
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                userSelect: "none",
+              }}
+            >
+              <strong
+                style={{
+                  color: "#0f172a",
+                  fontSize: 12,
+                  flex: 1,
+                }}
+              >
+                {label}
+              </strong>
+
+              {owner ? (
+                <span
+                  style={{
+                    padding: "3px 6px",
+                    borderRadius: 6,
+                    background: "#dbeafe",
+                    color: "#1d4ed8",
+                    fontSize: 9,
+                    fontWeight: 800,
+                  }}
+                >
+                  Người đặt tour
+                </span>
+              ) : null}
+
+              <span
+                style={{
+                  padding: "3px 6px",
+                  borderRadius: 6,
+                  background: complete ? "#dcfce7" : "#fef3c7",
+                  color: complete ? "#166534" : "#92400e",
+                  fontSize: 9,
+                  fontWeight: 800,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {complete ? "✓ Đã đủ" : "Cần nhập"}
+              </span>
+            </summary>
+
+            <div
+              style={{
+                display: "grid",
+                gap: 9,
+                padding: "10px 11px 11px",
+                borderTop: "1px dashed #dbe3ef",
+              }}
+            >
+              <label style={labelStyle}>
+                Họ và tên
+                <input
+                  type="text"
+                  value={guest.fullName}
+                  onChange={(event) =>
+                    updateGuest(rowIndex, "fullName", event.target.value)
+                  }
+                  placeholder="Họ và tên đúng giấy tờ"
+                  disabled={disabled}
+                  style={fieldStyle}
+                />
+              </label>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+                  gap: 8,
+                }}
+              >
+                <label style={labelStyle}>
+                  Ngày sinh
+                  <input
+                    type="date"
+                    value={guest.dateOfBirth}
+                    onChange={(event) =>
+                      updateGuest(rowIndex, "dateOfBirth", event.target.value)
+                    }
+                    disabled={disabled}
+                    style={fieldStyle}
+                  />
+                </label>
+
+                <label style={labelStyle}>
+                  Giới tính
+                  <select
+                    value={guest.gender}
+                    onChange={(event) =>
+                      updateGuest(rowIndex, "gender", event.target.value)
+                    }
+                    disabled={disabled}
+                    style={fieldStyle}
+                  >
+                    <option value="">Chọn</option>
+                    <option value="male">Nam</option>
+                    <option value="female">Nữ</option>
+                    <option value="other">Khác</option>
+                  </select>
+                </label>
+              </div>
+
+              <label style={labelStyle}>
+                CCCD / Hộ chiếu
+                <input
+                  type="text"
+                  value={guest.idNumber}
+                  onChange={(event) =>
+                    updateGuest(
+                      rowIndex,
+                      "idNumber",
+                      event.target.value.replace(/[^A-Za-z0-9]/g, ""),
+                    )
+                  }
+                  placeholder="Nhập số giấy tờ"
+                  maxLength={20}
+                  disabled={disabled}
+                  style={fieldStyle}
+                />
+              </label>
+            </div>
+          </details>
+        );
+      })}
+
+      {error ? (
+        <div
+          style={{
+            color: "#b91c1c",
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: 10,
+            padding: "8px 10px",
+            fontSize: 11,
+            lineHeight: 1.45,
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={disabled}
+        style={{
+          minHeight: 42,
+          border: "none",
+          borderRadius: 11,
+          background: "linear-gradient(135deg, #16a34a, #22c55e)",
+          color: "#fff",
+          fontSize: 12,
+          fontWeight: 800,
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.6 : 1,
+          boxShadow: "0 5px 14px rgba(34,197,94,.18)",
+        }}
+      >
+        Xác nhận thông tin hành khách
+      </button>
+    </div>
+  );
+}
+
+function RefundBankForm({ onSubmit, disabled = false }) {
+  const [bankName, setBankName] = useState("");
+  const [accountNo, setAccountNo] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [error, setError] = useState("");
+
+  const submit = () => {
+    if (disabled) return;
+
+    if (!bankName.trim() || !accountNo.trim() || !accountName.trim()) {
+      setError(
+        "Vui lòng nhập đầy đủ ngân hàng, số tài khoản và chủ tài khoản.",
+      );
+      return;
+    }
+
+    if (!/^[0-9A-Za-z_.-]{4,50}$/.test(accountNo.trim())) {
+      setError("Số tài khoản không hợp lệ.");
+      return;
+    }
+
+    setError("");
+    onSubmit?.(
+      [
+        `Ngân hàng: ${bankName.trim()}`,
+        `STK: ${accountNo.trim()}`,
+        `Chủ tài khoản: ${accountName.trim().toUpperCase()}`,
+      ].join("\n"),
+    );
+  };
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        display: "grid",
+        gap: 9,
+        padding: 12,
+        border: "1px solid #fed7aa",
+        borderRadius: 14,
+        background: "#fff7ed",
+      }}
+    >
+      <div>
+        <strong style={{ color: "#9a3412", fontSize: 14 }}>
+          Thông tin nhận hoàn tiền
+        </strong>
+        <div style={{ color: "#9a3412", fontSize: 12, marginTop: 3 }}>
+          Booking đã thanh toán cần đủ thông tin ngân hàng để hoàn tiền.
+        </div>
+      </div>
+
+      <input
+        type="text"
+        value={bankName}
+        onChange={(event) => setBankName(event.target.value)}
+        placeholder="Ngân hàng, ví dụ: MBBank"
+        disabled={disabled}
+        style={{
+          minHeight: 40,
+          border: "1px solid #fdba74",
+          borderRadius: 10,
+          padding: "0 11px",
+          background: "#fff",
+        }}
+      />
+
+      <input
+        type="text"
+        value={accountNo}
+        onChange={(event) =>
+          setAccountNo(event.target.value.replace(/\s+/g, ""))
+        }
+        placeholder="Số tài khoản"
+        disabled={disabled}
+        style={{
+          minHeight: 40,
+          border: "1px solid #fdba74",
+          borderRadius: 10,
+          padding: "0 11px",
+          background: "#fff",
+        }}
+      />
+
+      <input
+        type="text"
+        value={accountName}
+        onChange={(event) => setAccountName(event.target.value)}
+        placeholder="Chủ tài khoản"
+        disabled={disabled}
+        style={{
+          minHeight: 40,
+          border: "1px solid #fdba74",
+          borderRadius: 10,
+          padding: "0 11px",
+          background: "#fff",
+          textTransform: "uppercase",
+        }}
+      />
+
+      {error ? (
+        <div style={{ color: "#b91c1c", fontSize: 12 }}>{error}</div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={submit}
+        disabled={disabled}
+        style={{
+          minHeight: 42,
+          border: "none",
+          borderRadius: 12,
+          background: "linear-gradient(135deg, #f97316, #fb923c)",
+          color: "#fff",
+          fontWeight: 800,
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.6 : 1,
+        }}
+      >
+        Xác nhận thông tin ngân hàng
+      </button>
+    </div>
+  );
+}
+
+function shouldShowGuestQuantityPicker(message, isLatest) {
+  if (!isLatest || message?.role === "user") return false;
+  const content = String(message?.content || "").toLowerCase();
+
+  return (
+    content.includes("bạn đi mấy người lớn") ||
+    content.includes("mấy trẻ em để mình tính đúng giá") ||
+    content.includes("chọn lại số lượng người lớn và trẻ em")
+  );
+}
+
+function shouldShowPassengerForm(message, memory, isLatest) {
+  if (!isLatest || message?.role === "user") return false;
+
+  const content = String(message?.content || "").toLowerCase();
+  const draft = memory?.bookingDraft || {};
+  const adultCount = Number(draft.adultCount || 0);
+  const childCount = Number(draft.childCount || 0);
+
+  if (adultCount + childCount <= 0) return false;
+
+  const explicitlyAsksForPassengerForm =
+    content.includes("biểu mẫu bên dưới") ||
+    content.includes("vui lòng kiểm tra và bổ sung thông tin hành khách") ||
+    content.includes("vui lòng nhập thông tin hành khách");
+
+  const isBookingPreview =
+    content.includes("mình tóm tắt booking trước khi tạo mã qr") ||
+    content.includes("tổng cần thanh toán:") ||
+    content.includes("xác nhận đặt");
+
+  return explicitlyAsksForPassengerForm && !isBookingPreview;
+}
+
+function shouldShowRefundBankForm(message, memory, isLatest) {
+  if (!isLatest || message?.role === "user") return false;
+
+  const content = String(message?.content || "").toLowerCase();
+  const draft = memory?.refundDraft || {};
+
+  const missingBank =
+    draft?.started &&
+    (!draft.refundBankName ||
+      !draft.refundAccountNo ||
+      !draft.refundAccountName);
+
+  return Boolean(
+    missingBank &&
+    (content.includes("thông tin ngân hàng") ||
+      content.includes("ngân hàng nhận tiền") ||
+      content.includes("số tài khoản") ||
+      content.includes("chủ tài khoản")),
+  );
+}
+
+function PassengerConfirmationBubble({ content, time }) {
+  const raw = String(content || "");
+  const header = "Xác nhận thông tin hành khách";
+
+  if (!raw.toLowerCase().startsWith(header.toLowerCase())) {
+    return null;
+  }
+
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(1);
+
+  const guests = lines
+    .map((line) => {
+      const match = line.match(
+        /^(Người lớn|Trẻ em)\s+(\d+)\s*:\s*Họ tên=([^|]+)\|\s*Ngày sinh=([^|]+)\|\s*Giới tính=([^|]+)\|\s*CCCD=([^|]+)$/i,
+      );
+
+      if (!match) return null;
+
+      return {
+        type: match[1],
+        index: Number(match[2]),
+        fullName: String(match[3] || "").trim(),
+        dateOfBirth: String(match[4] || "").trim(),
+        gender: String(match[5] || "")
+          .trim()
+          .toLowerCase(),
+        idNumber: String(match[6] || "").trim(),
+      };
+    })
+    .filter(Boolean);
+
+  if (!guests.length) return null;
+
+  const genderLabel = (value) => {
+    if (value === "male") return "Nam";
+    if (value === "female") return "Nữ";
+    if (value === "other") return "Khác";
+    return value || "Chưa cập nhật";
+  };
+
+  const maskId = (value) => {
+    const clean = String(value || "").trim();
+    if (clean.length <= 4) return clean;
+    return `${"•".repeat(Math.max(4, clean.length - 4))}${clean.slice(-4)}`;
+  };
+
+  const formatBirthDate = (value) => {
+    if (!value) return "Chưa cập nhật";
+    const [year, month, day] = String(value).split("-");
+    if (year && month && day) return `${day}/${month}/${year}`;
+    return value;
+  };
+
+  return (
+    <div
+      style={{
+        background: "linear-gradient(135deg, #16a34a, #22c55e)",
+        color: "#fff",
+        borderRadius: "18px 18px 4px 18px",
+        padding: "12px 13px",
+        boxShadow: "0 10px 25px rgba(34,197,94,0.18)",
+      }}
+    >
+      <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 9 }}>
+        Đã xác nhận thông tin hành khách
+      </div>
+
+      <div style={{ display: "grid", gap: 7 }}>
+        {guests.map((guest) => (
+          <div
+            key={`${guest.type}-${guest.index}`}
+            style={{
+              background: "rgba(255,255,255,0.14)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 10,
+              padding: "8px 9px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 6,
+                flexWrap: "wrap",
+              }}
+            >
+              <strong style={{ fontSize: 12 }}>
+                {guest.type} {guest.index}
+              </strong>
+              <span style={{ opacity: 0.85, fontSize: 11 }}>•</span>
+              <strong style={{ fontSize: 12 }}>{guest.fullName}</strong>
+            </div>
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: 11,
+                lineHeight: 1.5,
+                opacity: 0.94,
+              }}
+            >
+              Ngày sinh: {formatBirthDate(guest.dateOfBirth)} · Giới tính:{" "}
+              {genderLabel(guest.gender)}
+            </div>
+            <div
+              style={{
+                marginTop: 2,
+                fontSize: 11,
+                lineHeight: 1.5,
+                opacity: 0.94,
+              }}
+            >
+              CCCD/Hộ chiếu: {maskId(guest.idNumber)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        style={{
+          fontSize: 11,
+          opacity: 0.68,
+          marginTop: 7,
+          textAlign: "right",
+        }}
+      >
+        {time}
+      </div>
     </div>
   );
 }
@@ -1544,35 +2358,45 @@ export default function AssistantPage({ embed: embedProp = false }) {
                           gap: 10,
                         }}
                       >
-                        <div
-                          style={{
-                            background: isUser
-                              ? "linear-gradient(135deg, #16a34a, #22c55e)"
-                              : "#fff",
-                            color: isUser ? "#fff" : "#0f172a",
-                            border: isUser ? "none" : "1px solid #e2e8f0",
-                            borderRadius: isUser
-                              ? "18px 18px 4px 18px"
-                              : "18px 18px 18px 4px",
-                            padding: "12px 14px",
-                            boxShadow: isUser
-                              ? "0 10px 25px rgba(34,197,94,0.18)"
-                              : "0 8px 22px rgba(15,23,42,0.05)",
-                            whiteSpace: "pre-line",
-                            lineHeight: 1.55,
-                          }}
-                        >
-                          {msg.content}
+                        {isUser &&
+                        String(msg.content || "")
+                          .toLowerCase()
+                          .startsWith("xác nhận thông tin hành khách") ? (
+                          <PassengerConfirmationBubble
+                            content={msg.content}
+                            time={msg.time}
+                          />
+                        ) : (
                           <div
                             style={{
-                              fontSize: 11,
-                              opacity: 0.65,
-                              marginTop: 6,
+                              background: isUser
+                                ? "linear-gradient(135deg, #16a34a, #22c55e)"
+                                : "#fff",
+                              color: isUser ? "#fff" : "#0f172a",
+                              border: isUser ? "none" : "1px solid #e2e8f0",
+                              borderRadius: isUser
+                                ? "18px 18px 4px 18px"
+                                : "18px 18px 18px 4px",
+                              padding: "12px 14px",
+                              boxShadow: isUser
+                                ? "0 10px 25px rgba(34,197,94,0.18)"
+                                : "0 8px 22px rgba(15,23,42,0.05)",
+                              whiteSpace: "pre-line",
+                              lineHeight: 1.55,
                             }}
                           >
-                            {msg.time}
+                            {msg.content}
+                            <div
+                              style={{
+                                fontSize: 11,
+                                opacity: 0.65,
+                                marginTop: 6,
+                              }}
+                            >
+                              {msg.time}
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         {!isUser && (msg.cards || []).length ? (
                           <div style={{ display: "grid", gap: 10 }}>
@@ -1634,7 +2458,51 @@ export default function AssistantPage({ embed: embedProp = false }) {
                           <BookingCheckoutCard checkout={msg.bookingCheckout} />
                         ) : null}
 
-                        {!isUser && (msg.suggestedReplies || []).length ? (
+                        {!isUser &&
+                        shouldShowGuestQuantityPicker(
+                          msg,
+                          index === messages.length - 1,
+                        ) ? (
+                          <GuestQuantityPicker
+                            disabled={sending}
+                            onSubmit={(value) => sendMessage(value)}
+                          />
+                        ) : !isUser &&
+                          shouldShowPassengerForm(
+                            msg,
+                            chatMemory,
+                            index === messages.length - 1,
+                          ) ? (
+                          <PassengerDetailsForm
+                            adultCount={
+                              chatMemory?.bookingDraft?.adultCount || 1
+                            }
+                            childCount={
+                              chatMemory?.bookingDraft?.childCount || 0
+                            }
+                            existingGuests={
+                              chatMemory?.bookingDraft?.guests || []
+                            }
+                            disabled={sending}
+                            onSubmit={(value) => sendMessage(value)}
+                          />
+                        ) : !isUser &&
+                          shouldShowRefundBankForm(
+                            msg,
+                            chatMemory,
+                            index === messages.length - 1,
+                          ) ? (
+                          <RefundBankForm
+                            disabled={sending}
+                            onSubmit={(value) => sendMessage(value)}
+                          />
+                        ) : !isUser &&
+                          !shouldShowPassengerForm(
+                            msg,
+                            chatMemory,
+                            index === messages.length - 1,
+                          ) &&
+                          (msg.suggestedReplies || []).length ? (
                           <div
                             style={{
                               display: "flex",
@@ -1647,6 +2515,7 @@ export default function AssistantPage({ embed: embedProp = false }) {
                                 key={`${index}-${reply}`}
                                 type="button"
                                 onClick={() => sendMessage(reply)}
+                                disabled={sending}
                                 style={{
                                   border: "1px solid #cbd5e1",
                                   background: "#fff",
@@ -1654,7 +2523,8 @@ export default function AssistantPage({ embed: embedProp = false }) {
                                   borderRadius: 999,
                                   padding: "7px 10px",
                                   fontSize: 12,
-                                  cursor: "pointer",
+                                  cursor: sending ? "not-allowed" : "pointer",
+                                  opacity: sending ? 0.6 : 1,
                                 }}
                               >
                                 {reply}

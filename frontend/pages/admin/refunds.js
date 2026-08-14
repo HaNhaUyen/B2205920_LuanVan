@@ -157,6 +157,10 @@ export default function AdminRefundsPage() {
 
   const review = async () => {
     if (!modal) return;
+    if (!["approved", "rejected"].includes(modal.status))
+      return showToast("Trạng thái xử lý hoàn tiền không hợp lệ.", "error");
+    if (adminNote.trim().length > 1000)
+      return showToast("Ghi chú tối đa 1000 ký tự.", "error");
     if (modal.status === "rejected" && !adminNote.trim()) {
       return showToast(
         "Khi không duyệt cần nhập lý do phản hồi cho khách.",
@@ -172,7 +176,9 @@ export default function AdminRefundsPage() {
       setAdminNote("");
       await load(); // Tải lại danh sách sau khi duyệt
       showToast(
-        "Đã xác nhận hoàn tiền, hủy booking, hoàn lại số chỗ và ghi giảm doanh thu tháng hiện tại.",
+        modal.status === "approved"
+          ? "Đã xác nhận hoàn tiền, hủy booking, hoàn lại số chỗ và ghi giảm doanh thu tháng hiện tại."
+          : "Đã từ chối yêu cầu hoàn tiền và gửi phản hồi cho khách hàng.",
         "success",
       );
     } catch (e) {

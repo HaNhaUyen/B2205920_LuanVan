@@ -34,6 +34,23 @@ const TYPE_LABELS = {
   available: "Có thể nhận tour",
 };
 
+function formatGuideAvailabilityCreatedAt(value) {
+  if (!value) return "--";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return formatDateTime(value);
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour12: false,
+  }).format(date);
+}
+
 export default function AdminGuideAvailabilitiesPage() {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -49,6 +66,7 @@ export default function AdminGuideAvailabilitiesPage() {
     pageSize: 10,
     search: "",
     status: "pending",
+    urgency: "all",
   });
   const [data, setData] = useState({
     items: [],
@@ -114,7 +132,9 @@ export default function AdminGuideAvailabilitiesPage() {
     setSelected(item);
     setReplacementGuideId("");
     setReplacementNote("");
-    if (item.replacementRequired) {
+
+    // Yêu cầu đã quá ngày bắt đầu chỉ được xem, không cần tải HDV thay thế.
+    if (item.replacementRequired && !item.isExpired) {
       await loadReplacementGuides(item);
     } else {
       setReplacementGuides([]);
@@ -122,6 +142,12 @@ export default function AdminGuideAvailabilitiesPage() {
   };
 
   const review = async (item, action, reason = "") => {
+    if (!["approve", "reject"].includes(action))
+      return showToast("Thao tác duyệt không hợp lệ.", "error");
+    if (String(reason || "").trim().length > 1000)
+      return showToast("Lý do phản hồi tối đa 1000 ký tự.", "error");
+    if (action === "reject" && !String(reason || "").trim())
+      return showToast("Vui lòng nhập lý do từ chối.", "error");
     try {
       setProcessing(true);
       await apiFetch(
@@ -230,6 +256,22 @@ export default function AdminGuideAvailabilitiesPage() {
             <option value="rejected">Đã từ chối</option>
             <option value="cancelled">Đã hủy</option>
           </select>
+
+          <select
+            value={filters.urgency}
+            onChange={(event) =>
+              setFilters((current) => ({
+                ...current,
+                urgency: event.target.value,
+                page: 1,
+              }))
+            }
+            title="Lọc theo mức độ cần xử lý"
+          >
+            <option value="all">Tất cả mức độ</option>
+            <option value="urgent">Cần xử lý gấp</option>
+          </select>
+
           <strong>{data.pagination?.total || 0} yêu cầu</strong>
         </section>
 
@@ -246,7 +288,10 @@ export default function AdminGuideAvailabilitiesPage() {
               {data.items.map((item) => {
                 const assignment = item.replacementAssignment;
                 return (
-                  <article className="ga-row" key={item.id}>
+                  <article
+                    className={`ga-row ${item.isExpired ? "expired" : ""}`}
+                    key={item.id}
+                  >
                     <div className={`ga-icon ${item.status}`}>
                       {item.replacementRequired ? (
                         <AlertTriangle size={21} />
@@ -257,7 +302,20 @@ export default function AdminGuideAvailabilitiesPage() {
                     <div className="ga-main">
                       <div className="ga-head">
                         <div>
-                          <span>{TYPE_LABELS[item.availabilityType]}</span>
+                          <div className="ga-head-labels">
+                            <span>{TYPE_LABELS[item.availabilityType]}</span>
+                            {item.isExpired && item.status === "pending" ? (
+                              <b className="ga-expired-badge">
+                                <Clock3 size={12} />
+                                Đã quá ngày · Chỉ xem
+                              </b>
+                            ) : item.isUrgent && item.status === "pending" ? (
+                              <b className="ga-urgent-badge">
+                                <AlertTriangle size={12} />
+                                Cần xử lý gấp
+                              </b>
+                            ) : null}
+                          </div>
                           <h3>{item.guide?.fullName || "Hướng dẫn viên"}</h3>
                         </div>
                         <em className={item.status}>
@@ -270,12 +328,33 @@ export default function AdminGuideAvailabilitiesPage() {
                         <span>→</span>
                         <strong>{formatDate(item.endAt)}</strong>
                         <span>· Cả ngày</span>
+                        {item.status === "pending" &&
+                        Number.isFinite(Number(item.daysUntilStart)) ? (
+                          <span
+                            className={
+                              item.isUrgent
+                                ? "ga-days-left urgent"
+                                : "ga-days-left"
+                            }
+                          >
+                            {Number(item.daysUntilStart) < 0
+                              ? `Đã quá ngày bắt đầu ${Math.abs(
+                                  Number(item.daysUntilStart),
+                                )} ngày`
+                              : Number(item.daysUntilStart) === 0
+                                ? "Bắt đầu hôm nay"
+                                : `Còn ${Number(item.daysUntilStart)} ngày`}
+                          </span>
+                        ) : null}
                       </div>
 
                       <div className="ga-meta">
                         <span>{item.guide?.phone || "Chưa có SĐT"}</span>
                         <span>{item.reason || "Không nhập lý do"}</span>
-                        <span>Báo lúc: {formatDateTime(item.createdAt)}</span>
+                        <span>
+                          Báo lúc:{" "}
+                          {formatGuideAvailabilityCreatedAt(item.createdAt)}
+                        </span>
                       </div>
 
                       {assignment && (
@@ -305,6 +384,7 @@ export default function AdminGuideAvailabilitiesPage() {
                         Xem chi tiết
                       </button>
                       {item.status === "pending" &&
+                        !item.isExpired &&
                         !item.replacementRequired && (
                           <button
                             className="approve"
@@ -315,6 +395,7 @@ export default function AdminGuideAvailabilitiesPage() {
                           </button>
                         )}
                       {item.status === "pending" &&
+                        !item.isExpired &&
                         item.replacementRequired && (
                           <button
                             className="replace"
@@ -324,7 +405,7 @@ export default function AdminGuideAvailabilitiesPage() {
                             <UserRoundCheck size={16} /> Thay HDV
                           </button>
                         )}
-                      {item.status === "pending" && (
+                      {item.status === "pending" && !item.isExpired && (
                         <button
                           className="reject"
                           disabled={processing}
@@ -333,6 +414,9 @@ export default function AdminGuideAvailabilitiesPage() {
                           <XCircle size={16} /> Từ chối
                         </button>
                       )}
+                      {item.status === "pending" && item.isExpired ? (
+                        <span className="ga-view-only-note">Chỉ được xem</span>
+                      ) : null}
                     </div>
                   </article>
                 );
@@ -377,14 +461,31 @@ export default function AdminGuideAvailabilitiesPage() {
               />
               <Info
                 label="Thời điểm báo"
-                value={formatDateTime(selected.createdAt)}
+                value={formatGuideAvailabilityCreatedAt(selected.createdAt)}
                 full
               />
             </div>
 
-            {selected.replacementAssignment && (
+            {selected.isExpired && selected.status === "pending" ? (
+              <div className="ga-expired-alert">
+                <Clock3 size={18} />
+                <div>
+                  <strong>Yêu cầu đã quá ngày bắt đầu</strong>
+                  <span>
+                    Yêu cầu này chỉ được xem lịch sử. Không thể duyệt, từ chối
+                    hoặc thay hướng dẫn viên.
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+            {selected.replacementAssignment && !selected.isExpired && (
               <section className="ga-replacement-card">
-                <h3>Tour cần phân công lại</h3>
+                <h3>
+                  {selected.status === "active"
+                    ? "Thông tin phân công sau khi duyệt"
+                    : "Tour cần phân công lại"}
+                </h3>
                 <strong>{selected.replacementAssignment.tour?.name}</strong>
                 <p>
                   Booking:{" "}
@@ -396,63 +497,96 @@ export default function AdminGuideAvailabilitiesPage() {
                   {formatDate(selected.replacementAssignment.endDate)}
                 </p>
 
-                <label>Chọn hướng dẫn viên thay thế</label>
-                <select
-                  value={replacementGuideId}
-                  onChange={(event) =>
-                    setReplacementGuideId(event.target.value)
-                  }
-                >
-                  <option value="">-- Chọn HDV đang rảnh --</option>
-                  {replacementGuides.map((guide) => (
-                    <option key={guide.id} value={guide.id}>
-                      {guide.fullName} · {guide.phone || "Chưa có SĐT"}
-                    </option>
-                  ))}
-                </select>
-
-                <label>Ghi chú phân công</label>
-                <textarea
-                  value={replacementNote}
-                  onChange={(event) => setReplacementNote(event.target.value)}
-                  placeholder="Ví dụ: Thay HDV do người cũ có việc đột xuất"
-                />
-
-                {selected.otherConflictCount > 0 && (
-                  <div className="ga-conflict">
-                    HDV cũ còn {selected.otherConflictCount} tour khác trùng
-                    thời gian. Hệ thống chỉ thay tour đang gắn với yêu cầu này.
+                {selected.status === "active" && selected.replacementGuide ? (
+                  <div
+                    style={{
+                      padding: "11px 12px",
+                      borderRadius: 10,
+                      background: "#ecfdf5",
+                      border: "1px solid #a7f3d0",
+                      color: "#166534",
+                    }}
+                  >
+                    <strong style={{ display: "block", marginBottom: 4 }}>
+                      HDV đã được thay thế
+                    </strong>
+                    <span>
+                      {selected.replacementGuide.fullName}
+                      {selected.replacementGuide.phone
+                        ? ` · ${selected.replacementGuide.phone}`
+                        : ""}
+                    </span>
                   </div>
-                )}
+                ) : null}
 
-                <button
-                  className="ga-primary-action"
-                  onClick={replaceAndApprove}
-                  disabled={processing || !replacementGuideId}
-                >
-                  <UserRoundCheck size={18} />
-                  {processing ? "Đang xử lý..." : "Phân công HDV mới và duyệt"}
-                </button>
+                {selected.status === "pending" ? (
+                  <>
+                    <label>Chọn hướng dẫn viên thay thế</label>
+                    <select
+                      value={replacementGuideId}
+                      onChange={(event) =>
+                        setReplacementGuideId(event.target.value)
+                      }
+                    >
+                      <option value="">-- Chọn HDV đang rảnh --</option>
+                      {replacementGuides.map((guide) => (
+                        <option key={guide.id} value={guide.id}>
+                          {guide.fullName} · {guide.phone || "Chưa có SĐT"}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label>Ghi chú phân công</label>
+                    <textarea
+                      value={replacementNote}
+                      onChange={(event) =>
+                        setReplacementNote(event.target.value)
+                      }
+                      placeholder="Ví dụ: Thay HDV do người cũ có việc đột xuất"
+                    />
+
+                    {selected.otherConflictCount > 0 && (
+                      <div className="ga-conflict">
+                        HDV cũ còn {selected.otherConflictCount} tour khác trùng
+                        thời gian. Hệ thống chỉ thay tour đang gắn với yêu cầu
+                        này.
+                      </div>
+                    )}
+
+                    <button
+                      className="ga-primary-action"
+                      onClick={replaceAndApprove}
+                      disabled={processing || !replacementGuideId}
+                    >
+                      <UserRoundCheck size={18} />
+                      {processing
+                        ? "Đang xử lý..."
+                        : "Phân công HDV mới và duyệt"}
+                    </button>
+                  </>
+                ) : null}
               </section>
             )}
 
-            {!selected.replacementRequired && selected.status === "pending" && (
-              <div className="ga-modal-actions">
-                <button
-                  className="approve"
-                  disabled={processing || selected.otherConflictCount > 0}
-                  onClick={() => review(selected, "approve")}
-                >
-                  Duyệt lịch bận
-                </button>
-                <button
-                  className="reject"
-                  onClick={() => setRejecting(selected)}
-                >
-                  Từ chối
-                </button>
-              </div>
-            )}
+            {!selected.replacementRequired &&
+              selected.status === "pending" &&
+              !selected.isExpired && (
+                <div className="ga-modal-actions">
+                  <button
+                    className="approve"
+                    disabled={processing || selected.otherConflictCount > 0}
+                    onClick={() => review(selected, "approve")}
+                  >
+                    Duyệt lịch bận
+                  </button>
+                  <button
+                    className="reject"
+                    onClick={() => setRejecting(selected)}
+                  >
+                    Từ chối
+                  </button>
+                </div>
+              )}
           </div>
         )}
       </Modal>
@@ -541,7 +675,7 @@ export default function AdminGuideAvailabilitiesPage() {
         .ga-filters {
           padding: 14px;
           display: grid;
-          grid-template-columns: minmax(280px, 1fr) 190px auto;
+          grid-template-columns: minmax(280px, 1fr) 175px 180px auto;
           gap: 11px;
           align-items: center;
         }
@@ -608,6 +742,81 @@ export default function AdminGuideAvailabilitiesPage() {
           font-size: 11px;
           color: #64748b;
         }
+        .ga-head-labels {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .ga-urgent-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px 7px;
+          border-radius: 999px;
+          background: #fee2e2;
+          color: #b91c1c;
+          font-size: 10px;
+          font-weight: 900;
+          line-height: 1;
+          white-space: nowrap;
+        }
+        .ga-expired-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px 7px;
+          border-radius: 999px;
+          background: #f1f5f9;
+          color: #64748b;
+          font-size: 10px;
+          font-weight: 900;
+          line-height: 1;
+          white-space: nowrap;
+        }
+        .ga-row.expired {
+          background: #f8fafc;
+          border-color: #e2e8f0;
+        }
+        .ga-row.expired .ga-main {
+          opacity: 0.88;
+        }
+        .ga-view-only-note {
+          min-height: 37px;
+          border-radius: 9px;
+          padding: 0 11px;
+          border: 1px solid #e2e8f0;
+          background: #f8fafc;
+          color: #64748b;
+          font-weight: 800;
+          font-size: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .ga-expired-alert {
+          padding: 13px 14px;
+          border: 1px solid #cbd5e1;
+          border-radius: 11px;
+          background: #f8fafc;
+          color: #475569;
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+        }
+        .ga-expired-alert > div {
+          display: grid;
+          gap: 4px;
+        }
+        .ga-expired-alert strong {
+          color: #334155;
+          font-size: 13px;
+        }
+        .ga-expired-alert span {
+          color: #64748b;
+          font-size: 12px;
+          line-height: 1.5;
+        }
         .ga-head h3 {
           margin: 3px 0 0;
           font-size: 17px;
@@ -644,6 +853,17 @@ export default function AdminGuideAvailabilitiesPage() {
         }
         .ga-time strong {
           color: #334155;
+        }
+        .ga-days-left {
+          padding: 3px 7px;
+          border-radius: 999px;
+          background: #f1f5f9;
+          color: #475569 !important;
+          font-weight: 800;
+        }
+        .ga-days-left.urgent {
+          background: #fff1f2;
+          color: #be123c !important;
         }
         .ga-tour-box {
           margin-top: 10px;

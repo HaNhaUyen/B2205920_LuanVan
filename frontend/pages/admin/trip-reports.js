@@ -212,6 +212,10 @@ export default function AdminTripReportsPage() {
 
   const review = async (action = "review") => {
     if (!selected) return;
+    if (!["review", "reopen"].includes(action))
+      return showToast("Thao tác báo cáo không hợp lệ.", "error");
+    if (adminNote.trim().length > 2000)
+      return showToast("Ghi chú của admin tối đa 2000 ký tự.", "error");
 
     setProcessing(true);
     try {

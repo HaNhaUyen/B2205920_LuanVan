@@ -19,6 +19,59 @@ export class OperationalExpansionService {
   private json(v: any) {
     return v == null ? null : JSON.stringify(v);
   }
+  private validateSupplierInput(body: any, partial = false) {
+    const allowedTypes = [
+      "hotel",
+      "transport",
+      "restaurant",
+      "attraction",
+      "insurance",
+      "other",
+    ];
+    const allowedStatuses = ["active", "inactive"];
+
+    if (
+      (!partial || body?.name !== undefined) &&
+      (!String(body?.name || "").trim() ||
+        String(body?.name || "").trim().length < 2 ||
+        String(body?.name || "").trim().length > 160)
+    )
+      throw new BadRequestException(
+        "Tên nhà cung cấp phải từ 2 đến 160 ký tự.",
+      );
+    if (
+      (!partial || body?.supplierType !== undefined) &&
+      !allowedTypes.includes(String(body?.supplierType || ""))
+    )
+      throw new BadRequestException("Loại nhà cung cấp không hợp lệ.");
+    if (body?.phone && !/^0\d{9}$/.test(String(body.phone)))
+      throw new BadRequestException(
+        "Số điện thoại nhà cung cấp phải gồm 10 chữ số và bắt đầu bằng 0.",
+      );
+    if (body?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email)))
+      throw new BadRequestException("Email nhà cung cấp không hợp lệ.");
+    if (body?.representative && String(body.representative).length > 150)
+      throw new BadRequestException("Tên người đại diện tối đa 150 ký tự.");
+    if (body?.address && String(body.address).length > 255)
+      throw new BadRequestException("Địa chỉ nhà cung cấp tối đa 255 ký tự.");
+    if (body?.province && String(body.province).length > 100)
+      throw new BadRequestException("Tỉnh/thành phố tối đa 100 ký tự.");
+    if (body?.note && String(body.note).length > 1000)
+      throw new BadRequestException("Ghi chú nhà cung cấp tối đa 1000 ký tự.");
+    if (
+      body?.rating !== undefined &&
+      body?.rating !== "" &&
+      (!Number.isFinite(Number(body.rating)) ||
+        Number(body.rating) < 0 ||
+        Number(body.rating) > 5)
+    )
+      throw new BadRequestException("Đánh giá nhà cung cấp phải từ 0 đến 5.");
+    if (
+      body?.status !== undefined &&
+      !allowedStatuses.includes(String(body.status))
+    )
+      throw new BadRequestException("Trạng thái nhà cung cấp không hợp lệ.");
+  }
   private async audit(
     user: any,
     action: string,
@@ -106,6 +159,7 @@ export class OperationalExpansionService {
   async createSupplier(user: any, b: any) {
     if (!b?.name || !b?.supplierType)
       throw new BadRequestException("Tên và loại nhà cung cấp là bắt buộc.");
+    this.validateSupplierInput(b, false);
     const code = String(b.supplierCode || `SUP-${Date.now()}`);
     const r: any = await this.prisma.$executeRawUnsafe(
       `INSERT INTO suppliers(supplier_code,name,supplier_type,tax_code,representative,phone,email,address,province,bank_account,bank_name,rating,status,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -128,12 +182,16 @@ export class OperationalExpansionService {
     return { success: true, id: Number(r) };
   }
   async updateSupplier(user: any, id: number, b: any) {
+    if (!Number.isInteger(id) || id <= 0)
+      throw new BadRequestException("Nhà cung cấp không hợp lệ.");
+    this.validateSupplierInput(b, true);
     const old = await this.prisma.$queryRawUnsafe<any[]>(
       `SELECT * FROM suppliers WHERE id=?`,
       id,
     );
     if (!old.length)
       throw new NotFoundException("Không tìm thấy nhà cung cấp.");
+    this.validateSupplierInput(b, true);
     await this.prisma.$executeRawUnsafe(
       `UPDATE suppliers SET name=COALESCE(?,name),supplier_type=COALESCE(?,supplier_type),tax_code=?,representative=?,phone=?,email=?,address=?,province=?,bank_account=?,bank_name=?,rating=?,status=COALESCE(?,status),note=? WHERE id=?`,
       b.name || null,

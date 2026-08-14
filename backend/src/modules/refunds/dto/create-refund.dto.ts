@@ -1,5 +1,12 @@
 import { Type } from "class-transformer";
-import { IsInt, IsNotEmpty, IsString, Min } from "class-validator";
+import {
+  IsInt,
+  IsNotEmpty,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from "class-validator";
 
 export class CreateRefundDto {
   @Type(() => Number)
@@ -9,5 +16,7 @@ export class CreateRefundDto {
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(5)
+  @MaxLength(2000)
   reason!: string;
 }

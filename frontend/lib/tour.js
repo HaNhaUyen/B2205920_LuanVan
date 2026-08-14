@@ -207,7 +207,7 @@ export function getTourFilterOptions(destinations = []) {
     value: String(index + 1),
     label: `Tháng ${index + 1}`,
   }));
-  const ratingOptions = [3, 4, 4.5].map((value) => ({
+  const ratingOptions = [1, 2, 3, 4, 5].map((value) => ({
     value: String(value),
     label: `Từ ${value}★ đánh giá`,
   }));
@@ -580,14 +580,14 @@ export function getTourFavoriteCount(tour = {}) {
 export function isDynamicBestSeller(tour) {
   return Boolean(
     tour.dynamicIsBestSeller ||
-      getTourBookingCount(tour) >= TOUR_LABEL_THRESHOLDS.bestSellerBookings,
+    getTourBookingCount(tour) >= TOUR_LABEL_THRESHOLDS.bestSellerBookings,
   );
 }
 
 export function isDynamicFavorite(tour) {
   return Boolean(
     tour.dynamicIsFavorite ||
-      getTourFavoriteCount(tour) >= TOUR_LABEL_THRESHOLDS.favoriteCount,
+    getTourFavoriteCount(tour) >= TOUR_LABEL_THRESHOLDS.favoriteCount,
   );
 }
 
@@ -777,6 +777,16 @@ function sortByNormalRule(a, b, sort) {
   return recommendedScore(b) - recommendedScore(a);
 }
 
+function parseNonNegativeIntegerFilter(value) {
+  const cleaned = cleanFilterValue(value);
+  if (!cleaned) return 0;
+
+  const numeric = Number(cleaned);
+  if (!Number.isInteger(numeric) || numeric < 0) return 0;
+
+  return numeric;
+}
+
 export function filterTours(tours = [], query = {}) {
   const rawKeyword = cleanFilterValue(query.search);
   const destination = cleanFilterValue(
@@ -796,12 +806,14 @@ export function filterTours(tours = [], query = {}) {
   const theme = cleanFilterValue(query.theme);
   const type = cleanFilterValue(query.type || query.tourType || "");
   const month = toNumber(cleanFilterValue(query.month || query.departureMonth));
-  const minPrice = toNumber(cleanFilterValue(query.minPrice));
-  const maxPrice = toNumber(cleanFilterValue(query.maxPrice));
-  const durationMax = toNumber(
-    cleanFilterValue(query.durationMax || query.durationDays),
+  const minPrice = parseNonNegativeIntegerFilter(query.minPrice);
+  const maxPrice = parseNonNegativeIntegerFilter(query.maxPrice);
+  const durationMax = parseNonNegativeIntegerFilter(
+    query.durationMax || query.durationDays,
   );
-  const minRating = toNumber(cleanFilterValue(query.minRating || query.hotelStars));
+  const minRating = parseNonNegativeIntegerFilter(
+    query.minRating || query.hotelStars,
+  );
   const featured =
     query.featured === "1" || query.featured === 1 || query.featured === true;
   const favorite =
@@ -859,7 +871,7 @@ export function filterTours(tours = [], query = {}) {
       const matchesMinPrice = !minPrice || toNumber(tour.minPrice) >= minPrice;
       const matchesMaxPrice = !maxPrice || toNumber(tour.minPrice) <= maxPrice;
       const matchesDuration =
-        !durationMax || toNumber(tour.durationDays) <= durationMax;
+        !durationMax || toNumber(tour.durationDays) === durationMax;
       const matchesRating =
         !minRating || toNumber(tour.rating || 0) >= minRating;
       const matchesFeatured = !featured || isDynamicBestSeller(tour);
