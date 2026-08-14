@@ -1484,9 +1484,18 @@ function transformAdminInsight(item) {
     search.includes("expired_booking") ||
     search.includes("expired booking");
 
-  // Booking quá hạn giữ chỗ được hệ thống tự hết hạn và giải phóng chỗ,
-  // không phải công việc cần Admin xử lý trực tiếp.
-  if (isExpiredHold) return null;
+  // Giữ cảnh báo booking quá hạn trong Trung tâm cảnh báo thông minh.
+  // Phần này chỉ phục vụ hiển thị/nhắc kiểm tra, không thay đổi logic tự hết hạn
+  // hay cơ chế giải phóng chỗ của hệ thống.
+  if (isExpiredHold) {
+    return applyInsightCopy(item, {
+      title: `${countLabel} booking đã quá hạn giữ chỗ`,
+      description:
+        "Các booking đã vượt thời gian giữ chỗ cần được kiểm tra để bảo đảm trạng thái đơn và số chỗ đã được đồng bộ chính xác.",
+      action:
+        "Kiểm tra các booking quá hạn và xác nhận hệ thống đã giải phóng chỗ đúng.",
+    });
+  }
 
   const isWaitingConfirmation =
     search.includes("cho xac nhan") ||
@@ -3079,10 +3088,18 @@ export default function AdminPage({ initialTab = "overview" }) {
       return "Vui lòng chọn chủ đề tour.";
     if (!Number.isInteger(durationDays) || durationDays <= 0)
       return "Số ngày của tour phải là số nguyên lớn hơn 0.";
-    if (!Number.isInteger(durationNights) || durationNights < 0)
-      return "Số đêm của tour phải là số nguyên không âm.";
-    if (durationNights > durationDays)
-      return "Số đêm không được lớn hơn số ngày của tour.";
+    if (!Number.isInteger(durationNights) || durationNights < 1)
+      return "Số đêm của tour phải là số nguyên từ 1 trở lên.";
+
+    const minAllowedNights = Math.max(durationDays - 1, 1);
+    const maxAllowedNights = durationDays;
+
+    if (
+      durationNights < minAllowedNights ||
+      durationNights > maxAllowedNights
+    ) {
+      return `Với ${durationDays} ngày, số đêm chỉ được là ${minAllowedNights} hoặc ${maxAllowedNights}.`;
+    }
     if (String(tourForm.shortDescription || "").length > 500)
       return "Mô tả nổi bật tối đa 500 ký tự.";
     if (String(tourForm.fullDescription || "").length > 10000)
@@ -3247,8 +3264,9 @@ export default function AdminPage({ initialTab = "overview" }) {
   };
 
   const saveTourStep1 = async () => {
-    if (!tourForm.name || !tourForm.destinationId) {
-      return showToast("Cần nhập tên tour và điểm đến.", "error");
+    const validationError = validateTourStep1Inputs();
+    if (validationError) {
+      return showToast(validationError, "error");
     }
 
     const firstDeparture = tourDepartures?.[0] || createDepartureItem();
@@ -7153,7 +7171,8 @@ export default function AdminPage({ initialTab = "overview" }) {
                 <label>Số Đêm</label>
                 <input
                   type="number"
-                  min="0"
+                  min={Math.max(Number(tourForm.durationDays || 1) - 1, 1)}
+                  max={Math.max(Number(tourForm.durationDays || 1), 1)}
                   step="1"
                   value={tourForm.durationNights}
                   onChange={(e) =>

@@ -275,7 +275,7 @@ export default function GuidePage() {
   }, [activeTab]);
 
   const filteredAssignments = useMemo(() => {
-    return assignments.filter((item) => {
+    const filtered = assignments.filter((item) => {
       const booking = item.booking || {};
       const tour = item.tour || {};
       const destination = tour.destination || {};
@@ -303,15 +303,39 @@ export default function GuidePage() {
 
       return matchStatus && matchDate && matchKeyword;
     });
+
+    return [...filtered].sort((a, b) => {
+      const aCompleted = String(a.status || "") === "completed";
+      const bCompleted = String(b.status || "") === "completed";
+
+      // Tour đã hoàn thành luôn nằm phía sau các tour còn đang/sắp thực hiện.
+      if (aCompleted !== bCompleted) {
+        return aCompleted ? 1 : -1;
+      }
+
+      // Trong cùng nhóm, ngày khởi hành mới hơn hiển thị trước.
+      const aDate = new Date(a.startDate || 0).getTime();
+      const bDate = new Date(b.startDate || 0).getTime();
+
+      return bDate - aDate;
+    });
   }, [assignments, statusFilter, keyword, dateFilter]);
 
   const dayAssignments = useMemo(() => {
     return assignments.filter((item) => {
-      return (
-        toDateInput(item.startDate) === dayViewDate ||
-        toDateInput(item.endDate) === dayViewDate ||
-        toDateInput(item.booking?.departure?.departureDate) === dayViewDate
-      );
+      const startDate =
+        toDateInput(item.startDate) ||
+        toDateInput(item.booking?.departure?.departureDate);
+      const endDate =
+        toDateInput(item.endDate) ||
+        toDateInput(item.booking?.departure?.endDate) ||
+        startDate;
+
+      if (!startDate || !endDate || !dayViewDate) return false;
+
+      // Tour kéo dài nhiều ngày phải xuất hiện ở tất cả các ngày nằm trong
+      // khoảng từ ngày bắt đầu đến ngày kết thúc, tính cả hai đầu mút.
+      return dayViewDate >= startDate && dayViewDate <= endDate;
     });
   }, [assignments, dayViewDate]);
 

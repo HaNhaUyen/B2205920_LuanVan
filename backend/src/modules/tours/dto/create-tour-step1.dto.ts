@@ -58,7 +58,7 @@ export class CreateTourStep1Dto {
   durationDays!: number;
 
   @IsInt()
-  @Min(0)
+  @Min(1)
   durationNights!: number;
 
   @IsOptional()

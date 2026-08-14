@@ -7,6 +7,7 @@ import { API_URL } from "@/lib/config";
 import { useToast } from "@/components/ToastContext";
 import { trackBehavior } from "@/lib/behavior";
 import { mapImageUrl } from "@/lib/tour";
+import { getToken } from "@/lib/storage";
 
 const BASE_STORAGE_KEY = "tourai_conversation_id";
 const MESSAGE_STORAGE_KEY = "tourai_current_messages";
@@ -1556,13 +1557,24 @@ export default function AssistantPage({ embed: embedProp = false }) {
       setChatMemory({});
     }
 
-    refreshConversations(saved || null);
+    const hasAuthenticatedSession = Boolean(getToken());
 
-    if (saved) {
-      setConversationId(saved);
-      loadConversation(saved, { silent: true });
+    if (hasAuthenticatedSession) {
+      refreshConversations(saved || null);
+
+      if (saved) {
+        setConversationId(saved);
+        loadConversation(saved, { silent: true });
+      } else {
+        setConversationId(null);
+      }
     } else {
+      // Khách vãng lai vẫn được dùng chatbot bình thường, nhưng không gọi
+      // các API lịch sử hội thoại yêu cầu đăng nhập. Việc này tránh iframe
+      // /assistant?embed=1 bị chuyển sang trang /login khi vừa mở chatbot.
+      setConversationList([]);
       setConversationId(null);
+      setChatMemory({});
     }
   }, [
     router.isReady,
@@ -1842,7 +1854,9 @@ export default function AssistantPage({ embed: embedProp = false }) {
             nextConversationId,
           );
         }
-        refreshConversations(nextConversationId);
+        if (getToken()) {
+          refreshConversations(nextConversationId);
+        }
       }
       if (result?.memory && typeof result.memory === "object") {
         setChatMemory(result.memory);
@@ -2635,4 +2649,12 @@ export default function AssistantPage({ embed: embedProp = false }) {
       </section>
     </>
   );
+}
+
+export async function getServerSideProps(context) {
+  return {
+    props: {
+      embed: String(context?.query?.embed || "") === "1",
+    },
+  };
 }

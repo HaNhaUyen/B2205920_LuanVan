@@ -58,7 +58,138 @@ export default function AdminInsightPanel({ insights }) {
     ? insights.suggestions
     : [];
 
-  const displayedAlerts = alerts.slice(0, 4);
+  const counters =
+    insights?.counters && typeof insights.counters === "object"
+      ? insights.counters
+      : {};
+
+  const coreAlertDefinitions = [
+    {
+      type: "payment_review",
+      count: Number(counters.waitingConfirmations || 0),
+      severity: "warning",
+      title: (count) =>
+        count > 0
+          ? `${count.toLocaleString("vi-VN")} giao dịch đang chờ đối soát`
+          : "Không có giao dịch chờ đối soát",
+      message: (count) =>
+        count > 0
+          ? "Các booking chuyển khoản chưa được xác nhận thành công cần được đối chiếu trước khi cập nhật trạng thái."
+          : "Hiện không có booking chuyển khoản nào đang chờ Admin xác nhận.",
+      action: (count) =>
+        count > 0
+          ? "Đối soát giao dịch và xác nhận các khoản thu hợp lệ."
+          : "Tiếp tục theo dõi giao dịch mới.",
+    },
+    {
+      type: "refund_pending",
+      count: Number(counters.pendingRefunds || 0),
+      severity: "danger",
+      title: (count) =>
+        count > 0
+          ? `${count.toLocaleString("vi-VN")} yêu cầu hoàn tiền chưa xử lý`
+          : "Không có yêu cầu hoàn tiền tồn đọng",
+      message: (count) =>
+        count > 0
+          ? "Các yêu cầu hoàn tiền đang chờ phê duyệt hoặc từ chối cần được xử lý theo chính sách."
+          : "Hiện không có yêu cầu hoàn tiền nào đang chờ xử lý.",
+      action: (count) =>
+        count > 0
+          ? "Kiểm tra điều kiện hủy, số tiền hoàn và phê duyệt theo chính sách."
+          : "Tiếp tục theo dõi yêu cầu hoàn tiền mới.",
+    },
+    {
+      type: "missing_guide",
+      count: Number(counters.noGuideBookings || 0),
+      severity: "warning",
+      title: (count) =>
+        count > 0
+          ? `${count.toLocaleString("vi-VN")} lịch khởi hành chưa có hướng dẫn viên`
+          : "Các lịch cần HDV đã được phân công",
+      message: (count) =>
+        count > 0
+          ? "Một số booking hợp lệ chưa có hướng dẫn viên, cần ưu tiên các đoàn sắp khởi hành."
+          : "Hiện không ghi nhận booking hợp lệ nào còn thiếu hướng dẫn viên.",
+      action: (count) =>
+        count > 0
+          ? "Phân công hướng dẫn viên và kiểm tra khả năng đáp ứng lịch."
+          : "Tiếp tục theo dõi lịch phân công.",
+    },
+    {
+      type: "booking_expired",
+      count: Number(counters.expiredHolds || 0),
+      severity: "warning",
+      title: (count) =>
+        count > 0
+          ? `${count.toLocaleString("vi-VN")} booking đã quá hạn giữ chỗ`
+          : "Không có booking quá hạn giữ chỗ",
+      message: (count) =>
+        count > 0
+          ? "Các booking quá hạn cần được kiểm tra để bảo đảm trạng thái đơn và số chỗ đã đồng bộ đúng."
+          : "Hiện không ghi nhận booking pending_payment nào đã quá thời gian giữ chỗ.",
+      action: (count) =>
+        count > 0
+          ? "Kiểm tra booking quá hạn và xác nhận số chỗ đã được giải phóng đúng."
+          : "Tiếp tục theo dõi thời gian giữ chỗ.",
+    },
+  ];
+
+  const normalizedType = (value) => String(value || "").toLowerCase();
+
+  const coreTypeAliases = {
+    payment_review: ["payment_review", "waiting_confirmation"],
+    refund_pending: ["refund_pending", "refund"],
+    missing_guide: ["missing_guide", "no_guide", "unassigned_guide"],
+    booking_expired: ["booking_expired", "expired_hold", "expired_booking"],
+  };
+
+  const findActualCoreAlert = (type) => {
+    const aliases = coreTypeAliases[type] || [type];
+    return alerts.find((item) =>
+      aliases.some((alias) => normalizedType(item?.type).includes(alias)),
+    );
+  };
+
+  const usedActualAlerts = new Set();
+
+  const coreAlerts = coreAlertDefinitions.map((definition) => {
+    const actual = findActualCoreAlert(definition.type);
+
+    if (actual) {
+      usedActualAlerts.add(actual);
+      return actual;
+    }
+
+    const count = definition.count;
+    return {
+      type: definition.type,
+      severity: count > 0 ? definition.severity : "success",
+      title: definition.title(count),
+      message: definition.message(count),
+      action: definition.action(count),
+      count,
+      generatedFromCounter: true,
+    };
+  });
+
+  const additionalActualAlerts = alerts.filter(
+    (item) => !usedActualAlerts.has(item),
+  );
+
+  // Ưu tiên cảnh báo thực tế trước, sau đó dùng các bộ đếm cốt lõi để luôn
+  // duy trì tối đa 4 mục giám sát rõ ràng, không tạo dữ liệu giả.
+  const activeCoreAlerts = coreAlerts.filter(
+    (item) => Number(item?.count || 0) > 0 || !item?.generatedFromCounter,
+  );
+  const healthyCoreAlerts = coreAlerts.filter(
+    (item) => item?.generatedFromCounter && Number(item?.count || 0) === 0,
+  );
+
+  const displayedAlerts = [
+    ...activeCoreAlerts,
+    ...additionalActualAlerts,
+    ...healthyCoreAlerts,
+  ].slice(0, 4);
 
   return (
     <section className="admin-card admin-insight-panel">
@@ -366,7 +497,7 @@ export default function AdminInsightPanel({ insights }) {
         </div>
 
         <span className="admin-insight-count">
-          {displayedAlerts.length} cảnh báo đang hiển thị
+          {displayedAlerts.length} mục đang giám sát
         </span>
       </header>
 

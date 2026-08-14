@@ -250,6 +250,8 @@ export default function AdminNotificationsPage() {
   const [recipientLoading, setRecipientLoading] = useState(false);
   const [recipientSuggestOpen, setRecipientSuggestOpen] = useState(false);
   const [bulkFilters, setBulkFilters] = useState(initialBulkFilters);
+  const [bulkPage, setBulkPage] = useState(1);
+  const bulkPageSize = 10;
   const [bulkData, setBulkData] = useState({
     items: [],
     destinations: [],
@@ -356,6 +358,7 @@ export default function AdminNotificationsPage() {
         `/admin/notifications/bulk-targets?${buildQuery(nextFilters)}`,
       );
       setBulkData(result);
+      setBulkPage(1);
     } catch (error) {
       showToast(error.message, "error");
     } finally {
@@ -479,6 +482,27 @@ export default function AdminNotificationsPage() {
   }, [data]);
 
   const bulkStats = bulkData.summary || {};
+
+  const bulkPagination = useMemo(() => {
+    const items = Array.isArray(bulkData.items) ? bulkData.items : [];
+    const total = items.length;
+    const totalPages = Math.max(1, Math.ceil(total / bulkPageSize));
+    const safePage = Math.min(Math.max(Number(bulkPage || 1), 1), totalPages);
+    const start = (safePage - 1) * bulkPageSize;
+
+    return {
+      items: items.slice(start, start + bulkPageSize),
+      page: safePage,
+      total,
+      totalPages,
+    };
+  }, [bulkData.items, bulkPage]);
+
+  useEffect(() => {
+    if (bulkPage !== bulkPagination.page) {
+      setBulkPage(bulkPagination.page);
+    }
+  }, [bulkPage, bulkPagination.page]);
 
   const openCreate = () => {
     setForm(initialForm);
@@ -1459,8 +1483,8 @@ export default function AdminNotificationsPage() {
           </section>
 
           <div className="smart-grid">
-            {(bulkData.items || []).length ? (
-              bulkData.items.map((target) => {
+            {bulkPagination.items.length ? (
+              bulkPagination.items.map((target) => {
                 const hasWarn =
                   target.missingGuideCount ||
                   target.unpaidCount ||
@@ -1575,6 +1599,21 @@ export default function AdminNotificationsPage() {
                 Không có lịch khởi hành phù hợp bộ lọc.
               </div>
             )}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              paddingTop: 16,
+            }}
+          >
+            <Pagination
+              page={bulkPagination.page}
+              totalPages={bulkPagination.totalPages}
+              onPageChange={(page) => setBulkPage(page)}
+              compact
+            />
           </div>
         </>
       )}

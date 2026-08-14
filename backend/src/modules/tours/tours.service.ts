@@ -412,8 +412,16 @@ export class ToursService {
   }
 
   private validateStep1BusinessRules(dto: CreateTourStep1Dto) {
-    if (dto.durationNights >= dto.durationDays) {
-      throw new BadRequestException("Số đêm phải nhỏ hơn số ngày của tour.");
+    const minAllowedNights = Math.max(dto.durationDays - 1, 1);
+    const maxAllowedNights = dto.durationDays;
+
+    if (
+      dto.durationNights < minAllowedNights ||
+      dto.durationNights > maxAllowedNights
+    ) {
+      throw new BadRequestException(
+        `Với ${dto.durationDays} ngày, số đêm chỉ được là ${minAllowedNights} hoặc ${maxAllowedNights}.`,
+      );
     }
     if (Number(dto.basePriceChild) > Number(dto.basePriceAdult)) {
       throw new BadRequestException(
@@ -2590,9 +2598,7 @@ export class ToursService {
         ? ` Booking liên quan: ${bookingCodes.join(", ")}.`
         : "";
 
-      throw new BadRequestException(
-        `Không thể xóa tour vì có dữ liệu booking`
-      );
+      throw new BadRequestException(`Không thể xóa tour vì có dữ liệu booking`);
     }
 
     const bookingWithPayment = existing.bookings.find(

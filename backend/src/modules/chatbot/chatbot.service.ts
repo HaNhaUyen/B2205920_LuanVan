@@ -9263,7 +9263,7 @@ YÊU CẦU TRẢ LỜI:
           process.env.GROQ_MODEL ||
           this.configService.get<string>("CHATBOT_MODEL") ||
           process.env.CHATBOT_MODEL ||
-          "openai/gpt-oss-20b",
+          "openai/gpt-oss-120b",
       };
     }
 
@@ -9281,7 +9281,7 @@ YÊU CẦU TRẢ LỜI:
       model:
         this.configService.get<string>("CHATBOT_MODEL") ||
         process.env.CHATBOT_MODEL ||
-        "openai/gpt-oss-20b",
+        "openai/gpt-oss-120b",
     };
   }
 
