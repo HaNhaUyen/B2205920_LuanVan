@@ -15179,3 +15179,980 @@ SELECT
 FROM reviews r
 WHERE r.booking_id IN (297, 302, 922, 1327, 1336)
 ORDER BY r.created_at DESC;
+
+
+CREATE TABLE IF NOT EXISTS `password_reset_otps` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `email` VARCHAR(150) NOT NULL,
+  `code_hash` VARCHAR(64) NOT NULL,
+  `expires_at` DATETIME NOT NULL,
+  `attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_password_reset_user` (`user_id`),
+  UNIQUE KEY `uk_password_reset_email` (`email`),
+  KEY `idx_password_reset_expires` (`expires_at`),
+  CONSTRAINT `fk_password_reset_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+
+
+
+
+
+
+
+USE travela_full_mvc;
+SET NAMES utf8mb4;
+SET SQL_SAFE_UPDATES = 0;
+
+-- =====================================================================
+-- PHẦN 0. ROLLBACK PHẦN SEED CŨ NẾU WORKBENCH VẪN CÒN TRANSACTION MỞ
+-- =====================================================================
+ROLLBACK;
+
+-- =====================================================================
+-- PHẦN 1. XÓA DỮ LIỆU SEED THỬ CŨ
+-- Chỉ xóa booking có marker của script seed này, KHÔNG đụng booking thật.
+-- =====================================================================
+START TRANSACTION;
+
+DROP TEMPORARY TABLE IF EXISTS tmp_old_seed_bookings;
+CREATE TEMPORARY TABLE tmp_old_seed_bookings AS
+SELECT id, departure_id
+FROM bookings
+WHERE booking_code LIKE 'SEED1608-%'
+   OR booking_code LIKE 'SEEDSPECIAL-P-%'
+   OR booking_code LIKE 'SEEDSPECIAL-F-%';
+
+-- Xóa log trước vì log có thể tham chiếu payment.
+DELETE l
+FROM booking_status_logs l
+JOIN tmp_old_seed_bookings s ON s.id=l.booking_id;
+
+-- Xóa payment của booking seed.
+DELETE p
+FROM payments p
+JOIN tmp_old_seed_bookings s ON s.id=p.booking_id;
+
+-- Xóa hành khách của booking seed.
+DELETE bg
+FROM booking_guests bg
+JOIN tmp_old_seed_bookings s ON s.id=bg.booking_id;
+
+-- Xóa booking seed.
+DELETE b
+FROM bookings b
+JOIN tmp_old_seed_bookings s ON s.id=b.id;
+
+COMMIT;
+
+-- =====================================================================
+-- PHẦN 2. BẮT ĐẦU SEED MỚI
+-- =====================================================================
+START TRANSACTION;
+
+-- ---------------------------------------------------------------------
+-- A. GUARD / ASSERT KHÔNG DÙNG STORED PROCEDURE
+-- Nếu INSERT vào seed_guard với giá trị 0 thì CHECK constraint sẽ chặn.
+-- Tránh CREATE PROCEDURE vì MySQL có implicit COMMIT với DDL procedure.
+-- ---------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS seed_guard;
+CREATE TEMPORARY TABLE seed_guard (
+  ok TINYINT NOT NULL,
+  message VARCHAR(500),
+  CONSTRAINT chk_seed_guard CHECK (ok = 1)
+);
+
+-- ---------------------------------------------------------------------
+-- B. 5 USER ĐẶC BIỆT - DÙNG ID THẬT ĐÃ KIỂM TRA
+-- ---------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS tmp_special_names;
+CREATE TEMPORARY TABLE tmp_special_names (
+  seq INT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  expected_name VARCHAR(150) NOT NULL
+);
+
+INSERT INTO tmp_special_names(seq,user_id,expected_name) VALUES
+(1,455,'Đăng Kiều Loan'),
+(2,462,'Hà Gia Mẫn'),
+(3,463,'Hà Trúc Giang'),
+(4,464,'Hà Trúc Linh'),
+(5,465,'Hà Quốc Việt');
+
+-- Kiểm tra đủ đúng 5 tài khoản user active.
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)=5,1,0),
+  CONCAT('Sai danh sách 5 user đặc biệt. Tìm thấy ',COUNT(*),'/5 user active.')
+FROM tmp_special_names s
+JOIN users u ON u.id=s.user_id
+WHERE u.role='user'
+  AND u.status='active';
+
+-- Kiểm tra tên theo ID để tránh gán nhầm tài khoản.
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)=0,1,0),
+  CONCAT('Có ',COUNT(*),' user có ID đúng nhưng tên không khớp dữ liệu đã xác nhận.')
+FROM tmp_special_names s
+JOIN users u ON u.id=s.user_id
+WHERE u.full_name COLLATE utf8mb4_unicode_ci
+   <> s.expected_name COLLATE utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- C. TOÀN BỘ LỊCH KHỞI HÀNH ĐÚNG 16/08/2026
+-- ---------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS tmp_day16_departures;
+CREATE TEMPORARY TABLE tmp_day16_departures AS
+SELECT
+  td.id AS departure_id,
+  td.tour_id,
+  td.departure_date,
+  td.end_date,
+  td.adult_price,
+  td.child_price,
+  td.total_slots,
+  td.booked_slots,
+  td.held_slots,
+  ROW_NUMBER() OVER (ORDER BY td.id) AS dep_seq
+FROM tour_departures td
+JOIN tours t ON t.id=td.tour_id
+WHERE td.departure_date='2026-08-16'
+  AND td.status='open'
+  AND t.status='published';
+
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)>0,1,0),
+  'Không tìm thấy lịch open/published khởi hành đúng 16/08/2026.'
+FROM tmp_day16_departures;
+
+SET @day16_count = (SELECT COUNT(*) FROM tmp_day16_departures);
+SET @needed_day16_users = @day16_count * 5;
+SET @day16_min_start = (SELECT MIN(departure_date) FROM tmp_day16_departures);
+SET @day16_max_end   = (SELECT MAX(end_date) FROM tmp_day16_departures);
+
+-- Mỗi lịch cần thêm đúng 10 chỗ.
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)=0,1,0),
+  CONCAT('Có ',COUNT(*),' lịch ngày 16/08 không đủ 10 chỗ trống.')
+FROM tmp_day16_departures
+WHERE total_slots - booked_slots - held_slots < 10;
+
+-- ---------------------------------------------------------------------
+-- D. CHỌN USER CHO NHÓM 16/08
+--
+-- Luật:
+-- - role=user, status=active
+-- - không phải 5 user đặc biệt
+-- - không có booking còn hiệu lực giao với khoảng 16/08 -> ngày kết thúc
+--   lớn nhất của nhóm lịch 16/08
+-- - dùng đúng 1 lần, nên không thể nằm trên 2 tour 16/08 giao nhau.
+-- ---------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS tmp_day16_eligible_users;
+CREATE TEMPORARY TABLE tmp_day16_eligible_users AS
+SELECT *
+FROM (
+  SELECT
+    u.id AS user_id,
+    u.full_name,
+    u.email,
+    u.phone,
+    ROW_NUMBER() OVER (ORDER BY u.id) AS user_seq
+  FROM users u
+  WHERE u.role='user'
+    AND u.status='active'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM tmp_special_names s
+      WHERE s.user_id=u.id
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM bookings b
+      JOIN tour_departures old_td ON old_td.id=b.departure_id
+      WHERE b.user_id=u.id
+        AND b.booking_status NOT IN ('cancelled','expired')
+        AND old_td.departure_date <= @day16_max_end
+        AND old_td.end_date >= @day16_min_start
+    )
+) eligible
+WHERE eligible.user_seq <= @needed_day16_users;
+
+SET @eligible_day16_count =
+  (SELECT COUNT(*) FROM tmp_day16_eligible_users);
+
+INSERT INTO seed_guard(ok,message)
+VALUES (
+  IF(@eligible_day16_count >= @needed_day16_users,1,0),
+  CONCAT(
+    'Không đủ user không trùng lịch cho nhóm 16/08. Cần ',
+    @needed_day16_users,
+    ', hiện có ',
+    @eligible_day16_count,
+    '.'
+  )
+);
+
+-- Gán 5 user riêng biệt cho từng departure.
+DROP TEMPORARY TABLE IF EXISTS tmp_day16_assignments;
+CREATE TEMPORARY TABLE tmp_day16_assignments AS
+SELECT
+  d.departure_id,
+  d.tour_id,
+  d.departure_date,
+  d.end_date,
+  d.adult_price,
+  u.user_id,
+  u.full_name,
+  u.email,
+  u.phone
+FROM tmp_day16_departures d
+JOIN tmp_day16_eligible_users u
+  ON u.user_seq BETWEEN ((d.dep_seq - 1) * 5 + 1) AND (d.dep_seq * 5);
+
+-- Kiểm tra mỗi departure có đúng 5 booking dự kiến.
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)=0,1,0),
+  CONCAT('Có ',COUNT(*),' lịch 16/08 không được gán đúng 5 booking.')
+FROM (
+  SELECT d.departure_id, COUNT(a.user_id) AS assigned_users
+  FROM tmp_day16_departures d
+  LEFT JOIN tmp_day16_assignments a ON a.departure_id=d.departure_id
+  GROUP BY d.departure_id
+  HAVING assigned_users<>5
+) bad;
+
+-- Kiểm tra một user không bị gán hơn 1 departure.
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)=0,1,0),
+  CONCAT('Có ',COUNT(*),' user bị gán nhiều hơn 1 lịch 16/08.')
+FROM (
+  SELECT user_id
+  FROM tmp_day16_assignments
+  GROUP BY user_id
+  HAVING COUNT(*)>1
+) duplicated_users;
+
+-- ---------------------------------------------------------------------
+-- E. TẠO BOOKING 16/08
+-- 5 booking / departure, 2 người lớn / booking => 10 khách / departure.
+-- ---------------------------------------------------------------------
+INSERT INTO bookings (
+  booking_code,user_id,tour_id,departure_id,
+  voucher_id,voucher_code,
+  pickup_point_id,pickup_name,pickup_address,pickup_time,pickup_note,
+  adult_count,child_count,
+  original_amount,discount_amount,final_amount,
+  booking_status,hold_expires_at,
+  contact_name,contact_email,contact_phone,
+  note,created_at,updated_at
+)
+SELECT
+  CONCAT('SEED1608-',a.departure_id,'-',a.user_id),
+  a.user_id,a.tour_id,a.departure_id,
+  NULL,NULL,
+  (
+    SELECT pp.id
+    FROM tour_pickup_points pp
+    WHERE pp.tour_id=a.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=a.departure_id)
+    ORDER BY (pp.departure_id=a.departure_id) DESC,pp.id
+    LIMIT 1
+  ),
+  (
+    SELECT pp.name
+    FROM tour_pickup_points pp
+    WHERE pp.tour_id=a.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=a.departure_id)
+    ORDER BY (pp.departure_id=a.departure_id) DESC,pp.id
+    LIMIT 1
+  ),
+  (
+    SELECT pp.address
+    FROM tour_pickup_points pp
+    WHERE pp.tour_id=a.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=a.departure_id)
+    ORDER BY (pp.departure_id=a.departure_id) DESC,pp.id
+    LIMIT 1
+  ),
+  (
+    SELECT pp.pickup_time
+    FROM tour_pickup_points pp
+    WHERE pp.tour_id=a.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=a.departure_id)
+    ORDER BY (pp.departure_id=a.departure_id) DESC,pp.id
+    LIMIT 1
+  ),
+  (
+    SELECT pp.note
+    FROM tour_pickup_points pp
+    WHERE pp.tour_id=a.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=a.departure_id)
+    ORDER BY (pp.departure_id=a.departure_id) DESC,pp.id
+    LIMIT 1
+  ),
+  2,0,
+  a.adult_price*2,0,a.adult_price*2,
+  'confirmed',NULL,
+  a.full_name,a.email,COALESCE(a.phone,'0900000000'),
+  '[SEED_1608_10_GUESTS_V2] Đã thanh toán - 2 người lớn.',
+  '2026-08-14 11:30:00',NOW()
+FROM tmp_day16_assignments a;
+
+-- 2 booking_guest / booking.
+DROP TEMPORARY TABLE IF EXISTS tmp_two_guests;
+CREATE TEMPORARY TABLE tmp_two_guests(guest_no INT PRIMARY KEY);
+INSERT INTO tmp_two_guests VALUES(1),(2);
+
+INSERT INTO booking_guests(
+  booking_id,full_name,date_of_birth,gender,guest_type,id_number,
+  created_at,updated_at
+)
+SELECT
+  b.id,
+  CASE
+    WHEN g.guest_no=1 THEN b.contact_name
+    ELSE CONCAT('Người đi cùng - ',b.contact_name)
+  END,
+  CASE WHEN g.guest_no=1 THEN '1995-01-15' ELSE '1997-06-20' END,
+  CASE WHEN g.guest_no=1 THEN 'female' ELSE 'male' END,
+  'adult',
+  LPAD(CONCAT(b.id,g.guest_no),12,'0'),
+  b.created_at,NOW()
+FROM bookings b
+CROSS JOIN tmp_two_guests g
+WHERE b.booking_code LIKE 'SEED1608-%';
+
+INSERT INTO payments(
+  booking_id,payment_method,payment_status,amount,
+  internal_transaction_code,gateway_transaction_id,
+  paid_at,created_at,updated_at
+)
+SELECT
+  b.id,'bank_transfer','paid',b.final_amount,
+  CONCAT('TXN-SEED1608-V2-',b.id),
+  CONCAT('SEPAY-SEED1608-V2-',b.id),
+  DATE_ADD(b.created_at,INTERVAL 5 MINUTE),
+  b.created_at,NOW()
+FROM bookings b
+WHERE b.booking_code LIKE 'SEED1608-%';
+
+INSERT INTO booking_status_logs(
+  booking_id,payment_id,action_type,old_status,new_status,
+  changed_by_user_id,source,reason,note,created_at
+)
+SELECT
+  b.id,p.id,'seed_confirm','waiting_confirmation','confirmed',
+  1,'system',
+  'Seed booking đã thanh toán cho lịch 16/08/2026',
+  '[SEED_1608_10_GUESTS_V2]',
+  p.paid_at
+FROM bookings b
+JOIN payments p ON p.booking_id=b.id
+WHERE b.booking_code LIKE 'SEED1608-%'
+  AND p.payment_status='paid';
+
+-- ---------------------------------------------------------------------
+-- F. 5 USER ĐẶC BIỆT - BOOKING ĐÃ KẾT THÚC ĐỂ ĐÁNH GIÁ
+-- ---------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS tmp_special_past_plan;
+CREATE TEMPORARY TABLE tmp_special_past_plan AS
+SELECT
+  s.seq,
+  s.user_id,
+  (
+    SELECT td.id
+    FROM tour_departures td
+    JOIN tours t ON t.id=td.tour_id
+    WHERE td.end_date < CURDATE()
+      AND td.end_date < '2026-08-16'
+      AND t.status='published'
+      AND td.total_slots - td.booked_slots - td.held_slots >= 1
+      AND NOT EXISTS (
+        SELECT 1
+        FROM bookings existing_b
+        JOIN tour_departures existing_td
+          ON existing_td.id=existing_b.departure_id
+        WHERE existing_b.user_id=s.user_id
+          AND existing_b.booking_status NOT IN ('cancelled','expired')
+          AND existing_td.departure_date <= td.end_date
+          AND existing_td.end_date >= td.departure_date
+      )
+    ORDER BY td.end_date DESC, MOD(td.id+s.seq,23), td.id
+    LIMIT 1
+  ) AS departure_id
+FROM tmp_special_names s;
+
+SET @past_plan_count =
+  (SELECT COUNT(*) FROM tmp_special_past_plan WHERE departure_id IS NOT NULL);
+
+INSERT INTO seed_guard(ok,message)
+VALUES(
+  IF(@past_plan_count=5,1,0),
+  CONCAT(
+    'Không chọn đủ tour quá khứ không trùng lịch cho 5 user. Chọn được ',
+    @past_plan_count,
+    '/5.'
+  )
+);
+
+-- Kiểm tra sức chứa thực tế sau khi đã có các booking 16/08.
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)=0,1,0),
+  CONCAT('Có ',COUNT(*),' lịch quá khứ không đủ chỗ cho booking đặc biệt.')
+FROM tmp_special_past_plan p
+JOIN tour_departures td ON td.id=p.departure_id
+WHERE td.total_slots - td.booked_slots - td.held_slots < 1;
+
+INSERT INTO bookings(
+  booking_code,user_id,tour_id,departure_id,
+  pickup_point_id,pickup_name,pickup_address,pickup_time,pickup_note,
+  adult_count,child_count,
+  original_amount,discount_amount,final_amount,
+  booking_status,hold_expires_at,
+  contact_name,contact_email,contact_phone,
+  note,created_at,updated_at
+)
+SELECT
+  CONCAT('SEEDSPECIAL-P-',s.user_id),
+  s.user_id,td.tour_id,td.id,
+  (
+    SELECT pp.id FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  (
+    SELECT pp.name FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  (
+    SELECT pp.address FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  (
+    SELECT pp.pickup_time FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  (
+    SELECT pp.note FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  1,0,
+  td.adult_price,0,td.adult_price,
+  'completed',NULL,
+  u.full_name,u.email,COALESCE(u.phone,'0900000000'),
+  '[SEED_SPECIAL_REVIEW_V2] Booking đã thanh toán và hoàn tất để đánh giá.',
+  DATE_SUB(td.departure_date,INTERVAL 7 DAY),NOW()
+FROM tmp_special_past_plan s
+JOIN users u ON u.id=s.user_id
+JOIN tour_departures td ON td.id=s.departure_id;
+
+INSERT INTO booking_guests(
+  booking_id,full_name,date_of_birth,gender,guest_type,id_number,
+  created_at,updated_at
+)
+SELECT
+  b.id,b.contact_name,'1995-01-15','female','adult',
+  LPAD(CONCAT(b.id,7),12,'0'),b.created_at,NOW()
+FROM bookings b
+WHERE b.booking_code LIKE 'SEEDSPECIAL-P-%';
+
+INSERT INTO payments(
+  booking_id,payment_method,payment_status,amount,
+  internal_transaction_code,gateway_transaction_id,
+  paid_at,created_at,updated_at
+)
+SELECT
+  b.id,'bank_transfer','paid',b.final_amount,
+  CONCAT('TXN-SEEDSPECIAL-P-V2-',b.id),
+  CONCAT('SEPAY-SEEDSPECIAL-P-V2-',b.id),
+  DATE_ADD(b.created_at,INTERVAL 5 MINUTE),
+  b.created_at,NOW()
+FROM bookings b
+WHERE b.booking_code LIKE 'SEEDSPECIAL-P-%';
+
+-- ---------------------------------------------------------------------
+-- G. 5 USER ĐẶC BIỆT - BOOKING CUỐI THÁNG 8
+-- ---------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS tmp_special_future_plan;
+CREATE TEMPORARY TABLE tmp_special_future_plan AS
+SELECT
+  s.seq,
+  s.user_id,
+  (
+    SELECT td.id
+    FROM tour_departures td
+    JOIN tours t ON t.id=td.tour_id
+    WHERE td.departure_date BETWEEN '2026-08-25' AND '2026-08-31'
+      AND td.status='open'
+      AND t.status='published'
+      AND td.total_slots - td.booked_slots - td.held_slots >= 5
+      AND NOT EXISTS (
+        SELECT 1
+        FROM bookings existing_b
+        JOIN tour_departures existing_td
+          ON existing_td.id=existing_b.departure_id
+        WHERE existing_b.user_id=s.user_id
+          AND existing_b.booking_status NOT IN ('cancelled','expired')
+          AND existing_td.departure_date <= td.end_date
+          AND existing_td.end_date >= td.departure_date
+      )
+    ORDER BY td.departure_date ASC, MOD(td.id+s.seq,29), td.id
+    LIMIT 1
+  ) AS departure_id
+FROM tmp_special_names s;
+
+SET @future_plan_count =
+  (SELECT COUNT(*) FROM tmp_special_future_plan WHERE departure_id IS NOT NULL);
+
+INSERT INTO seed_guard(ok,message)
+VALUES(
+  IF(@future_plan_count=5,1,0),
+  CONCAT(
+    'Không chọn đủ lịch cuối tháng 8 không trùng cho 5 user. Chọn được ',
+    @future_plan_count,
+    '/5.'
+  )
+);
+
+-- Nếu nhiều user cùng được chọn vào một departure thì tổng nhu cầu
+-- vẫn không được vượt số chỗ trống.
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)=0,1,0),
+  CONCAT('Có ',COUNT(*),' lịch cuối tháng 8 không đủ tổng chỗ cho nhóm user được gán.')
+FROM (
+  SELECT
+    p.departure_id,
+    COUNT(*) AS need_slots,
+    MAX(td.total_slots-td.booked_slots-td.held_slots) AS free_slots
+  FROM tmp_special_future_plan p
+  JOIN tour_departures td ON td.id=p.departure_id
+  GROUP BY p.departure_id
+  HAVING need_slots>free_slots
+) bad_capacity;
+
+INSERT INTO bookings(
+  booking_code,user_id,tour_id,departure_id,
+  pickup_point_id,pickup_name,pickup_address,pickup_time,pickup_note,
+  adult_count,child_count,
+  original_amount,discount_amount,final_amount,
+  booking_status,hold_expires_at,
+  contact_name,contact_email,contact_phone,
+  note,created_at,updated_at
+)
+SELECT
+  CONCAT('SEEDSPECIAL-F-',s.user_id),
+  s.user_id,td.tour_id,td.id,
+  (
+    SELECT pp.id FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  (
+    SELECT pp.name FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  (
+    SELECT pp.address FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  (
+    SELECT pp.pickup_time FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  (
+    SELECT pp.note FROM tour_pickup_points pp
+    WHERE pp.tour_id=td.tour_id
+      AND pp.status='active'
+      AND (pp.departure_id IS NULL OR pp.departure_id=td.id)
+    ORDER BY (pp.departure_id=td.id) DESC,pp.id LIMIT 1
+  ),
+  1,0,
+  td.adult_price,0,td.adult_price,
+  'confirmed',NULL,
+  u.full_name,u.email,COALESCE(u.phone,'0900000000'),
+  '[SEED_SPECIAL_LATE_AUG_V2] Booking cuối tháng 8 đã thanh toán.',
+  '2026-08-14 11:45:00',NOW()
+FROM tmp_special_future_plan s
+JOIN users u ON u.id=s.user_id
+JOIN tour_departures td ON td.id=s.departure_id;
+
+INSERT INTO booking_guests(
+  booking_id,full_name,date_of_birth,gender,guest_type,id_number,
+  created_at,updated_at
+)
+SELECT
+  b.id,b.contact_name,'1995-01-15','female','adult',
+  LPAD(CONCAT(b.id,8),12,'0'),b.created_at,NOW()
+FROM bookings b
+WHERE b.booking_code LIKE 'SEEDSPECIAL-F-%';
+
+INSERT INTO payments(
+  booking_id,payment_method,payment_status,amount,
+  internal_transaction_code,gateway_transaction_id,
+  paid_at,created_at,updated_at
+)
+SELECT
+  b.id,'bank_transfer','paid',b.final_amount,
+  CONCAT('TXN-SEEDSPECIAL-F-V2-',b.id),
+  CONCAT('SEPAY-SEEDSPECIAL-F-V2-',b.id),
+  DATE_ADD(b.created_at,INTERVAL 5 MINUTE),
+  b.created_at,NOW()
+FROM bookings b
+WHERE b.booking_code LIKE 'SEEDSPECIAL-F-%';
+
+INSERT INTO booking_status_logs(
+  booking_id,payment_id,action_type,old_status,new_status,
+  changed_by_user_id,source,reason,note,created_at
+)
+SELECT
+  b.id,p.id,'seed_confirm','waiting_confirmation','confirmed',
+  1,'system',
+  'Seed booking cuối tháng 8 đã thanh toán',
+  '[SEED_SPECIAL_LATE_AUG_V2]',
+  p.paid_at
+FROM bookings b
+JOIN payments p ON p.booking_id=b.id
+WHERE b.booking_code LIKE 'SEEDSPECIAL-F-%'
+  AND p.payment_status='paid';
+
+-- ---------------------------------------------------------------------
+-- H. KIỂM TRA TOÀN BỘ XUNG ĐỘT TRƯỚC COMMIT
+-- Chỉ cần một booking seed giao với booking khác của cùng user là chặn.
+-- ---------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS tmp_seed_overlap;
+CREATE TEMPORARY TABLE tmp_seed_overlap AS
+SELECT DISTINCT
+  s.id AS seed_booking_id,
+  s.user_id,
+  s.booking_code AS seed_booking_code,
+  sd.departure_date AS seed_start,
+  sd.end_date AS seed_end,
+  o.id AS other_booking_id,
+  o.booking_code AS other_booking_code,
+  od.departure_date AS other_start,
+  od.end_date AS other_end
+FROM bookings s
+JOIN tour_departures sd ON sd.id=s.departure_id
+JOIN bookings o
+  ON o.user_id=s.user_id
+ AND o.id<>s.id
+ AND o.booking_status NOT IN ('cancelled','expired')
+JOIN tour_departures od ON od.id=o.departure_id
+WHERE (
+       s.booking_code LIKE 'SEED1608-%'
+    OR s.booking_code LIKE 'SEEDSPECIAL-P-%'
+    OR s.booking_code LIKE 'SEEDSPECIAL-F-%'
+)
+AND sd.departure_date<=od.end_date
+AND sd.end_date>=od.departure_date
+AND (
+  -- nếu booking kia cũng là seed thì chỉ đếm một chiều
+  (
+       o.booking_code LIKE 'SEED1608-%'
+    OR o.booking_code LIKE 'SEEDSPECIAL-P-%'
+    OR o.booking_code LIKE 'SEEDSPECIAL-F-%'
+  )
+  AND s.id<o.id
+  OR
+  (
+       o.booking_code NOT LIKE 'SEED1608-%'
+   AND o.booking_code NOT LIKE 'SEEDSPECIAL-P-%'
+   AND o.booking_code NOT LIKE 'SEEDSPECIAL-F-%'
+  )
+);
+
+SET @seed_overlap_count=(SELECT COUNT(*) FROM tmp_seed_overlap);
+
+INSERT INTO seed_guard(ok,message)
+VALUES(
+  IF(@seed_overlap_count=0,1,0),
+  CONCAT(
+    'Phát hiện ',
+    @seed_overlap_count,
+    ' cặp booking giao thời gian. Hãy ROLLBACK và xem tmp_seed_overlap.'
+  )
+);
+
+-- Kiểm tra mỗi lịch 16/08 được seed đúng 10 khách.
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)=0,1,0),
+  CONCAT('Có ',COUNT(*),' lịch 16/08 không có đúng 10 khách seed.')
+FROM (
+  SELECT
+    d.departure_id,
+    COALESCE(SUM(b.adult_count+b.child_count),0) AS seed_guests
+  FROM tmp_day16_departures d
+  LEFT JOIN bookings b
+    ON b.departure_id=d.departure_id
+   AND b.booking_code LIKE 'SEED1608-%'
+  GROUP BY d.departure_id
+  HAVING seed_guests<>10
+) bad_day16;
+
+-- Kiểm tra toàn bộ booking seed đều có payment paid.
+INSERT INTO seed_guard(ok,message)
+SELECT
+  IF(COUNT(*)=0,1,0),
+  CONCAT('Có ',COUNT(*),' booking seed chưa có payment paid.')
+FROM bookings b
+WHERE (
+       b.booking_code LIKE 'SEED1608-%'
+    OR b.booking_code LIKE 'SEEDSPECIAL-P-%'
+    OR b.booking_code LIKE 'SEEDSPECIAL-F-%'
+)
+AND NOT EXISTS(
+  SELECT 1
+  FROM payments p
+  WHERE p.booking_id=b.id
+    AND p.payment_status='paid'
+);
+
+-- ---------------------------------------------------------------------
+-- I. ĐỒNG BỘ booked_slots CHO CÁC DEPARTURE CÓ BOOKING SEED
+-- Tính lại từ TẤT CẢ booking còn hiệu lực của departure đó.
+-- ---------------------------------------------------------------------
+DROP TEMPORARY TABLE IF EXISTS tmp_seed_departure_ids;
+CREATE TEMPORARY TABLE tmp_seed_departure_ids AS
+SELECT DISTINCT b.departure_id
+FROM bookings b
+WHERE b.booking_code LIKE 'SEED1608-%'
+   OR b.booking_code LIKE 'SEEDSPECIAL-P-%'
+   OR b.booking_code LIKE 'SEEDSPECIAL-F-%';
+
+UPDATE tour_departures td
+JOIN tmp_seed_departure_ids x ON x.departure_id=td.id
+LEFT JOIN (
+  SELECT
+    b.departure_id,
+    SUM(b.adult_count+b.child_count) AS active_guests
+  FROM bookings b
+  WHERE b.booking_status IN ('confirmed','waiting_confirmation','completed')
+  GROUP BY b.departure_id
+) g ON g.departure_id=td.id
+SET td.booked_slots=COALESCE(g.active_guests,0),
+    td.updated_at=NOW();
+
+COMMIT;
+
+-- =====================================================================
+-- PHẦN 3. BÁO CÁO SAU KHI COMMIT
+-- =====================================================================
+
+-- 1) Tất cả lịch 16/08: phải đúng 10 khách seed / lịch.
+SELECT
+  'LỊCH 16/08' AS nhom,
+  t.id AS tour_id,
+  t.name AS tour_name,
+  td.id AS departure_id,
+  td.departure_date,
+  td.end_date,
+  COUNT(DISTINCT b.id) AS seed_bookings,
+  COALESCE(SUM(b.adult_count+b.child_count),0) AS seed_guests,
+  td.booked_slots,
+  td.total_slots
+FROM tmp_day16_departures d
+JOIN tour_departures td ON td.id=d.departure_id
+JOIN tours t ON t.id=td.tour_id
+LEFT JOIN bookings b
+  ON b.departure_id=td.id
+ AND b.booking_code LIKE 'SEED1608-%'
+GROUP BY
+  t.id,t.name,td.id,td.departure_date,td.end_date,
+  td.booked_slots,td.total_slots
+ORDER BY td.id;
+
+-- 2) 5 user: booking quá khứ đã hoàn tất để đánh giá.
+SELECT
+  'ĐÃ KẾT THÚC - CÓ THỂ ĐÁNH GIÁ' AS nhom,
+  u.id AS user_id,
+  u.full_name,
+  b.booking_code,
+  t.name AS tour_name,
+  td.departure_date,
+  td.end_date,
+  b.booking_status,
+  p.payment_status,
+  p.amount
+FROM bookings b
+JOIN users u ON u.id=b.user_id
+JOIN tours t ON t.id=b.tour_id
+JOIN tour_departures td ON td.id=b.departure_id
+LEFT JOIN payments p
+  ON p.booking_id=b.id
+ AND p.payment_status='paid'
+WHERE b.booking_code LIKE 'SEEDSPECIAL-P-%'
+ORDER BY u.id;
+
+-- 3) 5 user: booking cuối tháng 8 đã thanh toán.
+SELECT
+  'CUỐI THÁNG 8 - ĐÃ THANH TOÁN' AS nhom,
+  u.id AS user_id,
+  u.full_name,
+  b.booking_code,
+  t.name AS tour_name,
+  td.departure_date,
+  td.end_date,
+  b.booking_status,
+  p.payment_status,
+  p.amount
+FROM bookings b
+JOIN users u ON u.id=b.user_id
+JOIN tours t ON t.id=b.tour_id
+JOIN tour_departures td ON td.id=b.departure_id
+LEFT JOIN payments p
+  ON p.booking_id=b.id
+ AND p.payment_status='paid'
+WHERE b.booking_code LIKE 'SEEDSPECIAL-F-%'
+ORDER BY u.id;
+
+-- 4) Báo cáo tổng.
+SELECT
+  COUNT(DISTINCT b.id) AS total_seed_bookings,
+  SUM(b.adult_count+b.child_count) AS total_seed_guests,
+  SUM(
+    CASE WHEN EXISTS(
+      SELECT 1 FROM payments p
+      WHERE p.booking_id=b.id
+        AND p.payment_status='paid'
+    ) THEN 1 ELSE 0 END
+  ) AS paid_bookings,
+  SUM(b.booking_status='completed') AS completed_bookings,
+  SUM(b.booking_status='confirmed') AS confirmed_bookings
+FROM bookings b
+WHERE b.booking_code LIKE 'SEED1608-%'
+   OR b.booking_code LIKE 'SEEDSPECIAL-P-%'
+   OR b.booking_code LIKE 'SEEDSPECIAL-F-%';
+
+-- 5) Kiểm tra overlap lần cuối.
+-- KẾT QUẢ ĐÚNG PHẢI = 0 DÒNG.
+SELECT
+  u.full_name,
+  s.booking_code AS seed_booking,
+  sd.departure_date AS seed_start,
+  sd.end_date AS seed_end,
+  o.booking_code AS conflicting_booking,
+  od.departure_date AS conflicting_start,
+  od.end_date AS conflicting_end
+FROM bookings s
+JOIN users u ON u.id=s.user_id
+JOIN tour_departures sd ON sd.id=s.departure_id
+JOIN bookings o
+  ON o.user_id=s.user_id
+ AND o.id<>s.id
+ AND o.booking_status NOT IN ('cancelled','expired')
+JOIN tour_departures od ON od.id=o.departure_id
+WHERE (
+       s.booking_code LIKE 'SEED1608-%'
+    OR s.booking_code LIKE 'SEEDSPECIAL-P-%'
+    OR s.booking_code LIKE 'SEEDSPECIAL-F-%'
+)
+AND sd.departure_date<=od.end_date
+AND sd.end_date>=od.departure_date
+AND (
+  (
+       o.booking_code LIKE 'SEED1608-%'
+    OR o.booking_code LIKE 'SEEDSPECIAL-P-%'
+    OR o.booking_code LIKE 'SEEDSPECIAL-F-%'
+  )
+  AND s.id<o.id
+  OR
+  (
+       o.booking_code NOT LIKE 'SEED1608-%'
+   AND o.booking_code NOT LIKE 'SEEDSPECIAL-P-%'
+   AND o.booking_code NOT LIKE 'SEEDSPECIAL-F-%'
+  )
+)
+ORDER BY u.full_name,seed_start;
+
+-- 6) Kiểm tra riêng 5 user: mỗi người phải có đúng
+--    1 past completed + 1 future confirmed.
+SELECT
+  s.seq,
+  s.user_id,
+  u.full_name,
+  SUM(b.booking_code LIKE 'SEEDSPECIAL-P-%') AS past_seed_count,
+  SUM(b.booking_code LIKE 'SEEDSPECIAL-F-%') AS future_seed_count
+FROM tmp_special_names s
+JOIN users u ON u.id=s.user_id
+LEFT JOIN bookings b
+  ON b.user_id=s.user_id
+ AND (
+      b.booking_code LIKE 'SEEDSPECIAL-P-%'
+   OR b.booking_code LIKE 'SEEDSPECIAL-F-%'
+ )
+GROUP BY
+  s.seq,
+  s.user_id,
+  u.full_name
+ORDER BY s.seq;
+
+
+
+
+
+SELECT DISTINCT
+    g.id AS guide_id,
+    g.full_name AS guide_name,
+    g.email,
+    g.phone,
+    t.id AS tour_id,
+    t.code AS tour_code,
+    t.name AS tour_name,
+    td.id AS departure_id,
+    td.departure_date,
+    td.end_date,
+    op.operation_status
+FROM trip_operations op
+JOIN guides g
+    ON g.id = op.guide_id
+JOIN tour_departures td
+    ON td.id = op.departure_id
+JOIN tours t
+    ON t.id = td.tour_id
+WHERE
+    op.guide_id IS NOT NULL
+    AND '2026-08-15' BETWEEN DATE(td.departure_date) AND DATE(td.end_date)
+ORDER BY g.full_name, td.departure_date;
