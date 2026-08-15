@@ -1018,8 +1018,16 @@ export default function GuideOperationsPanel({ guide }) {
 
   const startEditIncident = (incident) => {
     setEditingIncidentId(String(incident.id));
+
+    const legacyCategoryMap = {
+      guest: "customer",
+      transport: "vehicle",
+      medical: "health",
+    };
+
     setIncidentForm({
-      category: incident.category || "other",
+      category:
+        legacyCategoryMap[incident.category] || incident.category || "other",
       severity: incident.severity || "medium",
       title: incident.title || "",
       description: incident.description || "",
@@ -1046,10 +1054,10 @@ export default function GuideOperationsPanel({ guide }) {
       return showToast("Địa điểm sự cố tối đa 255 ký tự.", "error");
     if (
       ![
-        "medical",
-        "transport",
+        "health",
+        "vehicle",
         "hotel",
-        "guest",
+        "customer",
         "restaurant",
         "weather",
         "schedule",
@@ -2202,11 +2210,11 @@ export default function GuideOperationsPanel({ guide }) {
                               }))
                             }
                           >
-                            <option value="guest">Khách hàng</option>
-                            <option value="transport">Phương tiện</option>
+                            <option value="customer">Khách hàng</option>
+                            <option value="vehicle">Phương tiện</option>
                             <option value="hotel">Khách sạn</option>
                             <option value="restaurant">Nhà hàng</option>
-                            <option value="medical">Sức khỏe</option>
+                            <option value="health">Sức khỏe</option>
                             <option value="weather">Thời tiết</option>
                             <option value="schedule">Lịch trình</option>
                             <option value="security">An ninh</option>

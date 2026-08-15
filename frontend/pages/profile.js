@@ -2321,7 +2321,7 @@ export default function ProfilePage() {
                                 lineHeight: 1.5,
                               }}
                             >
-                              {formatDateTime(r.createdAt)}
+                              {formatDate(r.createdAt)}
                             </td>
                           </tr>
                         ))}
