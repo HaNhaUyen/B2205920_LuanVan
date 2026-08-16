@@ -41,6 +41,7 @@ const FINAL_BOOKING_STATUSES = [
 
 const BEST_SELLER_THRESHOLD = 5;
 const FAVORITE_THRESHOLD = 5;
+const WEEKLY_BOOKING_WINDOW_DAYS = 7;
 
 @Injectable()
 export class ToursService {
@@ -262,6 +263,22 @@ export class ToursService {
     );
   }
 
+  private getWeeklyBookingCount(bookings: any[] = []) {
+    const since = new Date(
+      Date.now() - WEEKLY_BOOKING_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    return (Array.isArray(bookings) ? bookings : []).filter((booking: any) => {
+      if (!this.isValidSellerBooking(booking)) return false;
+      const createdAt = booking?.createdAt ? new Date(booking.createdAt) : null;
+      return Boolean(
+        createdAt &&
+        !Number.isNaN(createdAt.getTime()) &&
+        createdAt.getTime() >= since.getTime(),
+      );
+    }).length;
+  }
+
   private buildDestinationAveragePriceMap(tours: any[]) {
     const groups: Record<string, { total: number; count: number }> = {};
 
@@ -325,6 +342,9 @@ export class ToursService {
     const favoriteCount = Array.isArray(tour.favorites)
       ? tour.favorites.length
       : Number(tour._count?.favorites || 0);
+    const weeklyBookingCount = Array.isArray(tour.bookings)
+      ? this.getWeeklyBookingCount(tour.bookings)
+      : 0;
 
     const tourPrice = this.getTourPrice(tour);
     const destinationAveragePrice = Number(
@@ -352,6 +372,7 @@ export class ToursService {
         : null,
       remainingSlots,
       bookingCount,
+      weeklyBookingCount,
       favoriteCount,
       destinationAveragePrice,
       dynamicIsBestSeller: bookingCount >= BEST_SELLER_THRESHOLD,
@@ -519,6 +540,7 @@ export class ToursService {
           select: {
             id: true,
             bookingStatus: true,
+            createdAt: true,
             payments: { select: { paymentStatus: true } },
           },
         },

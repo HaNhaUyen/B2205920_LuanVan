@@ -17,14 +17,23 @@ function isLegacyGuideNotification(item) {
    * MySQL trả chúng như chuỗi UTC dù giá trị thực tế đã là giờ Việt Nam.
    * Chỉ giữ tương thích cho dữ liệu cũ chưa có metadata type.
    */
+  const exactLocalTimeTitles = [
+    "Đã có hướng dẫn viên phụ trách",
+    "Hướng dẫn viên đã được cập nhật",
+    "Hồ sơ năng lực đã được duyệt",
+    "Hồ sơ năng lực bị từ chối",
+    "Báo cáo chuyến đi đã được xem xét",
+  ];
+
+  const localTimeTitlePrefixes = [
+    "Admin đã phản hồi sự cố ",
+    "Cập nhật sự cố ",
+  ];
+
   return (
     !type &&
-    [
-      "Đã có hướng dẫn viên phụ trách",
-      "Hướng dẫn viên đã được cập nhật",
-      "Hồ sơ năng lực đã được duyệt",
-      "Hồ sơ năng lực bị từ chối",
-    ].includes(title)
+    (exactLocalTimeTitles.includes(title) ||
+      localTimeTitlePrefixes.some((prefix) => title.startsWith(prefix)))
   );
 }
 

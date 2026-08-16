@@ -59,7 +59,7 @@ export class ChatbotRuleNluService {
         normalized,
       );
     const asksCheapest =
-      /\b(re nhat|gia thap nhat|tour re|tour nao re nhat|tour co gia thap nhat|chi phi thap nhat|gia re nhat)\b/.test(
+      /\b(re nhat|gia thap nhat|tour re|tour nao re nhat|tour co gia thap nhat|chi phi thap nhat|gia re nhat|gia uu dai nhat|gia tot nhat)\b/.test(
         normalized,
       );
 

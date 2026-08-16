@@ -87,7 +87,7 @@ export class RecommendationsService {
     limit = 8,
     debug = false,
   ): Promise<RecommendationResult> {
-    const take = Math.min(Math.max(Number(limit || 8), 1), 20);
+    const take = Math.min(Math.max(Number(limit || 8), 1), 100);
 
     if (!userId) return this.popular(take, "new_user_popular");
 
@@ -372,9 +372,7 @@ export class RecommendationsService {
         bookings: {
           where: {
             bookingStatus: {
-              in: [
-                ...VALID_SELLER_BOOKING_STATUSES,
-              ] as any,
+              in: [...VALID_SELLER_BOOKING_STATUSES] as any,
             },
             payments: {
               some: {
@@ -569,9 +567,7 @@ export class RecommendationsService {
         bookings: {
           where: {
             bookingStatus: {
-              in: [
-                ...VALID_SELLER_BOOKING_STATUSES,
-              ] as any,
+              in: [...VALID_SELLER_BOOKING_STATUSES] as any,
             },
             payments: {
               some: {

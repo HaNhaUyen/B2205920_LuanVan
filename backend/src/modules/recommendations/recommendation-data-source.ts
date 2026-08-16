@@ -15,6 +15,9 @@ const REAL_SOURCE_ALIASES = new Set([
   "ai_smart_search_text",
   "assistant",
   "chatbot_suggestion",
+  "home_hero_search",
+  "tours_filter_sidebar",
+  "ai_smart_search_bar",
 ]);
 
 /**

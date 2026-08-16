@@ -126,6 +126,28 @@ function sortByRecommendationPercent(tours = []) {
   });
 }
 
+/**
+ * Chỉ dùng khi render khu vực "Gợi ý dành cho bạn".
+ * Giữ nguyên recommendationReasons để tiếp tục hiển thị phần
+ * "Vì sao chọn tour này?", nhưng ẩn recommendation score để TourCard
+ * không render badge "Phù hợp xx%".
+ *
+ * Không thay đổi dữ liệu gốc vì điểm vẫn được dùng để xếp hạng danh sách.
+ */
+function hideRecommendationPercent(tour) {
+  return {
+    ...tour,
+    recommendationScore: null,
+    score: null,
+    recommendation: tour?.recommendation
+      ? {
+          ...tour.recommendation,
+          score: null,
+        }
+      : tour?.recommendation,
+  };
+}
+
 export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [tours, setTours] = useState([]);
@@ -224,7 +246,25 @@ export default function HomePage() {
     };
   }, []);
 
-  const featuredTours = useMemo(() => tours.slice(0, 6), [tours]);
+  const featuredTours = useMemo(
+    () =>
+      [...tours]
+        .sort((first, second) => {
+          const weeklyDiff =
+            Number(second?.weeklyBookingCount || 0) -
+            Number(first?.weeklyBookingCount || 0);
+          if (weeklyDiff !== 0) return weeklyDiff;
+
+          const totalBookingDiff =
+            Number(second?.bookingCount || 0) -
+            Number(first?.bookingCount || 0);
+          if (totalBookingDiff !== 0) return totalBookingDiff;
+
+          return Number(first?.id || 0) - Number(second?.id || 0);
+        })
+        .slice(0, 6),
+    [tours],
+  );
   const topDestinations = useMemo(
     () => destinations.slice(0, 8),
     [destinations],
@@ -690,7 +730,10 @@ export default function HomePage() {
               style={{ display: "grid", gap: "24px" }}
             >
               {sortedRecommendedTours.slice(0, 6).map((tour) => (
-                <TourCard key={tour.id} tour={tour} />
+                <TourCard
+                  key={tour.id}
+                  tour={hideRecommendationPercent(tour)}
+                />
               ))}
             </div>
           ) : (
