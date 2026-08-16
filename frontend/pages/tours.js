@@ -81,8 +81,11 @@ export default function ToursPage() {
     Promise.all([
       apiFetch("/tours").catch(() => []),
       apiFetch("/destinations").catch(() => []),
+      apiFetch(`/recommendations?limit=100&_=${Date.now()}`, {
+        cache: "no-store",
+      }).catch(() => ({ data: [] })),
     ])
-      .then(([tourData, destinationData]) => {
+      .then(([tourData, destinationData, recommendationData]) => {
         if (!active) return;
 
         const activeDestinations = Array.isArray(destinationData)
@@ -113,7 +116,39 @@ export default function ToursPage() {
           },
         );
 
-        setTours(visibleTours.map(normalizeTour));
+        const recommendationRows = (
+          Array.isArray(recommendationData)
+            ? recommendationData
+            : recommendationData?.data ||
+              recommendationData?.items ||
+              recommendationData?.tours ||
+              []
+        ).map(normalizeTour);
+
+        const recommendationByTourId = new Map(
+          recommendationRows.map((tour) => [String(tour.id), tour]),
+        );
+
+        const personalizedTours = visibleTours
+          .map(normalizeTour)
+          .map((tour) => {
+            const recommendation = recommendationByTourId.get(String(tour.id));
+            if (!recommendation) return tour;
+
+            return {
+              ...tour,
+              recommendationScore:
+                recommendation.recommendationScore ??
+                recommendation.recommendation?.score ??
+                recommendation.score,
+              recommendationReasons:
+                recommendation.recommendationReasons ||
+                recommendation.recommendation?.reasons ||
+                tour.recommendationReasons,
+            };
+          });
+
+        setTours(personalizedTours);
         setDestinations(activeDestinations);
         setLoading(false);
       })
@@ -824,7 +859,22 @@ export default function ToursPage() {
                           {Math.round(tour._imageMatchConfidence * 100)}%
                         </div>
                       )}
-                      <TourCard tour={tour} />
+                      <TourCard
+                        tour={
+                          query.sort === "recommended"
+                            ? {
+                                ...tour,
+                                // Chi an chi so % phu hop tren giao dien.
+                                // recommendationScore goc van giu trong `tour` de sap xep.
+                                recommendationScore: undefined,
+                                recommendation: tour.recommendation
+                                  ? { ...tour.recommendation, score: undefined }
+                                  : tour.recommendation,
+                                score: undefined,
+                              }
+                            : { ...tour, recommendationReasons: [] }
+                        }
+                      />
                     </div>
                   ))}
                 </div>
